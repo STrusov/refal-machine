@@ -43,3 +43,32 @@ void Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
 void Prout(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
+
+/**\defgroup lib-aux Вспомогательные функции.
+ * \{
+ */
+
+/**
+ * Отображает файл в память.
+ *
+ * \result Указатель на начало файла либо \c MAP_FAILED при ошибке.
+ */
+static inline
+void *mmap_file(
+      const char  *name,   ///< Имя файла.
+      size_t      *size)   ///\retval size Размер содержимого.
+{
+   void *addr = MAP_FAILED;
+   const int fd = open(name, O_RDONLY);
+   if (fd >= 0) {
+      struct stat sb;
+      if (fstat(fd, &sb) >= 0) {
+         *size = sb.st_size;
+         addr = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+      }
+      close(fd);
+   }
+   return addr;
+}
+
+/**\}*/

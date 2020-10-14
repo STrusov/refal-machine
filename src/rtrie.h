@@ -94,7 +94,7 @@ static inline
 void rtrie_free(
       struct refal_trie *rtrie)
 {
-   free(rtrie);
+   free(rtrie->n);
 }
 
 /**

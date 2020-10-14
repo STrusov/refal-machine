@@ -28,6 +28,22 @@ rtrie_index refal_import(
 }
 
 
+static
+int process_file(
+      struct refal_trie    *rt,
+      const char           *name,
+      struct refal_message *st)
+{
+   st->source = name;
+
+   size_t source_size = 0;
+   const char *source = mmap_file(name, &source_size);
+   assert(source != MAP_FAILED);
+
+   return 0;
+}
+
+
 int main(int argc, char **argv)
 {
    struct refal_message status = {
@@ -43,6 +59,8 @@ int main(int argc, char **argv)
       struct rtrie_val val;
       val = rtrie_get_value(&rtrie, "Prout");
       val = rtrie_get_value(&rtrie, "Print");
+
+      process_file(&rtrie, "tests/simple_hello.ref", &status);
 
    }
    return 0;

@@ -1,5 +1,5 @@
-/** \file
- * Реализация префиксного дерева.
+/**\file
+ * \brief Реализация префиксного дерева.
  *
  * \defgroup syntax_tree Внутреннее представление РЕФАЛ программы.
  *
@@ -11,6 +11,7 @@
 #pragma once
 
 #include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <wchar.h>
 
@@ -82,7 +83,7 @@ void *rtrie_check(
 {
    assert(rt);
    if (status && !rt->n) {
-      critical_error(status, "недостаточно памяти", rt->free, rt->size);
+      critical_error(status, "недостаточно памяти для словаря", -errno, rt->size);
    }
    return rt->n;
 }

@@ -1,3 +1,6 @@
+/**\file
+ * \brief Вывод сообщений в поток.
+ */
 
 #include <assert.h>
 #include <stdio.h>
@@ -15,7 +18,7 @@ void refal_message_print(struct refal_message *msg)
    FILE *error_stream = msg->context ? (FILE *)msg->context : stdout;
    const char *source = msg->source ? msg->source : "";
    if (!msg->begin) {
-      fprintf(error_stream, "%s: %s: %s (%lu:%lu).\n",
+      fprintf(error_stream, "%s: %s: %s (%li:%li).\n",
                         source, msg->type, msg->detail, msg->line, msg->position);
    } else {
       fprintf(error_stream, "%s:%lu:%lu: %s: %s:\n",

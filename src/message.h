@@ -1,11 +1,12 @@
-/**
- * \file
- * Работа с сообщениями (ошибки, предупреждения).
+/**\file
+ * \brief Работа с сообщениями (ошибки, предупреждения).
  *
  * \defgroup messages Сообщения РЕФАЛ.
  */
 
 #pragma once
+
+#include <stdint.h>
 
 struct refal_message;
 
@@ -26,8 +27,8 @@ struct refal_message {
    const char *source;  ///< Источник ошибки (имя файла с исходным текстом).
    const char *type;    ///< Тип сообщения (ошибка, предупреждение).
    const char *detail;  ///< Подробное описание.
-   size_t      line;    ///< Номер строки либо иная характеристика.
-   size_t      position;///< Позиция в строке либо иная характеристика.
+   intmax_t    line;    ///< Номер строки либо иная характеристика (errno).
+   intmax_t    position;///< Позиция в строке либо иная характеристика.
    const char *begin;   ///< Начало участка ошибочного текста.
    const char *end;     ///< Адрес за границей участка текста (обращение недопустимо).
 };
@@ -47,8 +48,8 @@ void refal_message(
       struct refal_message *msg, ///< Адрес объекта либо NULL.
       const char *type,
       const char *detail,
-      size_t      line,
-      size_t      position,
+      intmax_t    line,
+      intmax_t    position,
       const char *begin,
       const char *end)
 {
@@ -68,18 +69,18 @@ static inline
 void critical_error(
       struct refal_message *msg,
       const char *detail,
-      size_t      num1,
-      size_t      num2)
+      intmax_t    err,
+      intmax_t    num2)
 {
-   refal_message(msg, "критическая ошибка", detail, num1, num2, NULL, NULL);
+   refal_message(msg, "критическая ошибка", detail, err, num2, NULL, NULL);
 }
 
 static inline
 void syntax_error(
       struct refal_message *msg,
       const char *detail,
-      size_t      line,
-      size_t      position,
+      intmax_t    line,
+      intmax_t    position,
       const char *begin,
       const char *end)
 {
@@ -90,8 +91,8 @@ static inline
 void warning(
       struct refal_message *msg,
       const char *detail,
-      size_t      line,
-      size_t      position,
+      intmax_t    line,
+      intmax_t    position,
       const char *begin,
       const char *end)
 {

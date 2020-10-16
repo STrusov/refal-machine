@@ -15,13 +15,17 @@
 #include <stdlib.h>
 #include <wchar.h>
 
-#include "message.h"
+#include "refal.h"
 
 /**\addtogroup syntax_tree
  * \{
  */
 
-typedef unsigned rtrie_index;
+/**
+ * Индекс для адресации ячеек массива, где хранятся префиксы.
+ * Отрицательные значения не действительны.
+ */
+typedef int rtrie_index;
 
 struct rtrie_node;
 
@@ -180,6 +184,58 @@ rtrie_index rtrie_insert_next(
    }
    rt->n[idx].next = rtrie_new_node(rt, chr);
    return rt->n[idx].next;
+}
+
+/**
+ * Ищет узел символа \c chr, начиная поиск с \c idx.
+ * \result Индекс узла либо -1 в случае отсутствия.
+ */
+static inline
+rtrie_index rtrie_find_at(
+      struct refal_trie *restrict rt,
+      rtrie_index       idx,           ///< Начальный узел поиска.
+      wchar_t           chr)           ///< Текущий символ имени.
+{
+   // Если значение совпадает с символом, значит узел найден;
+   // иначе проверяем соседей.
+   // В случае пустого дерева выполняется условие chr > rt->n[0].chr
+   // и rt->n[0].right присваивается индекс нового узла, равный 0.
+   while (1) {
+      if (chr == rt->n[idx].chr) {
+         return idx;
+      } else if (chr > rt->n[idx].chr) {
+         if (!(idx = rt->n[idx].right))
+            return -1;
+      } else /* if (chr < rt->n[idx].chr) */ {
+         if (!(idx = rt->n[idx].left))
+            return -1;
+      }
+   }
+}
+
+/**
+ * Ищет узел с первым символом идентификатора.
+ * \result Индекс узла либо -1 в случае отсутствия.
+ */
+static inline
+rtrie_index rtrie_find_first(
+      struct refal_trie *restrict rt,
+      wchar_t           chr)           ///< Первый символ имени.
+{
+   return rtrie_find_at(rt, 0, chr);
+}
+
+/**
+ * Ищет узел со следующим символом идентификатора.
+ * \result Индекс узла либо -1 в случае отсутствия.
+ */
+static inline
+rtrie_index rtrie_find_next(
+      struct refal_trie *restrict rt,
+      rtrie_index       idx,           ///< Результат предыдущего поиска.
+      wchar_t           chr)           ///< Первый символ имени.
+{
+   return rtrie_find_at(rt, rt->n[idx].next, chr);
 }
 
 /**

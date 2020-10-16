@@ -1,11 +1,33 @@
 /**\file
- * Реализация РЕФАЛ интерпретатора.
+ * \brief Реализация РЕФАЛ интерпретатора.
  */
 
+#include <error.h>
 #include "library.h"
 #include "rtrie.h"
 #include "refal.h"
 
+size_t refal_parse_text(
+      struct refal_trie    *ids,
+      struct refal_vm      *vm,
+      const char           *begin,
+      const char           *end,
+      struct refal_message *st
+      );
+
+
+struct refal_interpreter {
+   struct refal_trie ids;  ///< Идентификаторы.
+   struct refal_vm   vm;   ///< Байт-код и поле зрения.
+};
+
+static inline
+void refal_interpreter_init(
+      struct refal_interpreter   *it)
+{
+   it->ids = rtrie_alloc(25);
+   it->vm  = refal_vm_init(100);
+}
 
 static inline
 rtrie_index refal_import(
@@ -30,7 +52,7 @@ rtrie_index refal_import(
 
 static
 int process_file(
-      struct refal_trie    *rt,
+      struct refal_interpreter   *ri,
       const char           *name,
       struct refal_message *st)
 {
@@ -38,7 +60,13 @@ int process_file(
 
    size_t source_size = 0;
    const char *source = mmap_file(name, &source_size);
-   assert(source != MAP_FAILED);
+   if (source == MAP_FAILED) {
+      if (st)
+         critical_error(st, "исходный текст недоступен", -errno, source_size);
+   } else {
+      refal_parse_text(&ri->ids, &ri->vm, source, &source[source_size], st);
+
+   }
 
    return 0;
 }
@@ -51,16 +79,20 @@ int main(int argc, char **argv)
          .source  = argv[0],
    };
 
-   struct refal_trie rtrie = rtrie_alloc(15);
-   if (rtrie_check(&rtrie, &status)) {
+   struct refal_interpreter refint;
+   refal_interpreter_init(&refint);
 
-      refal_import(&rtrie, library, &status);
+   if (rtrie_check(&refint.ids, &status) && refal_vm_check(&refint.vm, &status)) {
+
+      refal_import(&refint.ids, library, &status);
 
       struct rtrie_val val;
-      val = rtrie_get_value(&rtrie, "Prout");
-      val = rtrie_get_value(&rtrie, "Print");
+      val = rtrie_get_value(&refint.ids, "Prout");
+      assert(val.tag);
+      val = rtrie_get_value(&refint.ids, "Print");
+      assert(val.tag);
 
-      process_file(&rtrie, "tests/simple_hello.ref", &status);
+      process_file(&refint, "tests/simple_hello.ref", &status);
 
    }
    return 0;

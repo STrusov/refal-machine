@@ -9,6 +9,8 @@
  * Язык РЕкурсивных Формул АЛгоритмический натуральным образом реализует НАМ.
  *
  * \file
+ * \brief Основной интерфейс РЕФАЛ-машины.
+ *
  * Описание структур данных и имплементация вспомогательных функций,
  * в совокупности образующих РЕФАЛ-машину, способную взаимодействовать
  * с реализованными на языках C и C++ (под)программами.
@@ -17,7 +19,9 @@
 #pragma once
 
 #include <assert.h>
+#include <errno.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <wchar.h>
 
 #include <fcntl.h>
@@ -25,7 +29,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-struct refal_message;
+#include "message.h"
 
 /**\addtogroup internal Внутреннее устройство РЕФАЛ-машины.
  * \{
@@ -106,11 +110,54 @@ typedef struct rf_cell {
  * данные, после чего связывать сформированные части списка с произвольной
  * частью подвыраждения (операция вставки).
  */
-typedef struct rf_vm {
+typedef struct refal_vm {
    rf_cell     *cell;   ///< Массив, содержащий ячейки.
    rf_index    size;    ///< Размер массива.
    rf_index    free;    ///< Первый свободный элемент.
 } rf_vm;
+
+/**
+ * Резервирует память для хранения поля зрения РЕФАЛ программы.
+ * Связывает ячейки массива в список.
+ * \result Инициализированная структура `struct rf_vm`.
+ */
+static inline
+struct refal_vm refal_vm_init(
+      rf_index size)    ///< Предполагаемый размер (в ячейках).
+{
+   struct refal_vm vm = {
+      .cell = malloc(size * sizeof(rf_cell)),
+      .size = size,
+   };
+   if (vm.cell) {
+      for (rf_index i = 0; i < size; ++i) {
+         vm.cell[i].tag = rf_undefined;
+         vm.cell[i].next = i + 1;
+         vm.cell[i].tag2 = 0;
+         vm.cell[i + 1].prev = i;
+      }
+      vm.cell[size - 1].next = 0;
+      vm.free = 2;
+   }
+   return vm;
+}
+
+/**
+ * Проверяет состояние структуры.
+ *
+ * \result Ненулевой результат, если память распределена.
+ */
+static inline
+void *refal_vm_check(
+      struct refal_vm      *vm,
+      struct refal_message *status)
+{
+   assert(vm);
+   if (status && !vm->cell) {
+      critical_error(status, "недостаточно памяти для поля зрения", -errno, vm->size);
+   }
+   return vm->cell;
+}
 
 /**\}*/
 

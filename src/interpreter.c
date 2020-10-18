@@ -16,6 +16,17 @@ size_t refal_parse_text(
       );
 
 
+static inline
+void inconsistence(
+      struct refal_message *msg,
+      const char *detail,
+      intmax_t    err,
+      intmax_t    num2)
+{
+   refal_message(msg, "нарушена программа", detail, err, num2, NULL, NULL);
+}
+
+
 struct refal_interpreter {
    struct refal_trie ids;  ///< Идентификаторы.
    struct refal_vm   vm;   ///< Байт-код и поле зрения.
@@ -43,12 +54,126 @@ rtrie_index refal_import(
       while (*p) {
          idx = rtrie_insert_next(rt, idx, *p++);
       }
-      rt->n[idx].val.tag   = rf_machine_code;
+      rt->n[idx].val.tag   = rft_machine_code;
       rt->n[idx].val.value = ordinal;
    }
    return rt->free - free;
 }
 
+enum interpreter_state {
+   is_pattern,       ///< Левая часть предложения (до знака =).
+   is_expression,    ///< Правая часть предложения (после знака =).
+};
+
+static
+int interpret(
+      struct refal_vm      *vm,
+      rf_index             start,
+      struct refal_message *st)
+{
+   st->source = "интерпретатор";
+   size_t step = 1;
+
+   // Границы поля программы:
+   rf_index ip     = start;
+   rf_index ip_end = vm->free;
+
+   // Границы поля зрения:
+   rf_index next = vm->free;
+   rf_index prev = vm->cell[next].prev;
+
+   // Размещение новых значений в поле зрения происходит по одному, начиная
+   // с первой свободной ячейки vm->free. По завершению размещения
+   // осуществляется вставка, связывающая новые ячейки в список.
+   rf_index first_new = 0;
+   // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
+   rf_alloc_value(vm, 0, rf_undefined);
+
+   struct rtrie_val function = {};
+
+   enum interpreter_state state = is_pattern;
+   while (ip != ip_end) {
+      // При входе в функцию, tag первой ячейки:
+      // - rf_equal — для простых функций.
+      // - [не определено] — для обычных функций несколько предложений в {блоке}.
+      rf_type tag = vm->cell[ip].tag;
+      switch (tag) {
+      case rf_undefined:
+         inconsistence(st, "значение не определено", ip, step);
+         goto error;
+
+      case rf_char:
+      case rf_number:
+      case rf_atom:
+      case rf_opening_bracket:
+      case rf_closing_bracket:
+         switch (state) {
+         case is_pattern:
+            assert(0); // TODO обработать образец
+         case is_expression:
+            rf_alloc_value(vm, vm->cell[ip].data, tag);
+            goto next;
+         }
+         break;
+
+      // Начало общего выражения.
+      case rf_equal:
+         switch (state) {
+         case is_pattern:
+            assert(rf_is_evar_empty(vm, prev, next)); // TODO обработать образец
+            state = is_expression;
+            first_new = vm->free;
+            goto next;
+         case is_expression:
+            inconsistence(st, "повторное присваивание", ip, step);
+            goto error;
+         }
+
+      // Открыты вычислительные скобки.
+      case rf_execute:
+         switch (state) {
+         case is_pattern:
+            goto error_execution_bracket;
+         case is_expression:
+            function = rtrie_val_from_raw(vm->cell[ip].data);
+            goto next;
+         }
+
+      case rf_execute_close:
+         switch (state) {
+         case is_pattern:
+            goto error_execution_bracket;
+         case is_expression:
+            rf_insert_next(vm, prev, first_new);
+            switch (function.tag) {
+            case rft_undefined:
+               inconsistence(st, "неопределённая функция", ip, step);
+               goto error;
+            case rft_machine_code:
+               if (!(function.value < refal_library_size)) {
+                  inconsistence(st, "библиотечная функция не существует", function.value, ip);
+                  goto error;
+               }
+               refal_library_call(vm, prev, next, function.value);
+               goto next;
+            case rft_byte_code:
+               assert(0);  // TODO
+               goto next;
+            }
+         }
+      }
+next: ip = vm->cell[ip].next;
+   }
+   assert(rf_is_evar_empty(vm, prev, next)); // TODO вывести поле зрения.
+   return 0;
+
+error:
+   return -1;
+
+error_execution_bracket:
+   inconsistence(st, "вычислительная скобка в образце", ip, step);
+   goto error;
+}
 
 static
 int process_file(
@@ -64,7 +189,15 @@ int process_file(
       if (st)
          critical_error(st, "исходный текст недоступен", -errno, source_size);
    } else {
-      refal_parse_text(&ri->ids, &ri->vm, source, &source[source_size], st);
+      size_t r = refal_parse_text(&ri->ids, &ri->vm, source, &source[source_size], st);
+      assert(r == source_size);
+
+      struct rtrie_val entry = rtrie_get_value(&ri->ids, "go");
+      if (entry.tag != rft_byte_code) {
+         critical_error(st, "не определена функция go", entry.value, 0);
+      } else {
+         interpret(&ri->vm, entry.value, st);
+      }
 
    }
 

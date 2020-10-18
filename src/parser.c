@@ -32,9 +32,11 @@ size_t refal_parse_text(
       struct refal_message *st)
 {
    const char *restrict src = begin;
-   rf_index command = 0;      // индекс ячейки с последней командой интерпретатора.
    rtrie_index node = 0;      // последний добавленный в префиксное дерево узел.
    rf_int number = 0;         // вычисляемое значение лексемы "число"
+
+   rf_index cmd_execute = 0;      // ячейка с командой rf_execute.
+   int execution_bracket_count = 0;
 
    unsigned line_num = 0;     // номер текущей строки
 
@@ -63,16 +65,35 @@ next_char:
       case lex_whitespace:
       case lex_comment_c:
       case lex_comment_line:
+         goto next_char;
       case lex_string_quoted: // TODO табуляция внутри строк?
       case lex_string_dquoted:
-         goto next_char;
+         goto lexem_string;
       case lex_number:
          assert(0);
          goto next_char;
       case lex_identifier:
+lexem_identifier_complete:
          lexer = lex_whitespace;
-         semantic = ss_identifier;
-         goto next_char;
+         switch (semantic) {
+         case ss_identifier:  // TODO 2 идентификатора подряд?
+            assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
+         case ss_source:
+            semantic = ss_identifier;
+            goto next_char;
+         case ss_expression:
+            if (!(node < 0) && ids->n[node].val.tag != rft_undefined) {
+               // TODO заменить символы идентификатора связанным значением
+               // из префиксного дерева (пока символы не копируются, см. далее).
+               assert(cmd_execute);
+               vm->cell[cmd_execute].data = rtrie_val_to_raw(ids->n[node].val);
+               cmd_execute = 0;
+            } else {
+               // TODO РЕФАЛ позволяет объявлять функции после использования в тексте.
+               goto error_identifier_undefined;
+            }
+            goto next_char;
+         }
       }
 
    // Конец строки.
@@ -97,9 +118,7 @@ next_char:
          assert(0);
          goto next_char;
       case lex_identifier:
-         lexer = lex_whitespace;
-         semantic = ss_identifier;
-         goto next_char;
+         goto lexem_identifier_complete;
       }
 
    // Начинает строку комментариев, либо может завершать комментарий в стиле Си.
@@ -116,11 +135,11 @@ next_char:
             ++src;
             lexer = lex_whitespace;
          }
-         goto next_char;
       case lex_comment_line:
+         goto next_char;
       case lex_string_quoted:
       case lex_string_dquoted:
-         goto next_char;
+         goto lexem_string;
       case lex_whitespace:
          assert(0);
 //         goto operator;
@@ -139,9 +158,10 @@ next_char:
       switch (lexer) {
       case lex_comment_c:
       case lex_comment_line:
+         goto next_char;
       case lex_string_quoted:
       case lex_string_dquoted:
-         goto next_char;
+         goto lexem_string;
       case lex_number:
          assert(0);
          goto next_char;
@@ -152,7 +172,8 @@ next_char:
          case ss_source:
             goto error_identifier_missing;
          case ss_identifier:
-            command = rf_alloc_command(vm, rf_equal);
+            ids->n[node].val.value = rf_alloc_command(vm, rf_equal);
+            ids->n[node].val.tag   = rft_byte_code;
             lexer = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
@@ -166,9 +187,10 @@ next_char:
       switch (lexer) {
       case lex_comment_c:
       case lex_comment_line:
+         goto next_char;
       case lex_string_quoted:
       case lex_string_dquoted:
-         goto next_char;
+         goto lexem_string;
       case lex_number:
          assert(0);
          goto next_char;
@@ -179,11 +201,77 @@ next_char:
          case ss_source:
             goto error_identifier_missing;
          case ss_identifier:
-            syntax_error(st, "некорректное определение функции (пропущено = или { ?)", line_num, pos, line, end);
-            goto error;
+            goto error_incorrect_function_definition;
          case ss_expression:
-            command = rf_alloc_command(vm, rf_execute);
+            cmd_execute = rf_alloc_command(vm, rf_execute);
+            ++execution_bracket_count;
             lexer = lex_whitespace;
+            goto next_char;
+         }
+      }
+
+   case '>':
+      switch (lexer) {
+      case lex_comment_c:
+      case lex_comment_line:
+         goto next_char;
+      case lex_string_quoted:
+      case lex_string_dquoted:
+         goto lexem_string;
+      case lex_number:
+         assert(0);
+         goto next_char;
+      case lex_identifier:
+      case lex_leadingspace:
+      case lex_whitespace:
+         switch (semantic) {
+         case ss_source:
+            goto error_identifier_missing;
+         case ss_identifier:
+            goto error_incorrect_function_definition;
+         case ss_expression:
+            if (!execution_bracket_count) {
+               syntax_error(st, "непарная вычислительная скобка", line_num, pos, line, end);
+               goto error;
+            }
+            assert(execution_bracket_count > 0);
+            rf_alloc_command(vm, rf_execute_close);
+            --execution_bracket_count;
+            lexer = lex_whitespace;
+            goto next_char;
+         }
+      }
+
+   case ';':
+      switch (lexer) {
+      case lex_comment_c:
+      case lex_comment_line:
+         goto next_char;
+      case lex_string_dquoted:
+      case lex_string_quoted:
+            goto lexem_string;
+      case lex_number:
+         assert(0);
+         goto next_char;
+      case lex_identifier:
+      case lex_leadingspace:
+      case lex_whitespace:
+         switch (semantic) {
+         case ss_source:
+            goto error_identifier_missing;
+         // Идентификатор пустой функции (ENUM в Refal-05).
+         case ss_identifier:
+            ids->n[node].val.tag   = rft_byte_code,
+            ids->n[node].val.value = -1,
+            lexer = lex_whitespace;
+            semantic = ss_source;
+            goto next_char;
+         case ss_expression:
+            if (execution_bracket_count) {
+               syntax_error(st, "не закрыта вычислительная скобка", line_num, pos, line, end);
+               goto error;
+            }
+            semantic = ss_source;
             goto next_char;
          }
       }
@@ -200,17 +288,22 @@ next_char:
          goto next_char;
       case lex_leadingspace:
       case lex_whitespace:
-         lexer = chr == '"' ? lex_string_dquoted : lex_string_quoted;
-//         string = src;
-         assert(0);
-         goto next_char;
+         switch (semantic) {
+         case ss_source:
+            goto error_identifier_missing;
+         case ss_identifier:
+            syntax_error(st, "строка неуместна (пропущено = или { в определении функции?)", line_num, pos, line, end);
+            goto error;
+         case ss_expression:
+            lexer = chr == '"' ? lex_string_dquoted : lex_string_quoted;
+            goto next_char;
+         }
       case lex_string_dquoted:
       case lex_string_quoted:
          // Кавычка внутри строки кодируется сдвоенной, иначе завершает строку.
          if (src != end && *src == (lexer == lex_string_quoted ? '\'':'"')) {
             ++src;
-            assert(0);
-            goto next_char;
+            goto lexem_string;
          } else {
             lexer = lex_whitespace;
             goto next_char;
@@ -236,6 +329,7 @@ next_char:
          goto next_char;
       case lex_string_quoted:
       case lex_string_dquoted:
+         goto lexem_string;
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -259,10 +353,11 @@ next_char:
          case ss_identifier:
             goto error_identifier_odd;
          case ss_expression:
+            // Если идентификатор уже определён, можно будет заменить его значением.
             node = rtrie_find_first(ids, chr);
-            if (node < 0) {
-               goto error_identifier_undefined;
-            }
+#if 0
+            rf_alloc_atom(vm, chr);
+#endif
             goto next_char;
          }
       case lex_identifier:
@@ -275,13 +370,16 @@ lexem_identifier:
             goto error_identifier_odd;
          case ss_expression:
             node = rtrie_find_next(ids, node, chr);
-            if (node < 0) {
-               goto error_identifier_undefined;
-            }
+#if 0
+            rf_alloc_atom(vm, chr);
+#endif
             goto next_char;
          }
       case lex_string_quoted:
       case lex_string_dquoted:
+lexem_string:
+         rf_alloc_char(vm, chr);
+         goto next_char;
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -292,7 +390,11 @@ lexem_identifier:
 
 complete:
 error:
-   return begin - src;
+   return src - begin;
+
+error_incorrect_function_definition:
+   syntax_error(st, "некорректное определение функции (пропущено = или { ?)", line_num, pos, line, end);
+   goto error;
 
 error_identifier_missing:
    syntax_error(st, "пропущено имя функции", line_num, pos, line, end);

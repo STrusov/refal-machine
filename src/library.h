@@ -16,12 +16,26 @@
  * \{
  */
 
+#include <assert.h>
 #include "refal.h"
 
 #pragma once
 
+enum { refal_library_size = 2 };
+
 extern
-const struct refal_import_descriptor library[];
+const struct refal_import_descriptor library[refal_library_size + 1];
+
+static inline
+void refal_library_call(
+      rf_vm    *vm,
+      rf_index prev,
+      rf_index next,
+      rf_index ordinal)
+{
+   assert(ordinal < refal_library_size);
+   library[ordinal].function(vm, prev, next);
+}
 
 rf_cfunction Print;
 rf_function  Prout;

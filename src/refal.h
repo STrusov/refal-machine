@@ -56,8 +56,8 @@ typedef enum rf_type {
    rf_closing_bracket,  ///< Закрывающая скобка.
    // Команды интерпретатора.
    rf_equal,            ///< Разделяет выражение-образец от общего выражения.
-   rf_execute,          ///< Открывающая функциональная скобка <
-   rf_machine_code,     ///< Ссылка на машинный код (функцию).
+   rf_execute,          ///< Открывающая вычислительная скобка <
+   rf_execute_close,    ///< Закрывающая вычислительная скобка >
    _rf_types_count
 } rf_type;
 
@@ -142,7 +142,7 @@ struct refal_vm refal_vm_init(
          vm.cell[i + 1].prev = i;
       }
       vm.cell[size - 1].next = 0;
-      vm.free = 2;
+      vm.free = 2;   // TODO 1? \see `rf_insert_next()`
    }
    return vm;
 }
@@ -186,19 +186,123 @@ void *refal_vm_check(
  */
 
 /**
+ * Перемещает ячейки (prev ... next) в свободную часть списка.
+ * Передаваемые аргументами границы используются в вызывающем коде для адресации
+ * смежных областей, и, для упрощения реализации, требуют неизменности. Поэтому
+ * не должны совпадать с `vm->free`.
+ */
+static inline
+void rf_free_evar(
+      struct refal_vm   *restrict vm,
+      rf_index          prev,
+      rf_index          next)
+{
+   assert(prev != next);
+   assert(vm->free != prev);
+   assert(vm->free != next);
+   const rf_index first = vm->cell[prev].next;
+   if (first != next) {
+      const rf_index last  = vm->cell[next].prev;
+      // Связать ячейки, граничащие с удаляемыми.
+      vm->cell[prev].next = next;
+      vm->cell[next].prev = prev;
+      // Добавить ячейки в начало списка свободных.
+      vm->cell[vm->free].prev = last;
+      vm->cell[vm->free].tag  = rf_undefined;
+      vm->cell[last].next = vm->free;
+      vm->cell[last].tag2 = 0;
+      vm->free = first;
+      // TODO закрыть описатели (handle), при наличии.
+   }
+}
+
+/**
+ * Перемещает в поле зрения между prev и prev.next ячейки свободной части списка
+ * начиная с first по [vm->free].prev включительно:
+
+        rf_index two_ints = rf_alloc_int(vm, 0); // возвращает исходное vm->free
+        rf_alloc_int(vm, 1);
+        rf_insert_next(vm, prev_position, two_ints);
+ */
+static inline
+void rf_insert_next(
+      struct refal_vm   *restrict vm,
+      rf_index          prev,
+      rf_index          first)
+{
+   assert(first != prev);
+   const rf_index last = vm->cell[vm->free].prev;
+   const rf_index next = vm->cell[prev].next;
+   vm->cell[last].next = next;
+   vm->cell[next].prev = last;
+   vm->cell[prev].next = first;
+   vm->cell[first].prev = prev;
+}
+
+/**
+ * Добавляет в свободную часть списка значение и возвращает номер ячейки.
+ */
+static inline
+rf_index rf_alloc_value(
+      struct refal_vm   *restrict vm,
+      uint64_t          value,
+      rf_type           tag)
+{
+   assert(vm->cell);
+   assert(vm->free);
+   rf_index i = vm->free;
+   vm->cell[i].data = value;
+   vm->cell[i].tag  = tag;
+   vm->free = vm->cell[i].next;
+   return i;
+}
+
+/**
  * Добавляет в свободную часть списка команду интерпретатора и возвращает номер ячейки.
  */
 static inline
-rf_index rf_alloc_command(struct refal_vm *restrict vm, rf_type tag)
+rf_index rf_alloc_command(
+      struct refal_vm   *restrict vm,
+      rf_type           tag)
 {
-    assert(vm->free);
-    rf_index i = vm->free;
+   return rf_alloc_value(vm, 0, tag);
+}
+
+/**
+ * Добавляет в свободную часть списка символ идентификатора и возвращает номер ячейки.
+ */
+static inline
+rf_index rf_alloc_atom(
+      struct refal_vm   *restrict vm,
+      wchar_t           chr)
+{
+   return rf_alloc_value(vm, chr, rf_atom);
+}
+
+/**
+ * Добавляет в свободную часть списка символ и возвращает номер ячейки.
+ */
+static inline
+rf_index rf_alloc_char(
+      struct refal_vm   *restrict vm,
+      wchar_t           chr)
+{
     // Обнуляем старшие разряды, что бы работало обобщённое сравнение
     // s-переменных.
-    vm->cell[i].data = 0;
-    vm->cell[i].tag = tag;
-    vm->free = vm->cell[i].next;
-    return i;
+    return rf_alloc_value(vm, chr, rf_char);
+}
+
+/**
+ * Проверяет, пусто ли подвыражение (e-переменная).
+ * \result ненулевое значение, если между prev и next отсутствуют звенья.
+ */
+static inline
+int rf_is_evar_empty(
+      struct refal_vm   *restrict vm,
+      rf_index          prev,
+      rf_index          next)
+{
+    return vm->cell[prev].next == next;
 }
 
 /**\}*/

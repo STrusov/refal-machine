@@ -38,13 +38,38 @@ struct refal_trie {
    rtrie_index free;       ///< Первый свободный элемент.
 };
 
+typedef enum rtrie_type {
+   rft_undefined,
+   rft_machine_code,    ///< Ссылка на машинный код (функцию).
+   rft_byte_code,       ///< Ссылка на функцию в РЕФАЛ-машине.
+} rtrie_type;
+
 /**
  * Соответствующее префиксу (ключу) значение.
  */
 struct rtrie_val {
-   rf_type     tag :4;     ///< Тип содержимого (`rf_machine_code`).
+   rtrie_type  tag :4;     ///< Тип содержимого.
    rf_index    value:28;   ///< Индекс (ячейки РЕФАЛ-машины или таблице импорта).
 };
+
+static_assert(sizeof(struct rtrie_val) == sizeof(uint32_t), "размеры должны соответствовать");
+
+static inline
+struct rtrie_val rtrie_val_from_raw(uint32_t raw)
+{
+   union { struct rtrie_val val; uint32_t raw; } u;
+   u.raw = raw;
+   return u.val;
+}
+
+static inline
+uint32_t rtrie_val_to_raw(struct rtrie_val val)
+{
+   union { struct rtrie_val val; uint32_t raw; } u;
+   u.val = val;
+   return u.raw;
+}
+
 
 /**
  * Узел.
@@ -235,7 +260,7 @@ rtrie_index rtrie_find_next(
       rtrie_index       idx,           ///< Результат предыдущего поиска.
       wchar_t           chr)           ///< Первый символ имени.
 {
-   return rtrie_find_at(rt, rt->n[idx].next, chr);
+   return idx < 0 ? idx : rtrie_find_at(rt, rt->n[idx].next, chr);
 }
 
 /**

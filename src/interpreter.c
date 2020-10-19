@@ -77,15 +77,11 @@ enum interpreter_state {
 static
 int interpret(
       struct refal_vm      *vm,
-      rf_index             start,
+      rf_index             ip,   ///< Начальная инструкция.
       struct refal_message *st)
 {
    st->source = "интерпретатор";
-   size_t step = 1;
-
-   // Границы поля программы:
-   rf_index ip     = start;
-   rf_index ip_end = vm->free;
+   size_t step = 0;
 
    // Границы поля зрения:
    rf_index next = vm->free;
@@ -100,8 +96,14 @@ int interpret(
 
    struct rtrie_val function = {};
 
+   unsigned stack_size = 100;
+   rf_index stack[stack_size];
+   unsigned sp = 0;
+
+execute:
+   ++step;
    enum interpreter_state state = is_pattern;
-   while (ip != ip_end) {
+   while (1) {
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
       // - [не определено] — для обычных функций несколько предложений в {блоке}.
@@ -153,7 +155,9 @@ int interpret(
          case is_pattern:
             goto error_execution_bracket;
          case is_expression:
-            rf_insert_next(vm, prev, first_new);
+            if (first_new != vm->free) {
+               rf_insert_next(vm, prev, first_new);
+            }
             switch (function.tag) {
             case rft_undefined:
                inconsistence(st, "неопределённая функция", ip, step);
@@ -166,13 +170,33 @@ int interpret(
                refal_library_call(vm, prev, next, function.value);
                goto next;
             case rft_byte_code:
-               assert(0);  // TODO
+               if (!(sp < stack_size)) {
+                  inconsistence(st, "стек вызовов исчерпан", sp, ip);
+                  goto error;
+               }
+               stack[sp++] = ip;
+               ip = function.value;
+               goto execute;
+            }
+         }
+
+      case rf_complete:
+         switch (state) {
+         case is_pattern:
+            inconsistence(st, "отсутствует общее выражение", ip, step);
+            goto error;
+         case is_expression:
+            if (sp) {
+               ip = stack[--sp];
                goto next;
             }
+            goto stop;
          }
       }
 next: ip = vm->cell[ip].next;
    }
+stop:
+
    assert(rf_is_evar_empty(vm, prev, next)); // TODO вывести поле зрения.
    return 0;
 
@@ -234,7 +258,7 @@ int main(int argc, char **argv)
       val = rtrie_get_value(&refint.ids, "Print");
       assert(val.tag);
 
-      process_file(&refint, "tests/simple_hello.ref", &status);
+      process_file(&refint, "tests/simple_function.ref", &status);
 
    }
    return 0;

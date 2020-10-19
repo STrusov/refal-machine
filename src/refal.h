@@ -59,6 +59,7 @@ typedef enum rf_type {
    rf_execute,          ///< Открывающая вычислительная скобка <
    rf_execute_close,    ///< Закрывающая вычислительная скобка >
    rf_identifier,       ///< Идентификатор (функция) // TODO rf_atom
+   rf_complete,         ///< Общее выражение завершено.
    _rf_types_count
 } rf_type;
 
@@ -246,6 +247,7 @@ void rf_insert_next(
       rf_index          first)
 {
    assert(first != prev);
+   assert(first != vm->free);
    const rf_index last = vm->cell[vm->free].prev;
    const rf_index next = vm->cell[prev].next;
    vm->cell[last].next = next;

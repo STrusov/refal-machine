@@ -287,6 +287,7 @@ lexem_identifier_complete:
                syntax_error(st, "не закрыта вычислительная скобка", line_num, pos, line, end);
                goto error;
             }
+            rf_alloc_command(vm, rf_complete);
             semantic = ss_source;
             goto next_char;
          }

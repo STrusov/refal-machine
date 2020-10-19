@@ -168,9 +168,11 @@ lexem_identifier_complete:
       case lex_number:
          assert(0);
          goto next_char;
+      case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
       case lex_leadingspace:
       case lex_whitespace:
-      case lex_identifier:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -202,7 +204,9 @@ lexem_identifier_complete:
       case lex_number:
          assert(0);
          goto next_char;
-      case lex_identifier:    // TODO в выражении после идентификатора?
+      case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -230,6 +234,8 @@ lexem_identifier_complete:
          assert(0);
          goto next_char;
       case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -262,6 +268,8 @@ lexem_identifier_complete:
          assert(0);
          goto next_char;
       case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -319,6 +327,9 @@ lexem_identifier_complete:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
+      case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
       }
 
    // Начало целого числа, либо продолжение идентификатора.

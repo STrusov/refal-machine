@@ -172,6 +172,11 @@ lexem_identifier_complete:
          case ss_source:
             goto error_identifier_missing;
          case ss_identifier:
+            if (ids->n[node].val.tag != rft_undefined) {
+               // TODO надо бы отобразить прежнее определение
+               syntax_error(st, "повторное определение функции", line_num, pos, line, end);
+               goto error;
+            }
             ids->n[node].val.value = rf_alloc_command(vm, rf_equal);
             ids->n[node].val.tag   = rft_byte_code;
             lexer = lex_whitespace;

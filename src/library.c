@@ -42,9 +42,31 @@ void rf_output(
    enum rf_type prevt = rf_undefined;
    for (rf_index i = prev; (i = vm->cell[i].next) != next; ) {
       switch (vm->cell[i].tag) {
-      case rf_char:
-         fprintf(stream, "%C", vm->cell[i].chr);
-         break;
+      case rf_char: {
+            char utf8[5];
+            wchar_t chr = vm->cell[i].chr;
+            if (chr < 0x80) {
+               utf8[0] = chr;
+               utf8[1] = '\x0';
+            } else if (chr < 0x800) {
+               utf8[0] = 0xc0 | (chr >> 6);
+               utf8[1] = 0x80 | (chr & 0x3f);
+               utf8[2] = '\x0';
+            } else if (chr < 0x10000) {
+               utf8[0] = 0xe0 | (chr >> 12);
+               utf8[1] = 0x80 | ((chr >> 6) & 0x3f);
+               utf8[2] = 0x80 | (chr & 0x3f);
+               utf8[3] = '\x0';
+            } else {
+               utf8[0] = 0xf0 | ( chr >> 18);
+               utf8[1] = 0x80 | ((chr >> 12) & 0x3f);
+               utf8[2] = 0x80 | ((chr >>  6) & 0x3f);
+               utf8[3] = 0x80 | (chr & 0x3f);
+               utf8[4] = '\x0';
+            }
+            fprintf(stream, utf8);
+            break;
+         }
       case rf_number:
          fprintf(stream, prevt == rf_number ? " %li" : "%li", vm->cell[i].num);
          break;

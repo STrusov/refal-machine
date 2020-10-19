@@ -53,7 +53,7 @@ next_char:
       goto complete;
    assert(src < end);
 
-   char chr = *src++;
+   wchar_t chr = *(const unsigned char*)src++;
    ++pos;
    switch (chr) {
 
@@ -340,6 +340,42 @@ lexem_identifier_complete:
 
    // Оставшиеся символы считаются допустимыми для идентификаторов.
    default:
+      // Декодируем UTF-8
+      switch (chr) {
+      // ASCII
+      case 0x00 ... 0x7f:
+         break;
+      // 2 байта на символ.
+      // TODO 0xc0 0xc1 кодируют символы из диапазона ASCII
+      case 0xc0 ... 0xdf:
+         chr = 0x1f & chr;
+utf8_0:  if (src == end)
+            goto error_utf8_incomplete;
+         // TODO нет проверки на диапазон байта продолжения.
+         chr = (chr << 6) | (0x3f & *(const unsigned char*)src++);
+         break;
+      // 3 байта на символ.
+      case 0xe0 ... 0xef:
+         chr = (0xf & chr);
+utf8_1:  if (src == end)
+            goto error_utf8_incomplete;
+         chr = (chr << 6) | (0x3f & *(const unsigned char*)src++);
+         goto utf8_0;
+      // 4 байта на символ.
+      case 0xf0 ... 0xf4:
+         chr = (0x3 & chr);
+         if (src == end)
+            goto error_utf8_incomplete;
+         chr = (chr << 6) | (0x3f & *(const unsigned char*)src++);
+         goto utf8_1;
+      // байты продолжения — не должны идти первыми
+      case 0x80 ... 0xbf:
+      case 0xf5 ... 0xff:
+      default:
+         syntax_error(st, "недействительный символ UTF-8", line_num, pos, line, end);
+         goto error;
+      }
+
       switch (lexer) {
       case lex_number:
          assert(0);
@@ -406,5 +442,9 @@ error_identifier_odd:
 
 error_identifier_undefined:
    syntax_error(st, "идентификатор не определён", line_num, pos, line, end);
+   goto error;
+
+error_utf8_incomplete:
+   syntax_error(st, "неполный символ UTF-8", line_num, pos, line, end);
    goto error;
 }

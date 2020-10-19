@@ -36,9 +36,18 @@ static inline
 void refal_interpreter_init(
       struct refal_interpreter   *it)
 {
-   it->ids = rtrie_alloc(25);
-   it->vm  = refal_vm_init(100);
+   rtrie_alloc(&it->ids, 25);
+   refal_vm_init(&it->vm, 100);
 }
+
+static inline
+void refal_interpreter_free(
+      struct refal_interpreter   *it)
+{
+   rtrie_free(&it->ids);
+   refal_vm_free(&it->vm);
+}
+
 
 static inline
 rtrie_index refal_import(

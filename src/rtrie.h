@@ -87,17 +87,18 @@ struct rtrie_node {
 
 /**
  * Резервирует память для хранения внутреннего представления РЕФАЛ программы.
- * \result Инициализированная  структура `struct refal_trie`.
+ * \result Ненулевое значение в случае успеха.
  */
 static inline
-struct refal_trie rtrie_alloc(
-      rtrie_index size)    ///< Предполагаемый размер (в узлах).
+void *rtrie_alloc(
+      struct refal_trie *rt,  ///< Структура для инициализации
+      rtrie_index size)       ///< Предполагаемый размер (в узлах).
 {
-   struct refal_trie rt = {
-      .n = calloc(size, sizeof(struct rtrie_node)),
-      .size = size,
+   rt->n = calloc(size, sizeof(struct rtrie_node));
+   if (rt->n) {
+      rt->size = size;
    };
-   return rt;
+   return rt->n;
 }
 
 /**

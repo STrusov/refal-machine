@@ -125,27 +125,41 @@ typedef struct refal_vm {
 /**
  * Резервирует память для хранения поля зрения РЕФАЛ программы.
  * Связывает ячейки массива в список.
- * \result Инициализированная структура `struct rf_vm`.
+ * \result Ненулевое значение в случае успеха.
  */
 static inline
-struct refal_vm refal_vm_init(
-      rf_index size)    ///< Предполагаемый размер (в ячейках).
+void *refal_vm_init(
+      struct refal_vm   *restrict vm,  ///< Структура для инициализации.
+      rf_index size)                   ///< Предполагаемый размер (в ячейках).
 {
-   struct refal_vm vm = {
-      .cell = malloc(size * sizeof(rf_cell)),
-      .size = size,
-   };
-   if (vm.cell) {
+   vm->cell = malloc(size * sizeof(rf_cell));
+   if (vm->cell) {
+      vm->size = size;
       for (rf_index i = 0; i < size; ++i) {
-         vm.cell[i].tag = rf_undefined;
-         vm.cell[i].next = i + 1;
-         vm.cell[i].tag2 = 0;
-         vm.cell[i + 1].prev = i;
+         vm->cell[i].tag = rf_undefined;
+         vm->cell[i].next = i + 1;
+         vm->cell[i].tag2 = 0;
+         vm->cell[i + 1].prev = i;
       }
-      vm.cell[size - 1].next = 0;
-      vm.free = 2;   // TODO 1? \see `rf_insert_next()`
+      vm->cell[size - 1].next = 0;
+      vm->free = 2;   // TODO 1? \see `rf_insert_next()`
    }
-   return vm;
+   return vm->cell;
+}
+
+/**
+ * Освобождает занятую РЕФАЛ-машиной память.
+ */
+static inline
+void refal_vm_free(
+      struct refal_vm   *vm)
+{
+   assert(vm);
+   // TODO освободить ресурсы, ссылки на которые могут храниться в ячейках.
+   free(vm->cell);
+   vm->cell = 0;
+   vm->size = 0;
+   vm->free = 0;
 }
 
 /**

@@ -58,6 +58,7 @@ typedef enum rf_type {
    rf_equal,            ///< Разделяет выражение-образец от общего выражения.
    rf_execute,          ///< Открывающая вычислительная скобка <
    rf_execute_close,    ///< Закрывающая вычислительная скобка >
+   rf_identifier,       ///< Идентификатор (функция) // TODO rf_atom
    _rf_types_count
 } rf_type;
 

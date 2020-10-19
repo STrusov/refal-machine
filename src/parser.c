@@ -39,13 +39,12 @@ size_t refal_parse_text(
    int execution_bracket_count = 0;
 
    unsigned line_num = 0;     // номер текущей строки
+   enum semantic_state semantic = ss_source;
 
 next_line:
    ++line_num;
    const char *line = src;    // начало текущей строки
    unsigned pos = 0;          // номер символа в строке
-
-   enum semantic_state semantic = ss_source;
    enum lexer_state lexer  = lex_leadingspace;
 
 next_char:
@@ -83,11 +82,15 @@ lexem_identifier_complete:
             goto next_char;
          case ss_expression:
             if (!(node < 0) && ids->n[node].val.tag != rft_undefined) {
+               // Если открыта вычислительная скобка, задаём ей адрес функции.
+               if (cmd_execute) {
+                  vm->cell[cmd_execute].data = rtrie_val_to_raw(ids->n[node].val);
+                  cmd_execute = 0;
+               } else {
+                  rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
+               }
                // TODO заменить символы идентификатора связанным значением
                // из префиксного дерева (пока символы не копируются, см. далее).
-               assert(cmd_execute);
-               vm->cell[cmd_execute].data = rtrie_val_to_raw(ids->n[node].val);
-               cmd_execute = 0;
             } else {
                // TODO РЕФАЛ позволяет объявлять функции после использования в тексте.
                goto error_identifier_undefined;

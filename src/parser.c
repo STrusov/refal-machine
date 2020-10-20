@@ -73,7 +73,9 @@ next_char:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_number:
-         assert(0);
+lexem_number_complete:
+         rf_alloc_int(vm, number);
+         lexer = lex_whitespace;
          goto next_char;
       case lex_identifier:
 lexem_identifier_complete:
@@ -124,8 +126,7 @@ lexem_identifier_complete:
          syntax_error(st, "отсутствует закрывающая кавычка", line_num, pos, line, end);
          goto error;
       case lex_number:
-         assert(0);
-         goto next_char;
+         goto lexem_number_complete;
       case lex_identifier:
          goto lexem_identifier_complete;
       }
@@ -171,12 +172,11 @@ lexem_identifier_complete:
       case lex_string_quoted:
       case lex_string_dquoted:
          goto lexem_string;
-      case lex_number:
-         assert(0);
-         goto next_char;
       case lex_identifier:
          --src; --pos;
          goto lexem_identifier_complete;
+      case lex_number:
+         rf_alloc_int(vm, number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -217,8 +217,8 @@ lexem_identifier_complete:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_number:
-         assert(0);
-         goto next_char;
+         // TODO Вложенные блоки пока не поддержаны.
+         goto error_incorrect_function_definition;
       case lex_identifier:
          --src; --pos;
          goto lexem_identifier_complete;
@@ -258,12 +258,12 @@ lexem_identifier_complete:
       case lex_string_dquoted:
       case lex_string_quoted:
             goto lexem_string;
-      case lex_number:
-         assert(0);
-         goto next_char;
       case lex_identifier:
          --src; --pos;
          goto lexem_identifier_complete;
+      case lex_number:
+         rf_alloc_int(vm, number);
+         lexer = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -300,12 +300,11 @@ lexem_identifier_complete:
       case lex_string_quoted:
       case lex_string_dquoted:
          goto lexem_string;
-      case lex_number:
-         assert(0);
-         goto next_char;
       case lex_identifier:
          --src; --pos;
          goto lexem_identifier_complete;
+      case lex_number:
+         rf_alloc_int(vm, number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -331,12 +330,11 @@ lexem_identifier_complete:
       case lex_string_quoted:
       case lex_string_dquoted:
          goto lexem_string;
-      case lex_number:
-         assert(0);
-         goto next_char;
       case lex_identifier:
          --src; --pos;
          goto lexem_identifier_complete;
+      case lex_number:
+         rf_alloc_int(vm, number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -367,12 +365,11 @@ lexem_identifier_complete:
       case lex_string_dquoted:
       case lex_string_quoted:
             goto lexem_string;
-      case lex_number:
-         assert(0);
-         goto next_char;
       case lex_identifier:
          --src; --pos;
          goto lexem_identifier_complete;
+      case lex_number:
+         rf_alloc_int(vm, number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -414,10 +411,8 @@ sentence_complete:
    case '\'':
       switch (lexer) {
       case lex_number:
+         rf_alloc_int(vm, number);
          lexer = chr == '"' ? lex_string_dquoted : lex_string_quoted;
-//         string = src;
-//         store_number(number);
-         assert(0);
          goto next_char;
       case lex_leadingspace:
       case lex_whitespace:
@@ -455,9 +450,17 @@ sentence_complete:
       switch (lexer) {
       case lex_leadingspace:
       case lex_whitespace:
-         lexer = lex_number;
-         number = chr - '0';
-         goto next_char;
+         switch (semantic) {
+         case ss_source:
+         case ss_identifier:
+            syntax_error(st, "числа допустимы только в выражениях", line_num, pos, line, end);
+            goto error;
+         case ss_pattern:
+         case ss_expression:
+            lexer = lex_number;
+            number = chr - '0';
+            goto next_char;
+         }
       case lex_number:
          number = number * 10 + (chr - '0');
          if (number < (chr - '0')) {

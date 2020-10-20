@@ -311,6 +311,17 @@ rf_index rf_alloc_char(
 }
 
 /**
+ * Добавляет в свободную часть списка целое число и возвращает номер ячейки.
+ */
+static inline
+rf_index rf_alloc_int(
+      struct refal_vm   *restrict vm,
+      rf_int            num)
+{
+   return rf_alloc_value(vm, num, rf_number);
+}
+
+/**
  * Проверяет, пусто ли подвыражение (e-переменная).
  * \result ненулевое значение, если между prev и next отсутствуют звенья.
  */

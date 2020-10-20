@@ -69,11 +69,22 @@ rtrie_index refal_import(
    return rt->free - free;
 }
 
+
 enum interpreter_state {
    is_pattern,       ///< Левая часть предложения (до знака =).
    is_expression,    ///< Правая часть предложения (после знака =).
 };
 
+/**
+ * Выполняет функцию РЕФАЛ.
+ *
+   Предполагаемый формат функции:
+   - Имя функции: маркер со ссылкой на следующее поле (может отсутствовать).
+   - Предложение: маркер со ссылкой на следующее предложение (может отсутствовать).
+      - выражение-образец (может отсутствовать).
+      - rf_equal — начало общего выражения.
+   - rf_complete признак завершения функции.
+ */
 static
 int interpret(
       struct refal_vm      *vm,
@@ -103,6 +114,7 @@ int interpret(
 execute:
    ++step;
    enum interpreter_state state = is_pattern;
+   rf_index next_sentence = 0;
    while (1) {
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
@@ -126,6 +138,16 @@ execute:
             goto next;
          }
          break;
+
+      // Начало предложения. Далее следует выражение-образец (возможно, пустое).
+      case rf_sentence:
+         switch (state) {
+         case is_pattern:
+            next_sentence = vm->cell[ip].data;
+            goto next;
+         case is_expression:
+            goto complete;
+         }
 
       // Начало общего выражения.
       case rf_equal:
@@ -186,7 +208,7 @@ execute:
             inconsistence(st, "отсутствует общее выражение", ip, step);
             goto error;
          case is_expression:
-            if (sp) {
+complete:   if (sp) {
                ip = stack[--sp];
                goto next;
             }
@@ -258,7 +280,7 @@ int main(int argc, char **argv)
       val = rtrie_get_value(&refint.ids, "Print");
       assert(val.tag);
 
-      process_file(&refint, "tests/simple_function.ref", &status);
+      process_file(&refint, "tests/function.ref", &status);
 
    }
    return 0;

@@ -15,12 +15,13 @@ enum lexer_state {
    lex_string_dquoted,  ///< Знаковая строка в двойных кавычках.
    lex_number,          ///< Целое число.
    lex_identifier,      ///< Идентификатор (имя функции).
-   lex_operator,        ///< Оператор.
+//   lex_operator,        ///< Оператор.
 };
 
 enum semantic_state {
    ss_source,           ///< Верхний уровень синтаксиса.
    ss_identifier,       ///< Идентификатор.
+   ss_pattern,          ///< Выражение-образец.
    ss_expression,       ///< Общее выражение (простой функции).
 };
 
@@ -40,6 +41,9 @@ size_t refal_parse_text(
 
    unsigned line_num = 0;     // номер текущей строки
    enum semantic_state semantic = ss_source;
+
+   rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
+   int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
 
 next_line:
    ++line_num;
@@ -80,6 +84,8 @@ lexem_identifier_complete:
          case ss_source:
             semantic = ss_identifier;
             goto next_char;
+         case ss_pattern:
+            assert(!cmd_execute);
          case ss_expression:
             if (!(node < 0) && ids->n[node].val.tag != rft_undefined) {
                // Если открыта вычислительная скобка, задаём ей адрес функции.
@@ -177,19 +183,112 @@ lexem_identifier_complete:
          case ss_source:
             goto error_identifier_missing;
          case ss_identifier:
+            assert(function_block == 0);
             if (ids->n[node].val.tag != rft_undefined) {
                // TODO надо бы отобразить прежнее определение
                syntax_error(st, "повторное определение функции", line_num, pos, line, end);
                goto error;
             }
+            cmd_sentence = 0;
             ids->n[node].val.value = rf_alloc_command(vm, rf_equal);
             ids->n[node].val.tag   = rft_byte_code;
+            lexer = lex_whitespace;
+            semantic = ss_expression;
+            goto next_char;
+         case ss_pattern:
+            // TODO проверить скобки ().
+            rf_alloc_command(vm, rf_equal);
             lexer = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
          case ss_expression:
             syntax_error(st, "недопустимый оператор в выражении (пропущена ; ?)", line_num, pos, line, end);
             goto error;
+         }
+      }
+
+   // Начинает блок (перечень предложений) функции.
+   case '{':
+      switch (lexer) {
+      case lex_comment_c:
+      case lex_comment_line:
+         goto next_char;
+      case lex_string_quoted:
+      case lex_string_dquoted:
+         goto lexem_string;
+      case lex_number:
+         assert(0);
+         goto next_char;
+      case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
+      case lex_leadingspace:
+      case lex_whitespace:
+         switch (semantic) {
+         case ss_source:
+            goto error_identifier_missing;
+         case ss_identifier:
+            assert(function_block == 0);
+            if (ids->n[node].val.tag != rft_undefined) {
+               // TODO надо бы отобразить прежнее определение
+               syntax_error(st, "повторное определение функции", line_num, pos, line, end);
+               goto error;
+            }
+            cmd_sentence = rf_alloc_command(vm, rf_sentence);
+            ids->n[node].val.value = cmd_sentence;
+            ids->n[node].val.tag   = rft_byte_code;
+            lexer = lex_whitespace;
+            semantic = ss_pattern;
+            ++function_block;
+            goto next_char;
+         case ss_pattern:
+            syntax_error(st, "блок недопустим в выражении (пропущено = ?)", line_num, pos, line, end);
+            goto error;
+         case ss_expression:
+            syntax_error(st, "вложенные блоки {} пока не поддерживаются", line_num, pos, line, end);
+            goto error;
+         }
+      }
+
+   case '}':
+      switch (lexer) {
+      case lex_comment_c:
+      case lex_comment_line:
+         goto next_char;
+      case lex_string_dquoted:
+      case lex_string_quoted:
+            goto lexem_string;
+      case lex_number:
+         assert(0);
+         goto next_char;
+      case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
+      case lex_leadingspace:
+      case lex_whitespace:
+         switch (semantic) {
+         case ss_source:
+            goto error_identifier_missing;
+         case ss_identifier:
+            goto error_incorrect_function_definition;
+         // После последнего предложения ; может отсутствовать.
+         case ss_expression:
+            assert(cmd_sentence);
+            assert(function_block > 0);
+            --function_block;
+            cmd_sentence = 0;
+            goto sentence_complete;
+         // ; начинает предложение-образец, пустой в случае завершения функции.
+         case ss_pattern:
+            assert(function_block > 0);
+            --function_block;
+            if (!rf_is_evar_empty(vm, cmd_sentence, vm->free)) {
+               syntax_error(st, "образец без общего выражения (пропущено = ?)", line_num, pos, line, end);
+               goto error;
+            }
+            vm->cell[cmd_sentence].tag = rf_complete;
+            semantic = ss_source;
+            goto next_char;
          }
       }
 
@@ -214,6 +313,8 @@ lexem_identifier_complete:
             goto error_identifier_missing;
          case ss_identifier:
             goto error_incorrect_function_definition;
+         case ss_pattern:
+            goto error_executor_in_pattern;
          case ss_expression:
             cmd_execute = rf_alloc_command(vm, rf_execute);
             ++execution_bracket_count;
@@ -243,6 +344,8 @@ lexem_identifier_complete:
             goto error_identifier_missing;
          case ss_identifier:
             goto error_incorrect_function_definition;
+         case ss_pattern:
+            goto error_executor_in_pattern;
          case ss_expression:
             if (!execution_bracket_count) {
                syntax_error(st, "непарная вычислительная скобка", line_num, pos, line, end);
@@ -282,13 +385,26 @@ lexem_identifier_complete:
             lexer = lex_whitespace;
             semantic = ss_source;
             goto next_char;
+         case ss_pattern:
+            syntax_error(st, "образец без общего выражения (пропущено = ?)", line_num, pos, line, end);
+            goto error;
          case ss_expression:
+sentence_complete:
             if (execution_bracket_count) {
                syntax_error(st, "не закрыта вычислительная скобка", line_num, pos, line, end);
                goto error;
             }
-            rf_alloc_command(vm, rf_complete);
-            semantic = ss_source;
+            // В функциях с блоком сохраняем в маркере текущего предложения
+            // ссылку на данные следующего и размещаем новый маркер.
+            if (cmd_sentence) {
+               rf_index new_sentence = rf_alloc_command(vm, rf_sentence);
+               vm->cell[cmd_sentence].data = new_sentence;
+               cmd_sentence = new_sentence;
+               semantic = ss_pattern;
+            } else {
+               rf_alloc_command(vm, rf_complete);
+               semantic = ss_source;
+            }
             goto next_char;
          }
       }
@@ -311,6 +427,7 @@ lexem_identifier_complete:
          case ss_identifier:
             syntax_error(st, "строка неуместна (пропущено = или { в определении функции?)", line_num, pos, line, end);
             goto error;
+         case ss_pattern:
          case ss_expression:
             lexer = chr == '"' ? lex_string_dquoted : lex_string_quoted;
             goto next_char;
@@ -408,6 +525,7 @@ utf8_1:  if (src == end)
             goto next_char;
          case ss_identifier:
             goto error_identifier_odd;
+         case ss_pattern:
          case ss_expression:
             // Если идентификатор уже определён, можно будет заменить его значением.
             node = rtrie_find_first(ids, chr);
@@ -424,6 +542,7 @@ lexem_identifier:
             goto next_char;
          case ss_identifier:
             goto error_identifier_odd;
+         case ss_pattern:
          case ss_expression:
             node = rtrie_find_next(ids, node, chr);
 #if 0
@@ -462,6 +581,10 @@ error_identifier_odd:
 
 error_identifier_undefined:
    syntax_error(st, "идентификатор не определён", line_num, pos, line, end);
+   goto error;
+
+error_executor_in_pattern:
+   syntax_error(st, "вычислительные скобки в образце не поддерживаются", line_num, pos, line, end);
    goto error;
 
 error_utf8_incomplete:

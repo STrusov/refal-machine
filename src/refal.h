@@ -334,6 +334,23 @@ int rf_is_evar_empty(
     return vm->cell[prev].next == next;
 }
 
+/**
+ * Сравнивает s-переменные.
+ */
+static inline
+int rf_svar_equal(
+      struct refal_vm   *restrict vm,
+      rf_index          s1,
+      rf_index          s2)
+{
+   assert(s1 != s2);
+   /* Сначала сравниваем данные, поскольку:                                */
+   /* 1. даже при равенстве тегов, они вероятно, различаются;              */
+   /* 2. теги хранятся в битовом поле и требуют команды AND для выделения. */
+   return vm->cell[s1].data == vm->cell[s2].data
+       && vm->cell[s1].tag  == vm->cell[s2].tag;
+}
+
 /**\}*/
 
 /**\ingroup library

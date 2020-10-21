@@ -114,7 +114,9 @@ int interpret(
 execute:
    ++step;
    enum interpreter_state state = is_pattern;
+   rf_index cur = vm->cell[prev].next;
    rf_index next_sentence = 0;
+sentence:
    while (1) {
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
@@ -132,7 +134,14 @@ execute:
       case rf_closing_bracket:
          switch (state) {
          case is_pattern:
-            assert(0); // TODO обработать образец
+            // При наличии данных в Поле Зрения сравниваем с образцом.
+            if (cur == next || !rf_svar_equal(vm, cur, ip)) {
+               ip = next_sentence;
+               goto sentence;
+            } else {
+               cur = vm->cell[cur].next;
+               goto next;
+            }
          case is_expression:
             rf_alloc_value(vm, vm->cell[ip].data, tag);
             goto next;
@@ -144,6 +153,7 @@ execute:
          switch (state) {
          case is_pattern:
             next_sentence = vm->cell[ip].data;
+            cur = vm->cell[prev].next;
             goto next;
          case is_expression:
             goto complete;
@@ -153,7 +163,12 @@ execute:
       case rf_equal:
          switch (state) {
          case is_pattern:
-            assert(rf_is_evar_empty(vm, prev, next)); // TODO обработать образец
+            if (cur != next) {
+               ip = next_sentence;
+               goto sentence;
+            }
+            // TODO обработать переменные в образце
+            rf_free_evar(vm, prev, next);
             state = is_expression;
             first_new = vm->free;
             goto next;
@@ -205,7 +220,8 @@ execute:
       case rf_complete:
          switch (state) {
          case is_pattern:
-            inconsistence(st, "отсутствует общее выражение", ip, step);
+            // TODO Ошибки в байт-коде нет. Реализовать вывод текущего состояния.
+            inconsistence(st, "(отождествление невозможно)", ip, step);
             goto error;
          case is_expression:
 complete:   if (sp) {

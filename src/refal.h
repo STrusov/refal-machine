@@ -258,6 +258,25 @@ void rf_insert_next(
 }
 
 /**
+ * Перемещает в поле зрения между next.prev и next ячейки свободной части списка
+ * начиная с first по [vm->free].prev включительно.
+ */
+static inline
+void rf_insert_prev(
+      struct refal_vm   *restrict vm,
+      rf_index          next,
+      rf_index          first)
+{
+   assert(first != next);
+   const rf_index last = vm->cell[vm->free].prev;
+   const rf_index prev = vm->cell[next].prev;
+   vm->cell[last].next = next;
+   vm->cell[next].prev = last;
+   vm->cell[prev].next = first;
+   vm->cell[first].prev = prev;
+}
+
+/**
  * Добавляет в свободную часть списка значение и возвращает номер ячейки.
  */
 static inline
@@ -292,9 +311,15 @@ rf_index rf_alloc_command(
 static inline
 rf_index rf_alloc_atom(
       struct refal_vm   *restrict vm,
-      wchar_t           chr)
+      const char        *str)
 {
-   return rf_alloc_value(vm, chr, rf_atom);
+   assert(vm->cell);
+   assert(vm->free);
+   rf_index i = vm->free;
+   vm->cell[i].atom = str;
+   vm->cell[i].tag  = rf_atom;
+   vm->free = vm->cell[i].next;
+   return i;
 }
 
 /**

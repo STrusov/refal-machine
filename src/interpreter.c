@@ -221,10 +221,15 @@ sentence:
          switch (state) {
          case is_pattern:
             // TODO Ошибки в байт-коде нет. Реализовать вывод текущего состояния.
-            inconsistence(st, "(отождествление невозможно)", ip, step);
-            goto error;
+            rf_insert_prev(vm, next, rf_alloc_char(vm, '\n'));
+            rf_insert_prev(vm, next, rf_alloc_atom(vm, "Отождествление невозможно. "));
+            goto stop;
          case is_expression:
-complete:   if (sp) {
+complete:   if (first_new != vm->free) {
+               rf_insert_next(vm, prev, first_new);
+               first_new = vm->free;
+            }
+            if (sp) {
                ip = stack[--sp];
                goto next;
             }
@@ -234,8 +239,12 @@ complete:   if (sp) {
 next: ip = vm->cell[ip].next;
    }
 stop:
-
-   assert(rf_is_evar_empty(vm, prev, next)); // TODO вывести поле зрения.
+   if (!rf_is_evar_empty(vm, prev, next)) {
+      rf_index n = rf_alloc_atom(vm, "Поле зрения:");
+      rf_alloc_char(vm, '\n');
+      rf_insert_next(vm, prev, n);
+      Prout(vm, prev, next);
+   }
    return 0;
 
 error:

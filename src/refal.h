@@ -181,6 +181,43 @@ void *refal_vm_check(
    return vm->cell;
 }
 
+static inline
+void rf_vm_stats(
+      struct refal_vm   *restrict vm,
+      rf_index          prev,
+      rf_index          next)
+{
+#ifndef  NDEBUG
+   rf_index i = prev;
+   size_t view_count = 0;
+   while (1) {
+      assert(vm->cell[vm->cell[i].next].prev == i);
+      i = vm->cell[i].next;
+      if (i == next)
+         break;
+      ++view_count;
+   }
+   size_t forward_count = 0;
+   i = vm->free;
+   while (1) {
+      ++forward_count;
+      if (!vm->cell[i].next)
+         break;
+      i = vm->cell[i].next;
+   }
+   size_t backward_count = 0;
+   while (1) {
+      ++backward_count;
+      if (i == vm->free)
+         break;
+      i = vm->cell[i].prev;
+   }
+   printf("В поле зрения %lu элементов. Активное подвыражение (%u %u). "
+          "Свободно: %lu(%lu).\n", view_count, prev, next,
+          forward_count, backward_count);
+#endif
+}
+
 /**\}*/
 
 /**\addtogroup auxiliary Вспомогательные функции.

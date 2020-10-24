@@ -36,8 +36,12 @@ size_t refal_parse_text(
    rtrie_index node = 0;      // последний добавленный в префиксное дерево узел.
    rf_int number = 0;         // вычисляемое значение лексемы "число"
 
-   rf_index cmd_execute = 0;      // ячейка с командой rf_execute.
-   int execution_bracket_count = 0;
+   // Поскольку в общем выражении вызовы функций могут быть вложены,
+   // индексы ячеек с командой rf_execute организованы в стек.
+   const int exec_max = 100;
+   rf_index cmd_exec[exec_max];
+   int ep = 0;
+   cmd_exec[ep] = 0;
 
    unsigned line_num = 0;     // номер текущей строки
    enum semantic_state semantic = ss_source;
@@ -87,13 +91,12 @@ lexem_identifier_complete:
             semantic = ss_identifier;
             goto next_char;
          case ss_pattern:
-            assert(!cmd_execute);
+            assert(!cmd_exec[ep]);
          case ss_expression:
             if (!(node < 0) && ids->n[node].val.tag != rft_undefined) {
                // Если открыта вычислительная скобка, задаём ей адрес функции.
-               if (cmd_execute) {
-                  vm->cell[cmd_execute].data = rtrie_val_to_raw(ids->n[node].val);
-                  cmd_execute = 0;
+               if (cmd_exec[ep]) {
+                  vm->cell[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[node].val);
                } else {
                   rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
                }
@@ -315,8 +318,11 @@ lexem_identifier_complete:
          case ss_pattern:
             goto error_executor_in_pattern;
          case ss_expression:
-            cmd_execute = rf_alloc_command(vm, rf_execute);
-            ++execution_bracket_count;
+            if (!(ep < exec_max)) {
+               syntax_error(st, "превышен лимит вложенности вычислительных скобок", line_num, pos, line, end);
+            }
+            ++ep;
+            cmd_exec[ep] = rf_alloc_command(vm, rf_execute);
             lexer = lex_whitespace;
             goto next_char;
          }
@@ -345,13 +351,14 @@ lexem_identifier_complete:
          case ss_pattern:
             goto error_executor_in_pattern;
          case ss_expression:
-            if (!execution_bracket_count) {
+            if (!ep) {
                syntax_error(st, "непарная вычислительная скобка", line_num, pos, line, end);
                goto error;
             }
-            assert(execution_bracket_count > 0);
-            rf_alloc_command(vm, rf_execute_close);
-            --execution_bracket_count;
+            assert(ep > 0);
+            // Связываем скобку с парной открывающей, для вызова интерпретатором.
+            rf_alloc_value(vm, cmd_exec[ep], rf_execute_close);
+            cmd_exec[ep--] = 0;
             lexer = lex_whitespace;
             goto next_char;
          }
@@ -387,7 +394,7 @@ lexem_identifier_complete:
             goto error;
          case ss_expression:
 sentence_complete:
-            if (execution_bracket_count) {
+            if (ep) {
                syntax_error(st, "не закрыта вычислительная скобка", line_num, pos, line, end);
                goto error;
             }

@@ -105,10 +105,11 @@ int interpret(
    // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
    rf_alloc_value(vm, 0, rf_undefined);
 
-   struct rtrie_val function = {};
-
    unsigned stack_size = 100;
-   rf_index stack[stack_size];
+   struct {
+      rf_index ip;
+      rf_index prev;
+   } stack[stack_size];
    unsigned sp = 0;
 
 execute:
@@ -183,7 +184,13 @@ sentence:
          case is_pattern:
             goto error_execution_bracket;
          case is_expression:
-            function = rtrie_val_from_raw(vm->cell[ip].data);
+            // Сохраняем часть результата при наличии.
+            if (first_new != vm->free) {
+               rf_insert_prev(vm, next, first_new);
+               first_new = vm->free;
+            }
+            stack[++sp].prev = prev;
+            prev = vm->cell[next].prev;
             goto next;
          }
 
@@ -193,8 +200,10 @@ sentence:
             goto error_execution_bracket;
          case is_expression:
             if (first_new != vm->free) {
-               rf_insert_next(vm, prev, first_new);
+               rf_insert_prev(vm, next, first_new);
+               first_new = vm->free;
             }
+            struct rtrie_val function = rtrie_val_from_raw(vm->cell[vm->cell[ip].link].data);
             switch (function.tag) {
             case rft_undefined:
                inconsistence(st, "неопределённая функция", ip, step);
@@ -205,13 +214,15 @@ sentence:
                   goto error;
                }
                refal_library_call(vm, prev, next, function.value);
+               prev = stack[sp--].prev;
+               first_new = vm->free;
                goto next;
             case rft_byte_code:
                if (!(sp < stack_size)) {
                   inconsistence(st, "стек вызовов исчерпан", sp, ip);
                   goto error;
                }
-               stack[sp++] = ip;
+               stack[sp].ip = ip;
                ip = function.value;
                goto execute;
             }
@@ -226,11 +237,13 @@ sentence:
             goto stop;
          case is_expression:
 complete:   if (first_new != vm->free) {
-               rf_insert_next(vm, prev, first_new);
+               rf_insert_prev(vm, next, first_new);
                first_new = vm->free;
             }
             if (sp) {
-               ip = stack[--sp];
+               ip = stack[sp].ip;
+               prev = stack[sp].prev;
+               --sp;
                goto next;
             }
             goto stop;
@@ -305,7 +318,7 @@ int main(int argc, char **argv)
       val = rtrie_get_value(&refint.ids, "Print");
       assert(val.tag);
 
-      process_file(&refint, "tests/function.ref", &status);
+      process_file(&refint, "tests/Вложенные вызовы.ref", &status);
 
    }
    return 0;

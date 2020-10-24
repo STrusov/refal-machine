@@ -77,7 +77,6 @@ next_char:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_number:
-lexem_number_complete:
          rf_alloc_int(vm, number);
          lexer = lex_whitespace;
          goto next_char;
@@ -120,17 +119,17 @@ lexem_identifier_complete:
       case lex_leadingspace:
       case lex_whitespace:
       case lex_comment_c:
-         goto next_line;
       case lex_comment_line:
-         lexer = lex_whitespace;
          goto next_line;
       case lex_string_quoted:
       case lex_string_dquoted:
          syntax_error(st, "отсутствует закрывающая кавычка", line_num, pos, line, end);
          goto error;
       case lex_number:
-         goto lexem_number_complete;
+         rf_alloc_int(vm, number);
+         goto next_line;
       case lex_identifier:
+         --src; --pos;
          goto lexem_identifier_complete;
       }
 
@@ -377,6 +376,7 @@ lexem_identifier_complete:
          goto lexem_identifier_complete;
       case lex_number:
          rf_alloc_int(vm, number);
+         lexer = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {

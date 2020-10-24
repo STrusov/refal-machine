@@ -131,6 +131,7 @@ sentence:
       case rf_char:
       case rf_number:
       case rf_atom:
+      case rf_identifier:
       case rf_opening_bracket:
       case rf_closing_bracket:
          switch (state) {
@@ -205,6 +206,9 @@ sentence:
             }
             struct rtrie_val function = rtrie_val_from_raw(vm->cell[ip].data);
             switch (function.tag) {
+            case rft_enum:
+               inconsistence(st, "пустая функция", ip, step);
+               goto error;
             case rft_undefined:
                inconsistence(st, "неопределённая функция", ip, step);
                goto error;
@@ -318,7 +322,7 @@ int main(int argc, char **argv)
       val = rtrie_get_value(&refint.ids, "Print");
       assert(val.tag);
 
-      process_file(&refint, "tests/Вложенные вызовы.ref", &status);
+      process_file(&refint, "tests/Идентификаторы в образце.ref", &status);
 
    }
    return 0;

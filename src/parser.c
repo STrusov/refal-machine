@@ -43,6 +43,9 @@ size_t refal_parse_text(
    int ep = 0;
    cmd_exec[ep] = 0;
 
+   // Значение задаётся пустым функциям (ENUM в Refal-05) для сопоставления.
+   rf_index enum_couner = 0;
+
    unsigned line_num = 0;     // номер текущей строки
    enum semantic_state semantic = ss_source;
 
@@ -93,8 +96,10 @@ lexem_identifier_complete:
             assert(!cmd_exec[ep]);
          case ss_expression:
             if (!(node < 0) && ids->n[node].val.tag != rft_undefined) {
-               // Если открыта вычислительная скобка, задаём ей адрес функции.
-               if (cmd_exec[ep]) {
+               // Если открыта вычислительная скобка, задаём ей адрес
+               // первой вычислимой функции из выражения.
+               if (ids->n[node].val.tag != rft_enum && cmd_exec[ep]
+               && rtrie_val_from_raw(vm->cell[cmd_exec[ep]].data).tag == rft_undefined) {
                   vm->cell[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[node].val);
                } else {
                   rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
@@ -384,8 +389,8 @@ lexem_identifier_complete:
             goto error_identifier_missing;
          // Идентификатор пустой функции (ENUM в Refal-05).
          case ss_identifier:
-            ids->n[node].val.tag   = rft_byte_code,
-            ids->n[node].val.value = -1,
+            ids->n[node].val.tag   = rft_enum;
+            ids->n[node].val.value = ++enum_couner;
             lexer = lex_whitespace;
             semantic = ss_source;
             goto next_char;

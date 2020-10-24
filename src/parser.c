@@ -356,8 +356,8 @@ lexem_identifier_complete:
                goto error;
             }
             assert(ep > 0);
-            // Связываем скобку с парной открывающей, для вызова интерпретатором.
-            rf_alloc_value(vm, cmd_exec[ep], rf_execute_close);
+            // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
+            rf_alloc_value(vm, vm->cell[cmd_exec[ep]].data, rf_execute_close);
             cmd_exec[ep--] = 0;
             lexer = lex_whitespace;
             goto next_char;

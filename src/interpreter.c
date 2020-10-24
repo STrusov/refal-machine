@@ -203,7 +203,7 @@ sentence:
                rf_insert_prev(vm, next, first_new);
                first_new = vm->free;
             }
-            struct rtrie_val function = rtrie_val_from_raw(vm->cell[vm->cell[ip].link].data);
+            struct rtrie_val function = rtrie_val_from_raw(vm->cell[ip].data);
             switch (function.tag) {
             case rft_undefined:
                inconsistence(st, "неопределённая функция", ip, step);

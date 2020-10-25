@@ -21,6 +21,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <wchar.h>
 
@@ -60,6 +61,9 @@ typedef enum rf_type {
    rf_execute,          ///< Открывающая вычислительная скобка <
    rf_execute_close,    ///< Закрывающая вычислительная скобка >
    rf_identifier,       ///< Идентификатор (функция) // TODO rf_atom
+   rf_svar,             ///< s-переменная (односимвольная).
+   rf_tvar,             ///< t-переменная (s- либо выражение в скобках).
+   rf_evar,             ///< e-переменная (произвольное количество элементов.
    rf_complete,         ///< Общее выражение завершено.
    _rf_types_count
 } rf_type;

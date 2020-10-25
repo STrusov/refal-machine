@@ -36,7 +36,7 @@ static inline
 void refal_interpreter_init(
       struct refal_interpreter   *it)
 {
-   rtrie_alloc(&it->ids, 25);
+   rtrie_alloc(&it->ids, 100);
    refal_vm_init(&it->vm, 100);
 }
 
@@ -112,12 +112,20 @@ int interpret(
    } stack[stack_size];
    unsigned sp = 0;
 
+   unsigned vars = 100;
+   // TODO организовать стек для вызовов функций.
+   rf_index var[vars];
+   // Переменные в блоке нумеруются увеличивающимися монотонно значениями
+   // начиная с 0. Используем счётчик как индикатор инициализации переменных.
+   unsigned local = 0;
+
 execute:
    ++step;
    enum interpreter_state state = is_pattern;
    rf_index cur = vm->cell[prev].next;
    rf_index next_sentence = 0;
 sentence:
+   local = 0;
    while (1) {
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
@@ -149,6 +157,36 @@ sentence:
             goto next;
          }
          break;
+
+      case rf_svar:
+         switch (state) {
+         case is_pattern:
+            if (cur == next) {
+               ip = next_sentence;
+               goto sentence;
+            }
+            const rf_index svar = vm->cell[ip].link;
+            // При первом вхождении присваиваем переменной значение образца.
+            // При повторных сопоставляем.
+            if (svar >= local) {
+               assert(local == svar);   // TODO убрать, заменив условие выше.
+               var[svar] = cur;
+               ++local;
+            } else if (!rf_svar_equal(vm, cur, var[svar])) {
+               ip = next_sentence;
+               goto sentence;
+            }
+            cur = vm->cell[cur].next;
+            goto next;
+         case is_expression:
+            if (vm->cell[ip].link > local) {
+               inconsistence(st, "переменная не определена", ip, step);
+               goto error;
+            }
+            const rf_index sval = var[vm->cell[ip].link];
+            rf_alloc_value(vm, vm->cell[sval].data, vm->cell[sval].tag);
+            goto next;
+         }
 
       // Начало предложения. Далее следует выражение-образец (возможно, пустое).
       case rf_sentence:
@@ -322,7 +360,7 @@ int main(int argc, char **argv)
       val = rtrie_get_value(&refint.ids, "Print");
       assert(val.tag);
 
-      process_file(&refint, "tests/Идентификаторы в образце.ref", &status);
+      process_file(&refint, "tests/Односимвольные переменные.ref", &status);
 
    }
    return 0;

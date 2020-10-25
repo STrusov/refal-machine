@@ -25,6 +25,13 @@ enum semantic_state {
    ss_expression,       ///< Общее выражение (простой функции).
 };
 
+enum id_type {
+   id_global = rf_identifier,
+   id_svar   = rf_svar,       ///< s-переменная (один символ).
+   id_tvar   = rf_tvar,       ///< t-переменная (s- либо выражение в скобках).
+   id_evar   = rf_evar,       ///< e-переменная (произвольное количество элементов.
+};
+
 size_t refal_parse_text(
       struct refal_trie    *const restrict ids,
       struct refal_vm      *const restrict vm,
@@ -35,6 +42,19 @@ size_t refal_parse_text(
    const char *restrict src = begin;
    rtrie_index node = 0;      // последний добавленный в префиксное дерево узел.
    rf_int number = 0;         // вычисляемое значение лексемы "число"
+
+   // последний узел глобального идентификатора (функции),
+   // используется как корень для локальных (переменных).
+   rtrie_index ident = 0;
+
+   enum id_type id_type = id_global;
+   // Локальные идентификаторы храним в таблице символов как продолжение
+   // глобальных, отделяясь символом который не может встретиться в Unicode.
+   // Для каждого предложения вычисляется новый символ-разделитель (инкрементом),
+   // что гарантирует уникальность записей в таблице. Таким образом
+   // объявление s.1 в первом предложении не будет видно в следующих.
+   wchar_t idc = 1 + 0x10FFFF;   // отделяет локальный идентификатор от корневого.
+   rf_index local = 0;           // значение локального идентификатора.
 
    // Поскольку в общем выражении вызовы функций могут быть вложены,
    // индексы ячеек с командой rf_execute организованы в стек.
@@ -91,10 +111,37 @@ lexem_identifier_complete:
             assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
          case ss_source:
             semantic = ss_identifier;
+            ident = node;
             goto next_char;
          case ss_pattern:
             assert(!cmd_exec[ep]);
+            switch (id_type) {
+            case id_svar:
+            case id_tvar:
+            case id_evar:
+               if (ids->n[node].val.tag == rft_undefined) {
+                  ids->n[node].val.tag   = rft_enum;
+                  ids->n[node].val.value = local++;
+               }
+               rf_alloc_value(vm, ids->n[node].val.value, id_type);
+               goto next_char;
+            case id_global:
+               goto lexem_identifier_complete_global;
+            }
          case ss_expression:
+            switch (id_type) {
+            case id_svar:
+            case id_tvar:
+            case id_evar:
+               if (ids->n[node].val.tag == rft_undefined) {
+                  goto error_identifier_undefined;
+               }
+               rf_alloc_value(vm, ids->n[node].val.value, id_type);
+               goto next_char;
+            case id_global:
+               break;
+            }
+lexem_identifier_complete_global:
             if (!(node < 0) && ids->n[node].val.tag != rft_undefined) {
                // Если открыта вычислительная скобка, задаём ей адрес
                // первой вычислимой функции из выражения.
@@ -246,6 +293,8 @@ lexem_identifier_complete:
             ids->n[node].val.tag   = rft_byte_code;
             lexer = lex_whitespace;
             semantic = ss_pattern;
+            local = 0;
+            ++idc;
             ++function_block;
             goto next_char;
          case ss_pattern:
@@ -410,6 +459,8 @@ sentence_complete:
                vm->cell[cmd_sentence].data = new_sentence;
                cmd_sentence = new_sentence;
                semantic = ss_pattern;
+               local = 0;
+               ++idc;
             } else {
                rf_alloc_command(vm, rf_complete);
                semantic = ss_source;
@@ -541,13 +592,45 @@ utf8_1:  if (src == end)
          case ss_identifier:
             goto error_identifier_odd;
          case ss_pattern:
+            // Возможно объявление и использование переменных.
+            // Сохраняем их в таблице символов, отделив от идентификатора
+            // текущей функции спецсимволом.
+            switch (chr) {
+            case 's':
+               if (src != end && *src == '.') {
+                  ++src; ++pos;
+                  id_type = id_svar;
+                  node = rtrie_insert_next(ids, ident, idc);
+                  node = rtrie_insert_next(ids, node, chr);
+                  goto next_char;
+               }
+            default:
+               goto lexem_identifier_global;
+            }
          case ss_expression:
-            // Если идентификатор уже определён, можно будет заменить его значением.
-            node = rtrie_find_first(ids, chr);
+            // Возможно использование переменных.
+            switch (chr) {
+            case 's':
+               if (src != end && *src == '.') {
+                  ++src; ++pos;
+                  id_type = id_svar;
+                  node = rtrie_find_next(ids, ident, idc);
+                  node = rtrie_find_next(ids, node, chr);
+                  if (node < 0) {
+                     goto error_identifier_undefined;
+                  }
+                  goto next_char;
+               }
+            default:
+lexem_identifier_global:
+               id_type = id_global;
+               // Если идентификатор уже определён, можно будет заменить его значением.
+               node = rtrie_find_first(ids, chr);
 #if 0
-            rf_alloc_atom(vm, chr);
+               rf_alloc_atom(vm, chr);
 #endif
-            goto next_char;
+               goto next_char;
+            }
          }
       case lex_identifier:
 lexem_identifier:
@@ -558,6 +641,16 @@ lexem_identifier:
          case ss_identifier:
             goto error_identifier_odd;
          case ss_pattern:
+            // Переменные объявляются в выражении-образце.
+            switch (id_type) {
+            case id_svar:
+            case id_tvar:
+            case id_evar:
+               node = rtrie_insert_next(ids, node, chr);
+               goto next_char;
+            case id_global:
+               break;
+            }
          case ss_expression:
             node = rtrie_find_next(ids, node, chr);
 #if 0

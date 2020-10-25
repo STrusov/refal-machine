@@ -148,15 +148,13 @@ sentence:
             if (cur == next || !rf_svar_equal(vm, cur, ip)) {
                ip = next_sentence;
                goto sentence;
-            } else {
-               cur = vm->cell[cur].next;
-               goto next;
             }
+            cur = vm->cell[cur].next;
+            goto next;
          case is_expression:
             rf_alloc_value(vm, vm->cell[ip].data, tag);
             goto next;
          }
-         break;
 
       case rf_svar:
          switch (state) {

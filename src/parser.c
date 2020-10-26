@@ -596,10 +596,17 @@ utf8_1:  if (src == end)
             // Сохраняем их в таблице символов, отделив от идентификатора
             // текущей функции спецсимволом.
             switch (chr) {
+            case 'e':
+               id_type = id_evar;
+               goto lexem_identifier_local_pat_check;
+            case 't':
+               id_type = id_tvar;
+               goto lexem_identifier_local_pat_check;
             case 's':
+               id_type = id_svar;
+lexem_identifier_local_pat_check:
                if (src != end && *src == '.') {
                   ++src; ++pos;
-                  id_type = id_svar;
                   node = rtrie_insert_next(ids, ident, idc);
                   node = rtrie_insert_next(ids, node, chr);
                   goto next_char;
@@ -610,10 +617,17 @@ utf8_1:  if (src == end)
          case ss_expression:
             // Возможно использование переменных.
             switch (chr) {
+            case 'e':
+               id_type = id_evar;
+               goto lexem_identifier_local_exp_check;
+            case 't':
+               id_type = id_tvar;
+               goto lexem_identifier_local_exp_check;
             case 's':
+               id_type = id_svar;
+lexem_identifier_local_exp_check:
                if (src != end && *src == '.') {
                   ++src; ++pos;
-                  id_type = id_svar;
                   node = rtrie_find_next(ids, ident, idc);
                   node = rtrie_find_next(ids, node, chr);
                   if (node < 0) {

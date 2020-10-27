@@ -88,7 +88,7 @@ enum interpreter_state {
 static
 int interpret(
       struct refal_vm      *vm,
-      rf_index             ip,   ///< Начальная инструкция.
+      rf_index             next_sentence, ///< Начальная инструкция.
       struct refal_message *st)
 {
    st->source = "интерпретатор";
@@ -123,9 +123,9 @@ execute:
    ++step;
    enum interpreter_state state = is_pattern;
    rf_index cur = vm->cell[prev].next;
-   rf_index next_sentence = 0;
 sentence:
    local = 0;
+   rf_index ip = next_sentence;
    while (1) {
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
@@ -146,7 +146,6 @@ sentence:
          case is_pattern:
             // При наличии данных в Поле Зрения сравниваем с образцом.
             if (cur == next || !rf_svar_equal(vm, cur, ip)) {
-               ip = next_sentence;
                goto sentence;
             }
             cur = vm->cell[cur].next;
@@ -160,7 +159,6 @@ sentence:
          switch (state) {
          case is_pattern:
             if (cur == next) {
-               ip = next_sentence;
                goto sentence;
             }
             const rf_index svar = vm->cell[ip].link;
@@ -171,7 +169,6 @@ sentence:
                var[svar] = cur;
                ++local;
             } else if (!rf_svar_equal(vm, cur, var[svar])) {
-               ip = next_sentence;
                goto sentence;
             }
             cur = vm->cell[cur].next;
@@ -202,7 +199,6 @@ sentence:
          switch (state) {
          case is_pattern:
             if (cur != next) {
-               ip = next_sentence;
                goto sentence;
             }
             // TODO обработать переменные в образце
@@ -263,7 +259,7 @@ sentence:
                   goto error;
                }
                stack[sp].ip = ip;
-               ip = function.value;
+               next_sentence = function.value;
                goto execute;
             }
          }

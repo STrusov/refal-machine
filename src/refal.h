@@ -318,6 +318,42 @@ void rf_insert_prev(
 }
 
 /**
+ * Добавляет в свободную часть списка содержимое диапазона, удаляя исходное.
+ * Иначе говоря, перемещает e-переменную в пространство формирования результата.
+ * Передаваемые аргументами границы используются в вызывающем коде для адресации
+ * смежных областей, и, для упрощения реализации, требуют неизменности. Поэтому
+ * не должны совпадать с `vm->free`.
+ *
+ * `vm->free` не изменяется.
+ *
+ * \result номер начальной ячейки.
+ */
+static inline
+rf_index rf_alloc_evar_move(
+      struct refal_vm   *restrict vm,
+      rf_index          prev,
+      rf_index          next)
+{
+   assert(prev != next);
+   assert(vm->free != prev);
+   assert(vm->free != next);
+   const rf_index first = vm->cell[prev].next;
+   if (first != next) {
+      const rf_index last = vm->cell[next].prev;
+      // Связать ячейки, граничащие с удаляемыми.
+      vm->cell[prev].next = next;
+      vm->cell[next].prev = prev;
+      // Вставляем перед свободными.
+      const rf_index allocated = vm->cell[vm->free].prev;
+      vm->cell[allocated].next = first;
+      vm->cell[first].prev = allocated;
+      vm->cell[vm->free].prev = last;
+      vm->cell[last].next = vm->free;
+   }
+   return first;
+}
+
+/**
  * Добавляет в свободную часть списка значение и возвращает номер ячейки.
  */
 static inline

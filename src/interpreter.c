@@ -109,6 +109,7 @@ int interpret(
    struct {
       rf_index ip;
       rf_index prev;
+      rf_index result;
    } stack[stack_size];
    unsigned sp = 0;
 
@@ -122,10 +123,24 @@ int interpret(
 execute:
    ++step;
    enum interpreter_state state = is_pattern;
-   rf_index cur = vm->cell[prev].next;
+   rf_index ip  = next_sentence;       // текущая инструкция в предложении
+   rf_index cur = vm->cell[prev].next; // текущий элемент в образце
+   rf_index evar_ip = 0;   // откат образца при расширении evar
+   rf_index evar = vars;   // откат поля зрения (изначально недействителен).
+   // Результат формируется в поле зрения, после чего исходная часть удаляется.
+   rf_index result = 0;
 sentence:
-   local = 0;
-   rf_index ip = next_sentence;
+   // При возможности расширяем последнюю e-переменную в текущем предложении.
+   // Иначе переходим к следующему образцу.
+   if (evar < vars && var[evar] != next) {
+      cur = vm->cell[var[evar]].next;
+      var[evar] = cur;
+      ip = evar_ip;
+   } else {
+      evar = vars;
+      local = 0;
+      ip = next_sentence;
+   }
    while (1) {
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
@@ -175,13 +190,47 @@ sentence:
             goto next;
          case is_expression:
             if (vm->cell[ip].link > local) {
-               inconsistence(st, "переменная не определена", ip, step);
-               goto error;
+               goto error_undefined_variable;
             }
             const rf_index sval = var[vm->cell[ip].link];
             rf_alloc_value(vm, vm->cell[sval].data, vm->cell[sval].tag);
             goto next;
          }
+
+      case rf_evar:
+         switch (state) {
+         // e-переменная изначально принимает минимальный (0й размер).
+         // Если дальнейшая часть образца не совпадает, размер увеличивается.
+         case is_pattern:
+            // При первом вхождении присваиваем переменной текущую позицию в
+            // образце (как границу next) и запоминаем индекс переменной для
+            // возможного расширения диапазона (если дальше образец расходится).
+            // При повторных — сопоставляем.
+            if (vm->cell[ip].link >= local) {
+               evar = vm->cell[ip].link;
+               assert(local == evar);   // TODO убрать, заменив условие выше.
+               var[evar] = cur;
+               ++local;
+               evar_ip = vm->cell[ip].next;
+               goto next;  // cur не меняется, исходно диапазон пуст.
+            } else {
+               assert(0);
+               //if (!rf_evar_equal(vm, cur, next, var[evar-1], var[evar]))
+
+            }
+         case is_expression:
+            if (vm->cell[ip].link >= local) {
+               goto error_undefined_variable;
+            }
+            // TODO копировать при повторном вхождении.
+            const rf_index eidx = vm->cell[ip].link;
+            const rf_index i = rf_alloc_evar_move(vm, eidx > 0 ? var[eidx-1] : prev, var[eidx]);
+            if (first_new == vm->free)
+               first_new = i;
+            goto next;
+         }
+         assert(0);
+         break;
 
       // Начало предложения. Далее следует выражение-образец (возможно, пустое).
       case rf_sentence:
@@ -201,8 +250,6 @@ sentence:
             if (cur != next) {
                goto sentence;
             }
-            // TODO обработать переменные в образце
-            rf_free_evar(vm, prev, next);
             state = is_expression;
             first_new = vm->free;
             goto next;
@@ -220,9 +267,12 @@ sentence:
             // Сохраняем часть результата при наличии.
             if (first_new != vm->free) {
                rf_insert_prev(vm, next, first_new);
+               if (!result)
+                  result = first_new;
                first_new = vm->free;
             }
             stack[++sp].prev = prev;
+            stack[sp].result = result;
             prev = vm->cell[next].prev;
             goto next;
          }
@@ -234,6 +284,8 @@ sentence:
          case is_expression:
             if (first_new != vm->free) {
                rf_insert_prev(vm, next, first_new);
+               if (!result)
+                  result = first_new;
                first_new = vm->free;
             }
             struct rtrie_val function = rtrie_val_from_raw(vm->cell[ip].data);
@@ -250,6 +302,7 @@ sentence:
                   goto error;
                }
                refal_library_call(vm, prev, next, function.value);
+               result = stack[sp].result;
                prev = stack[sp--].prev;
                first_new = vm->free;
                goto next;
@@ -274,11 +327,16 @@ sentence:
          case is_expression:
 complete:   if (first_new != vm->free) {
                rf_insert_prev(vm, next, first_new);
+               if (!result)
+                  result = first_new;
                first_new = vm->free;
             }
+            rf_free_evar(vm, prev, result ? result : next);
+            first_new = vm->free;
             if (sp) {
                ip = stack[sp].ip;
                prev = stack[sp].prev;
+               result = stack[sp].result;
                --sp;
                goto next;
             }
@@ -301,6 +359,10 @@ error:
 
 error_execution_bracket:
    inconsistence(st, "вычислительная скобка в образце", ip, step);
+   goto error;
+
+error_undefined_variable:
+   inconsistence(st, "переменная не определена", ip, step);
    goto error;
 }
 
@@ -354,7 +416,7 @@ int main(int argc, char **argv)
       val = rtrie_get_value(&refint.ids, "Print");
       assert(val.tag);
 
-      process_file(&refint, "tests/Односимвольные переменные.ref", &status);
+      process_file(&refint, "tests/Палиндром.ref", &status);
 
    }
    return 0;

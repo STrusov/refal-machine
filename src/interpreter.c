@@ -37,7 +37,7 @@ void refal_interpreter_init(
       struct refal_interpreter   *it)
 {
    rtrie_alloc(&it->ids, 100);
-   refal_vm_init(&it->vm, 100);
+   refal_vm_init(&it->vm, 500);
 }
 
 static inline

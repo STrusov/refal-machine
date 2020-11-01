@@ -98,24 +98,21 @@ int interpret(
    rf_index next = vm->free;
    rf_index prev = vm->cell[next].prev;
 
-   // Размещение новых значений в поле зрения происходит по одному, начиная
-   // с первой свободной ячейки vm->free. По завершению размещения
-   // осуществляется вставка, связывающая новые ячейки в список.
-   rf_index first_new = 0;
-   // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
-   rf_alloc_value(vm, 0, rf_undefined);
-
    unsigned stack_size = 100;
    struct {
       rf_index ip;
       rf_index prev;
+      rf_index next;
       rf_index result;
    } stack[stack_size];
    unsigned sp = 0;
 
    unsigned vars = 100;
    // TODO организовать стек для вызовов функций.
-   rf_index var[vars];
+   struct {
+      rf_index s;
+      rf_index next;
+   } var[vars];
    // Переменные в блоке нумеруются увеличивающимися монотонно значениями
    // начиная с 0. Используем счётчик как индикатор инициализации переменных.
    unsigned local = 0;
@@ -127,14 +124,13 @@ execute:
    rf_index cur = vm->cell[prev].next; // текущий элемент в образце
    rf_index evar_ip = 0;   // откат образца при расширении evar
    rf_index evar = vars;   // откат поля зрения (изначально недействителен).
-   // Результат формируется в поле зрения, после чего исходная часть удаляется.
-   rf_index result = 0;
+   rf_index result = 0;    // результат формируется между этой и vm->free.
 sentence:
    // При возможности расширяем последнюю e-переменную в текущем предложении.
    // Иначе переходим к следующему образцу.
-   if (evar < vars && var[evar] != next) {
-      cur = vm->cell[var[evar]].next;
-      var[evar] = cur;
+   if (evar < vars && var[evar].next != next) {
+      cur = vm->cell[var[evar].next].next;
+      var[evar].next = cur;
       ip = evar_ip;
    } else {
       evar = vars;
@@ -181,9 +177,9 @@ sentence:
             // При повторных сопоставляем.
             if (svar >= local) {
                assert(local == svar);   // TODO убрать, заменив условие выше.
-               var[svar] = cur;
+               var[svar].s = cur;
                ++local;
-            } else if (!rf_svar_equal(vm, cur, var[svar])) {
+            } else if (!rf_svar_equal(vm, cur, var[svar].s)) {
                goto sentence;
             }
             cur = vm->cell[cur].next;
@@ -192,7 +188,7 @@ sentence:
             if (vm->cell[ip].link > local) {
                goto error_undefined_variable;
             }
-            const rf_index sval = var[vm->cell[ip].link];
+            const rf_index sval = var[vm->cell[ip].link].s;
             rf_alloc_value(vm, vm->cell[sval].data, vm->cell[sval].tag);
             goto next;
          }
@@ -209,7 +205,8 @@ sentence:
             if (vm->cell[ip].link >= local) {
                evar = vm->cell[ip].link;
                assert(local == evar);   // TODO убрать, заменив условие выше.
-               var[evar] = cur;
+               var[evar].s    = cur;
+               var[evar].next = cur;
                ++local;
                evar_ip = vm->cell[ip].next;
                goto next;  // cur не меняется, исходно диапазон пуст.
@@ -224,9 +221,9 @@ sentence:
             }
             // TODO копировать при повторном вхождении.
             const rf_index eidx = vm->cell[ip].link;
-            const rf_index i = rf_alloc_evar_move(vm, eidx > 0 ? var[eidx-1] : prev, var[eidx]);
-            if (first_new == vm->free)
-               first_new = i;
+            if (var[eidx].s != var[eidx].next) {
+               rf_alloc_evar_move(vm, vm->cell[var[eidx].s].prev, var[eidx].next);
+            }
             goto next;
          }
          assert(0);
@@ -251,7 +248,9 @@ sentence:
                goto sentence;
             }
             state = is_expression;
-            first_new = vm->free;
+            result = vm->free;
+            // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
+            rf_alloc_value(vm, 0, rf_undefined);
             goto next;
          case is_expression:
             inconsistence(st, "повторное присваивание", ip, step);
@@ -264,16 +263,11 @@ sentence:
          case is_pattern:
             goto error_execution_bracket;
          case is_expression:
-            // Сохраняем часть результата при наличии.
-            if (first_new != vm->free) {
-               rf_insert_prev(vm, next, first_new);
-               if (!result)
-                  result = first_new;
-               first_new = vm->free;
-            }
-            stack[++sp].prev = prev;
+            stack[sp].prev   = prev;
+            stack[sp].next   = next;
             stack[sp].result = result;
-            prev = vm->cell[next].prev;
+            ++sp;
+            prev = vm->cell[vm->free].prev;
             goto next;
          }
 
@@ -282,12 +276,7 @@ sentence:
          case is_pattern:
             goto error_execution_bracket;
          case is_expression:
-            if (first_new != vm->free) {
-               rf_insert_prev(vm, next, first_new);
-               if (!result)
-                  result = first_new;
-               first_new = vm->free;
-            }
+            next = vm->free;
             struct rtrie_val function = rtrie_val_from_raw(vm->cell[ip].data);
             switch (function.tag) {
             case rft_enum:
@@ -302,16 +291,18 @@ sentence:
                   goto error;
                }
                refal_library_call(vm, prev, next, function.value);
+               // TODO убрать лишние (не изменяются при вызове).
+               --sp;
                result = stack[sp].result;
-               prev = stack[sp--].prev;
-               first_new = vm->free;
+               next   = stack[sp].next;
+               prev   = stack[sp].prev;
                goto next;
             case rft_byte_code:
                if (!(sp < stack_size)) {
                   inconsistence(st, "стек вызовов исчерпан", sp, ip);
                   goto error;
                }
-               stack[sp].ip = ip;
+               stack[sp-1].ip = ip;
                next_sentence = function.value;
                goto execute;
             }
@@ -320,24 +311,24 @@ sentence:
       case rf_complete:
          switch (state) {
          case is_pattern:
+            // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
+            rf_alloc_value(vm, 0, rf_undefined);
             // TODO Ошибки в байт-коде нет. Реализовать вывод текущего состояния.
             rf_insert_prev(vm, next, rf_alloc_char(vm, '\n'));
             rf_insert_prev(vm, next, rf_alloc_atom(vm, "Отождествление невозможно. "));
             goto stop;
          case is_expression:
-complete:   if (first_new != vm->free) {
-               rf_insert_prev(vm, next, first_new);
-               if (!result)
-                  result = first_new;
-               first_new = vm->free;
-            }
-            rf_free_evar(vm, prev, result ? result : next);
-            first_new = vm->free;
-            if (sp) {
-               ip = stack[sp].ip;
-               prev = stack[sp].prev;
+complete:   rf_free_evar(vm, prev, next);
+            assert(result);
+            rf_splice_evar_prev(vm, result, vm->free, next);
+            rf_free_last(vm);
+            prev = stack[sp].prev;
+            next = stack[sp].next;
+            if (sp--) {
+               ip     = stack[sp].ip;
+               prev   = stack[sp].prev;
+               next   = stack[sp].next;
                result = stack[sp].result;
-               --sp;
                goto next;
             }
             goto stop;
@@ -347,6 +338,8 @@ next: ip = vm->cell[ip].next;
    }
 stop:
    if (!rf_is_evar_empty(vm, prev, next)) {
+      // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
+      rf_alloc_value(vm, 0, rf_undefined);
       rf_index n = rf_alloc_atom(vm, "Поле зрения:");
       rf_alloc_char(vm, '\n');
       rf_insert_next(vm, prev, n);

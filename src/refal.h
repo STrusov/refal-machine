@@ -247,7 +247,7 @@ void rf_vm_stats(
  * Перемещает ячейки (prev ... next) в свободную часть списка.
  * Передаваемые аргументами границы используются в вызывающем коде для адресации
  * смежных областей, и, для упрощения реализации, требуют неизменности. Поэтому
- * не должны совпадать с `vm->free`.
+ * переносятся после `vm->free` (что может показаться не всегда оптимальным).
  */
 static inline
 void rf_free_evar(
@@ -257,21 +257,34 @@ void rf_free_evar(
 {
    assert(prev != next);
    assert(vm->free != prev);
-   assert(vm->free != next);
    const rf_index first = vm->cell[prev].next;
    if (first != next) {
       const rf_index last  = vm->cell[next].prev;
       // Связать ячейки, граничащие с удаляемыми.
       vm->cell[prev].next = next;
       vm->cell[next].prev = prev;
-      // Добавить ячейки в начало списка свободных.
-      vm->cell[vm->free].prev = last;
-      vm->cell[vm->free].tag  = rf_undefined;
-      vm->cell[last].next = vm->free;
+      // Добавить ячейки после vm->free.
+      const rf_index heap = vm->cell[vm->free].next;
+      vm->cell[vm->free].next = first;
+      vm->cell[vm->free].tag2 = 0;
+      vm->cell[first].prev = vm->free;
+      vm->cell[first].tag  = rf_undefined;
+      vm->cell[last].next = heap;
       vm->cell[last].tag2 = 0;
-      vm->free = first;
+      vm->cell[heap].prev = last;
+      vm->cell[heap].tag  = rf_undefined;
       // TODO закрыть описатели (handle), при наличии.
    }
+}
+
+/**
+ * Освобождает последнюю занятую ячейку.
+ */
+static inline
+void rf_free_last(
+      struct refal_vm   *restrict vm)
+{
+   vm->free = vm->cell[vm->free].prev;
 }
 
 /**
@@ -315,6 +328,29 @@ void rf_insert_prev(
    vm->cell[next].prev = last;
    vm->cell[prev].next = first;
    vm->cell[first].prev = prev;
+}
+
+/**
+ * Перемещает диапазон в новое место.
+ */
+static inline
+void rf_splice_evar_prev(
+      struct refal_vm   *restrict vm,
+      rf_index          prev,
+      rf_index          next,
+      rf_index          pos)
+{
+   const rf_index first = vm->cell[prev].next;
+   if (first != next) {
+      const rf_index last  = vm->cell[next].prev;
+      const rf_index n_prev = vm->cell[pos].prev;
+      vm->cell[prev].next = next;
+      vm->cell[next].prev = prev;
+      vm->cell[pos].prev  = last;
+      vm->cell[last].next = pos;
+      vm->cell[n_prev].next = first;
+      vm->cell[first].prev = n_prev;
+   }
 }
 
 /**

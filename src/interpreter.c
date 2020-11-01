@@ -101,18 +101,18 @@ int interpret(
    unsigned stack_size = 100;
    struct {
       rf_index ip;
+      unsigned local;
       rf_index prev;
       rf_index next;
       rf_index result;
    } stack[stack_size];
    unsigned sp = 0;
 
-   unsigned vars = 100;
-   // TODO организовать стек для вызовов функций.
+   unsigned vars = 5 * stack_size;
    struct {
       rf_index s;
       rf_index next;
-   } var[vars];
+   } var_stack[vars], *var = var_stack;
    // Переменные в блоке нумеруются увеличивающимися монотонно значениями
    // начиная с 0. Используем счётчик как индикатор инициализации переменных.
    unsigned local = 0;
@@ -177,6 +177,9 @@ sentence:
             // При повторных сопоставляем.
             if (svar >= local) {
                assert(local == svar);   // TODO убрать, заменив условие выше.
+               if (&var[local] == &var_stack[vars]) {
+                  goto error_var_stack_overflow;
+               }
                var[svar].s = cur;
                ++local;
             } else if (!rf_svar_equal(vm, cur, var[svar].s)) {
@@ -205,6 +208,9 @@ sentence:
             if (vm->cell[ip].link >= local) {
                evar = vm->cell[ip].link;
                assert(local == evar);   // TODO убрать, заменив условие выше.
+               if (&var[local] == &var_stack[vars]) {
+                  goto error_var_stack_overflow;
+               }
                var[evar].s    = cur;
                var[evar].next = cur;
                ++local;
@@ -303,6 +309,8 @@ sentence:
                   goto error;
                }
                stack[sp-1].ip = ip;
+               stack[sp-1].local = local;
+               var += local;
                next_sentence = function.value;
                goto execute;
             }
@@ -322,13 +330,13 @@ complete:   rf_free_evar(vm, prev, next);
             assert(result);
             rf_splice_evar_prev(vm, result, vm->free, next);
             rf_free_last(vm);
-            prev = stack[sp].prev;
-            next = stack[sp].next;
             if (sp--) {
                ip     = stack[sp].ip;
+               local  = stack[sp].local;
                prev   = stack[sp].prev;
                next   = stack[sp].next;
                result = stack[sp].result;
+               var -= local;
                goto next;
             }
             goto stop;
@@ -356,6 +364,10 @@ error_execution_bracket:
 
 error_undefined_variable:
    inconsistence(st, "переменная не определена", ip, step);
+   goto error;
+
+error_var_stack_overflow:
+   inconsistence(st, "стек переменных исчерпан", &var[local] - var_stack, vars);
    goto error;
 }
 

@@ -359,33 +359,28 @@ error_undefined_variable:
    goto error;
 }
 
+/**
+ * Переводит исходный текст в байт-код для интерпретатора.
+ * При этом заполняется таблица символов.
+ * \return количество необработанных байт исходного файла. 0 при успехе.
+ */
 static
-int process_file(
+size_t translate(
       struct refal_interpreter   *ri,
-      const char           *name,
+      const char           *name,      ///< имя файла с исходным текстом.
       struct refal_message *st)
 {
    st->source = name;
-
    size_t source_size = 0;
    const char *source = mmap_file(name, &source_size);
    if (source == MAP_FAILED) {
       if (st)
          critical_error(st, "исходный текст недоступен", -errno, source_size);
-   } else {
-      size_t r = refal_parse_text(&ri->ids, &ri->vm, source, &source[source_size], st);
-      assert(r == source_size);
-
-      struct rtrie_val entry = rtrie_get_value(&ri->ids, "go");
-      if (entry.tag != rft_byte_code) {
-         critical_error(st, "не определена функция go", entry.value, 0);
-      } else {
-         interpret(&ri->vm, entry.value, st);
-      }
-
+      return -1;
    }
-
-   return 0;
+   size_t r = refal_parse_text(&ri->ids, &ri->vm, source, &source[source_size], st);
+   munmap((void*)source, source_size);
+   return source_size - r;
 }
 
 
@@ -393,8 +388,13 @@ int main(int argc, char **argv)
 {
    struct refal_message status = {
          .handler = refal_message_print,
-         .source  = argv[0],
+         .source  = "Интерпретатор РЕФАЛ",
    };
+
+   if (argc != 2) {
+      critical_error(&status, "укажите одно имя файла с исходным текстом", argc, 0);
+      return 0;
+   }
 
    struct refal_interpreter refint;
    refal_interpreter_init(&refint);
@@ -403,14 +403,15 @@ int main(int argc, char **argv)
 
       refal_import(&refint.ids, library, &status);
 
-      struct rtrie_val val;
-      val = rtrie_get_value(&refint.ids, "Prout");
-      assert(val.tag);
-      val = rtrie_get_value(&refint.ids, "Print");
-      assert(val.tag);
+      translate(&refint, argv[1], &status);
 
-      process_file(&refint, "tests/Палиндром.ref", &status);
-
+      struct rtrie_val entry = rtrie_get_value(&refint.ids, "go");
+      if (entry.tag != rft_byte_code) {
+         critical_error(&status, "не определена функция go", entry.value, 0);
+      } else {
+         interpret(&refint.vm, entry.value, &status);
+      }
    }
+   refal_interpreter_free(&refint);
    return 0;
 }

@@ -222,6 +222,7 @@ sentence:
 
             }
          case is_expression:
+evar_expression:
             if (vm->cell[ip].link >= local) {
                goto error_undefined_variable;
             }
@@ -232,8 +233,16 @@ sentence:
             }
             goto next;
          }
-         assert(0);
-         break;
+
+      case rf_evar_copy:
+         switch (state) {
+         case is_pattern:
+            inconsistence(st, "rf_evar_copy в образце", ip, step);
+            goto error;
+         case is_expression:
+            assert(0);
+            goto evar_expression;
+         }
 
       // Начало предложения. Далее следует выражение-образец (возможно, пустое).
       case rf_sentence:

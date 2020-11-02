@@ -99,4 +99,16 @@ void warning(
    refal_message(msg, "предупреждение", detail, line, position, begin, end);
 }
 
+static inline
+void performance(
+      struct refal_message *msg,
+      const char *detail,
+      intmax_t    line,
+      intmax_t    position,
+      const char *begin,
+      const char *end)
+{
+   refal_message(msg, "замечание", detail, line, position, begin, end);
+}
+
 

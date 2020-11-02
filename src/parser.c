@@ -6,6 +6,9 @@
 #include "message.h"
 #include "refal.h"
 
+/** При трансляции выдаётся замечание о копировании переменной (дорогая операция).*/
+#define REFAL_PERFORMANCE_NOTICE_EVAR_COPY
+
 enum lexer_state {
    lex_leadingspace,    ///< Пробелы в начале строки.
    lex_whitespace,      ///< Пробелы после лексемы.
@@ -55,6 +58,17 @@ size_t refal_parse_text(
    // объявление s.1 в первом предложении не будет видно в следующих.
    wchar_t idc = 1 + 0x10FFFF;   // отделяет локальный идентификатор от корневого.
    rf_index local = 0;           // значение локального идентификатора.
+   // Поскольку все кроме одного вхождения e-переменной в выражении-результате
+   // приходится копировать, используем массив для отслеживания их компиляций.
+   rf_index local_max = 100;
+   struct {
+#ifdef REFAL_PERFORMANCE_NOTICE_EVAR_COPY
+      const char  *src;
+      unsigned    line;
+      unsigned    pos;
+#endif
+      rf_index    opcode;
+   } var[local_max];
 
    // Поскольку в общем выражении вызовы функций могут быть вложены,
    // индексы ячеек с командой rf_execute организованы в стек.
@@ -119,7 +133,12 @@ lexem_identifier_complete:
             case id_svar:
             case id_tvar:
             case id_evar:
+               if (local == local_max) {
+                  syntax_error(st, "превышен лимит переменных", line_num, pos, line, end);
+                  goto error;
+               }
                if (ids->n[node].val.tag == rft_undefined) {
+                  var[local].opcode = 0;
                   ids->n[node].val.tag   = rft_enum;
                   ids->n[node].val.value = local++;
                }
@@ -136,7 +155,23 @@ lexem_identifier_complete:
                if (ids->n[node].val.tag == rft_undefined) {
                   goto error_identifier_undefined;
                }
-               rf_alloc_value(vm, ids->n[node].val.value, id_type);
+               // При первом вхождении создаём id_evar и запоминаем её индекс.
+               // При следующем вхождении меняем значение по сохранённому
+               // индексу на id_evar_copy и индекс на текущий.
+               rf_index id = ids->n[node].val.value;
+               if (id_type == id_evar && var[id].opcode) {
+                  vm->cell[var[id].opcode].tag = rf_evar_copy;
+#ifdef REFAL_PERFORMANCE_NOTICE_EVAR_COPY
+                  performance(st, "создаётся копия e-переменной", var[id].line,
+                                  var[id].pos, var[id].src, end);
+#endif
+               }
+               var[id].opcode = rf_alloc_value(vm, id, id_type);
+#ifdef REFAL_PERFORMANCE_NOTICE_EVAR_COPY
+               var[id].src  = line;
+               var[id].line = line_num;
+               var[id].pos  = pos;  // TODO указывает на последующий пробел.
+#endif
                goto next_char;
             case id_global:
                break;

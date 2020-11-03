@@ -20,7 +20,7 @@ endif
 OBJECTS = $(notdir $(SOURCES:.c=.o))
 PROJECT_ROOT = $(dir $(lastword $(MAKEFILE_LIST)))
 
-.PHONY: all clean install uninstall
+.PHONY: all clean install uninstall test
 
 all:	$(TARGET)
 
@@ -32,3 +32,9 @@ $(OBJECTS):%.o:	$(SOURCES_ROOT)%.c $(addprefix $(SOURCES_ROOT),$(HEADERS))
 
 clean:
 	$(RM) $(TARGET) $(OBJECTS)
+
+test:
+	ls  $(PROJECT_ROOT)tests/*.ref | while read filename ; do \
+	  echo $${filename}; \
+	  ./$(TARGET) "$${filename}" | diff - "$${filename}.эталон"; \
+	done

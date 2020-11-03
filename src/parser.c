@@ -725,6 +725,13 @@ lexem_string:
    assert(0);
 
 complete:
+   if (semantic != ss_source) {
+      if (function_block)
+         syntax_error(st, "не завершено определение функции (пропущена } ?)", line_num, pos, line, end);
+      else
+         syntax_error(st, "не завершено определение функции (пропущена ; ?)", line_num, pos, line, end);
+   }
+
 error:
    return src - begin;
 

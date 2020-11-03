@@ -348,7 +348,7 @@ lexem_identifier_complete_global:
          goto next_char;
       case lex_string_dquoted:
       case lex_string_quoted:
-            goto lexem_string;
+         goto lexem_string;
       case lex_identifier:
          --src; --pos;
          goto lexem_identifier_complete;
@@ -578,7 +578,6 @@ sentence_complete:
       case lex_identifier:
          goto lexem_identifier;
       }
-      break;
 
    // Оставшиеся символы считаются допустимыми для идентификаторов.
    default:
@@ -586,7 +585,7 @@ sentence_complete:
       switch (chr) {
       // ASCII
       case 0x00 ... 0x7f:
-         break;
+         goto symbol;
       // 2 байта на символ.
       // TODO 0xc0 0xc1 кодируют символы из диапазона ASCII
       case 0xc0 ... 0xdf:
@@ -595,7 +594,7 @@ utf8_0:  if (src == end)
             goto error_utf8_incomplete;
          // TODO нет проверки на диапазон байта продолжения.
          chr = (chr << 6) | (0x3f & *(const unsigned char*)src++);
-         break;
+         goto symbol;
       // 3 байта на символ.
       case 0xe0 ... 0xef:
          chr = (0xf & chr);
@@ -617,9 +616,10 @@ utf8_1:  if (src == end)
          syntax_error(st, "недействительный символ UTF-8", line_num, pos, line, end);
          goto error;
       }
-
+symbol:
       switch (lexer) {
       case lex_number:
+         // TODO символ после цифры?
          assert(0);
       case lex_leadingspace:
       case lex_whitespace:
@@ -720,7 +720,6 @@ lexem_string:
       case lex_comment_line:
          goto next_char;
       }
-      break;
    }
    assert(0);
 

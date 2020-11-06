@@ -346,9 +346,7 @@ lexem_identifier_complete_global:
          case ss_identifier:
             assert(function_block == 0);
             if (ids->n[node].val.tag != rft_undefined) {
-               // TODO надо бы отобразить прежнее определение
-               syntax_error(st, "повторное определение функции", line_num, pos, line, end);
-               goto error;
+               goto error_identifier_already_defined;
             }
             cmd_sentence = rf_alloc_command(vm, rf_sentence);
             ids->n[node].val.value = cmd_sentence;
@@ -504,6 +502,9 @@ lexem_identifier_complete_global:
             goto error_identifier_missing;
          // Идентификатор пустой функции (ENUM в Refal-05).
          case ss_identifier:
+            if (ids->n[node].val.tag != rft_undefined) {
+               goto error_identifier_already_defined;
+            }
             ids->n[node].val.tag   = rft_enum;
             ids->n[node].val.value = ++enum_couner;
             lexer = lex_whitespace;
@@ -760,6 +761,11 @@ complete:
 
 error:
    return src - begin;
+
+error_identifier_already_defined:
+   // TODO надо бы отобразить прежнее определение
+   syntax_error(st, "повторное определение функции", line_num, pos, line, end);
+   goto error;
 
 error_incorrect_function_definition:
    syntax_error(st, "некорректное определение функции (пропущено = или { ?)", line_num, pos, line, end);

@@ -400,6 +400,8 @@ lexem_identifier_complete_global:
             assert(cmd_sentence);
             assert(function_block > 0);
             --function_block;
+            // Код операции rf_complete размещается в sentence_complete.
+            vm->cell[cmd_sentence].data = vm->free;
             cmd_sentence = 0;
             goto sentence_complete;
          // ; начинает предложение-образец, пустой в случае завершения функции.
@@ -537,6 +539,7 @@ sentence_complete:
                local = 0;
                ++idc;
             } else {
+               // См. переход сюда из case '}' где подразумевается данный опкод.
                rf_alloc_command(vm, rf_complete);
                semantic = ss_source;
             }

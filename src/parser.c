@@ -471,7 +471,7 @@ lexem_identifier_complete_global:
             assert(ep > 0);
             // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
             if (rtrie_val_from_raw(vm->cell[cmd_exec[ep]].data).tag == rft_undefined) {
-               syntax_error(st, "активное выражение должно содержать имя функции", line_num, pos, line, end);
+               syntax_error(st, "активное выражение должно содержать имя вычислимой функции", line_num, pos, line, end);
                goto error;
             }
             rf_alloc_value(vm, vm->cell[cmd_exec[ep]].data, rf_execute_close);

@@ -46,8 +46,9 @@ size_t refal_parse_text(
    rtrie_index node = 0;      // последний добавленный в префиксное дерево узел.
    rf_int number = 0;         // вычисляемое значение лексемы "число"
 
-   // последний узел глобального идентификатора (функции),
-   // используется как корень для локальных (переменных).
+   // Последний узел глобального идентификатора (текущей функции).
+   // Используется как корень для локальных (переменных)
+   // и для возможности изменить тип функции (с пустой на вычислимую).
    rtrie_index ident = 0;
 
    enum id_type id_type = id_global;
@@ -312,6 +313,10 @@ lexem_identifier_complete_global:
             semantic = ss_expression;
             goto next_char;
          case ss_pattern:
+            if (ids->n[ident].val.tag == rft_enum) {
+               ids->n[ident].val.tag   = rft_byte_code;
+               ids->n[ident].val.value = cmd_sentence;
+            }
             // TODO проверить скобки ().
             rf_alloc_command(vm, rf_equal);
             lexer = lex_whitespace;
@@ -349,8 +354,11 @@ lexem_identifier_complete_global:
                goto error_identifier_already_defined;
             }
             cmd_sentence = rf_alloc_command(vm, rf_sentence);
-            ids->n[node].val.value = cmd_sentence;
-            ids->n[node].val.tag   = rft_byte_code;
+            // Предварительно считаем функцию невычислимой.
+            // При наличии предложений сменим тип и значение.
+            assert(ident == node);
+            ids->n[node].val.value = ++enum_couner;
+            ids->n[node].val.tag   = rft_enum;
             lexer = lex_whitespace;
             semantic = ss_pattern;
             local = 0;

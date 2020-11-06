@@ -86,11 +86,12 @@ size_t refal_parse_text(
    rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
    int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
 
+   enum lexer_state lexer  = lex_leadingspace;
+
 next_line:
    ++line_num;
    const char *line = src;    // начало текущей строки
    unsigned pos = 0;          // номер символа в строке
-   enum lexer_state lexer  = lex_leadingspace;
 
 next_char:
    if (src == end)
@@ -203,24 +204,26 @@ lexem_identifier_complete_global:
       }
    case '\n':
       switch (lexer) {
+      case lex_number:
+         rf_alloc_int(vm, number);
       case lex_leadingspace:
       case lex_whitespace:
-      case lex_comment_c:
       case lex_comment_line:
+         lexer = lex_leadingspace;
+      case lex_comment_c:
          goto next_line;
       case lex_string_quoted:
       case lex_string_dquoted:
          syntax_error(st, "отсутствует закрывающая кавычка", line_num, pos, line, end);
          goto error;
-      case lex_number:
-         rf_alloc_int(vm, number);
-         goto next_line;
       case lex_identifier:
          --src; --pos;
          goto lexem_identifier_complete;
       }
 
    // Начинает строку комментариев, либо может завершать комментарий в стиле Си.
+   // TODO последовательность */ без предшествующей /* воспринимается как
+   //      однострочный комментарий.
    case '*':
       switch (lexer) {
       case lex_number:
@@ -247,8 +250,32 @@ lexem_identifier_complete_global:
 
    // Начинает комментарий в стиле Си.
    case '/':
-      assert(0);
-      break;
+      switch (lexer) {
+      case lex_leadingspace:
+      case lex_whitespace:
+         if (src != end) {
+            if (*src == '/') {
+               ++src;
+               lexer = lex_comment_line;
+               goto next_char;
+            } else if (*src == '*') {
+               ++src;
+               lexer = lex_comment_c;
+               goto next_char;
+            }
+         }
+         assert(0);
+      case lex_number:
+      case lex_identifier:
+         assert(0);
+         break;
+      case lex_comment_line:
+      case lex_comment_c:
+         goto next_char;
+      case lex_string_quoted:
+      case lex_string_dquoted:
+         goto lexem_string;
+      }
 
    // Разделяет части предложения (выражение-образец слева от общего выражения
    // справа) в блоке функции, либо идентификатор простой функции от общего

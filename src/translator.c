@@ -71,10 +71,12 @@ size_t refal_translate_to_bytecode(
 
    // Поскольку в общем выражении вызовы функций могут быть вложены,
    // индексы ячеек с командой rf_execute организованы в стек.
+   // 0й элемент используется при обработке идентификаторов и при отсутствии <>,
+   // поэтому реальное количество скобок на 1 меньше, чем размер массива.
    const int exec_max = REFAL_TRANSLATOR_EXECS_DEFAULT;
    rf_index cmd_exec[exec_max];
-   int ep = 0;
-   cmd_exec[ep] = 0;
+   int ep = 0;       // адресует последний занятый элемент,
+   cmd_exec[ep] = 0; // изначально пустой (используется не только при закрытии >)
 
    // Структурные скобки организованы в стек по той же причине.
    // Запоминается адрес открывающей, что бы связать с парной закрывающей.
@@ -449,10 +451,10 @@ lexem_identifier_complete_global:
          case ss_pattern:
             goto error_executor_in_pattern;
          case ss_expression:
-            if (!(ep < exec_max)) {
+            if (!(++ep < exec_max)) {
                syntax_error(st, "превышен лимит вложенности вычислительных скобок", line_num, pos, line, end);
+               goto error;
             }
-            ++ep;
             cmd_exec[ep] = rf_alloc_command(vm, rf_execute);
             lexer = lex_whitespace;
             goto next_char;

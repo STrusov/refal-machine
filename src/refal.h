@@ -461,6 +461,21 @@ rf_index rf_alloc_int(
 }
 
 /**
+ * Связывает открывающую и закрывающую скобки ссылками друг на друга.
+ */
+static inline
+void rf_link_brackets(
+      struct refal_vm   *restrict vm,
+      rf_index opening,
+      rf_index closing)
+{
+    assert(vm->cell[opening].tag == rf_opening_bracket);
+    assert(vm->cell[closing].tag == rf_closing_bracket);
+    vm->cell[opening].link = closing;
+    vm->cell[closing].link = opening;
+}
+
+/**
  * Проверяет, пусто ли подвыражение (e-переменная).
  * \result ненулевое значение, если между prev и next отсутствуют звенья.
  */

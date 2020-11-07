@@ -76,6 +76,12 @@ size_t refal_translate_to_bytecode(
    int ep = 0;
    cmd_exec[ep] = 0;
 
+   // Структурные скобки организованы в стек по той же причине.
+   // Запоминается адрес открывающей, что бы связать с парной закрывающей.
+   const int bracket_max = REFAL_TRANSLATOR_BRACKETS_DEFAULT;
+   rf_index bracket[bracket_max];
+   int bp = 0; // адресует свободный элемент.
+
    // Значение задаётся пустым функциям (ENUM в Refal-05) для сопоставления.
    rf_index enum_couner = 0;
 
@@ -311,6 +317,10 @@ lexem_identifier_complete_global:
             semantic = ss_expression;
             goto next_char;
          case ss_pattern:
+            if (bp) {
+               syntax_error(st, "не закрыта структурная скобка", line_num, pos, line, end);
+               goto error;
+            }
             if (ids->n[ident].val.tag == rft_enum) {
                ids->n[ident].val.tag   = rft_byte_code;
                ids->n[ident].val.value = cmd_sentence;
@@ -489,6 +499,70 @@ lexem_identifier_complete_global:
          }
       }
 
+   case '(':
+      switch (lexer) {
+      case lex_comment_c:
+      case lex_comment_line:
+         goto next_char;
+      case lex_string_quoted:
+      case lex_string_dquoted:
+         goto lexem_string;
+      case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
+      case lex_number:
+         rf_alloc_int(vm, number);
+      case lex_leadingspace:
+      case lex_whitespace:
+         switch (semantic) {
+         case ss_source:
+            goto error_identifier_missing;
+         case ss_identifier:
+            goto error_incorrect_function_definition;
+         case ss_pattern:
+         case ss_expression:
+            if (!(bp < bracket_max)) {
+               syntax_error(st, "превышен лимит вложенности структурных скобок", line_num, pos, line, end);
+               goto error;
+            }
+            bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
+            lexer = lex_whitespace;
+            goto next_char;
+         }
+      }
+
+   case ')':
+      switch (lexer) {
+      case lex_comment_c:
+      case lex_comment_line:
+         goto next_char;
+      case lex_string_quoted:
+      case lex_string_dquoted:
+         goto lexem_string;
+      case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
+      case lex_number:
+         rf_alloc_int(vm, number);
+      case lex_leadingspace:
+      case lex_whitespace:
+         switch (semantic) {
+         case ss_source:
+            goto error_identifier_missing;
+         case ss_identifier:
+            goto error_incorrect_function_definition;
+         case ss_pattern:
+         case ss_expression:
+            if (!bp) {
+               syntax_error(st, "непарная структурная скобка", line_num, pos, line, end);
+               goto error;
+            }
+            rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
+            lexer = lex_whitespace;
+            goto next_char;
+         }
+      }
+
    case ';':
       switch (lexer) {
       case lex_comment_c:
@@ -525,6 +599,10 @@ lexem_identifier_complete_global:
 sentence_complete:
             if (ep) {
                syntax_error(st, "не закрыта вычислительная скобка", line_num, pos, line, end);
+               goto error;
+            }
+            if (bp) {
+               syntax_error(st, "не закрыта структурная скобка", line_num, pos, line, end);
                goto error;
             }
             // В функциях с блоком сохраняем в маркере текущего предложения

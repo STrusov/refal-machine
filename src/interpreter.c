@@ -6,14 +6,7 @@
 #include "library.h"
 #include "rtrie.h"
 #include "refal.h"
-
-size_t refal_parse_text(
-      struct refal_trie    *ids,
-      struct refal_vm      *vm,
-      const char           *begin,
-      const char           *end,
-      struct refal_message *st
-      );
+#include "translator.h"
 
 
 static inline
@@ -399,7 +392,7 @@ size_t translate(
          critical_error(st, "исходный текст недоступен", -errno, source_size);
       return -1;
    }
-   size_t r = refal_parse_text(&ri->ids, &ri->vm, source, &source[source_size], st);
+   size_t r = refal_translate_to_bytecode(&ri->ids, &ri->vm, source, &source[source_size], st);
    munmap((void*)source, source_size);
    return source_size - r;
 }

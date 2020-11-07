@@ -2,7 +2,7 @@ TARGET = refint
 
 SOURCES_ROOT = $(PROJECT_ROOT)src/
 HEADERS := $(notdir $(wildcard $(SOURCES_ROOT)*.h))
-SOURCES := interpreter.c library.c message_print.c parser.c
+SOURCES := interpreter.c library.c message_print.c translator.c
 
 CFLAGS  := -std=c18 -Wall
 

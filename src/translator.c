@@ -1,13 +1,11 @@
 
+#include "translator.h"
+
 #include <assert.h>
 #include <stddef.h>
 
 #include "rtrie.h"
-#include "message.h"
-#include "refal.h"
 
-/** При трансляции выдаётся замечание о копировании переменной (дорогая операция).*/
-#define REFAL_PERFORMANCE_NOTICE_EVAR_COPY
 
 enum lexer_state {
    lex_leadingspace,    ///< Пробелы в начале строки.
@@ -35,7 +33,7 @@ enum id_type {
    id_evar   = rf_evar,       ///< e-переменная (произвольное количество элементов.
 };
 
-size_t refal_parse_text(
+size_t refal_translate_to_bytecode(
       struct refal_trie    *const restrict ids,
       struct refal_vm      *const restrict vm,
       const char           *const begin,
@@ -61,9 +59,9 @@ size_t refal_parse_text(
    rf_index local = 0;           // значение локального идентификатора.
    // Поскольку все кроме одного вхождения e-переменной в выражении-результате
    // приходится копировать, используем массив для отслеживания их компиляций.
-   rf_index local_max = 100;
+   rf_index local_max = REFAL_TRANSLATOR_LOCALS_DEFAULT;
    struct {
-#ifdef REFAL_PERFORMANCE_NOTICE_EVAR_COPY
+#ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
       const char  *src;
       unsigned    line;
       unsigned    pos;
@@ -73,7 +71,7 @@ size_t refal_parse_text(
 
    // Поскольку в общем выражении вызовы функций могут быть вложены,
    // индексы ячеек с командой rf_execute организованы в стек.
-   const int exec_max = 100;
+   const int exec_max = REFAL_TRANSLATOR_EXECS_DEFAULT;
    rf_index cmd_exec[exec_max];
    int ep = 0;
    cmd_exec[ep] = 0;
@@ -163,13 +161,13 @@ lexem_identifier_complete:
                rf_index id = ids->n[node].val.value;
                if (id_type == id_evar && var[id].opcode) {
                   vm->cell[var[id].opcode].tag = rf_evar_copy;
-#ifdef REFAL_PERFORMANCE_NOTICE_EVAR_COPY
+#ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                   performance(st, "создаётся копия e-переменной", var[id].line,
                                   var[id].pos, var[id].src, end);
 #endif
                }
                var[id].opcode = rf_alloc_value(vm, id, id_type);
-#ifdef REFAL_PERFORMANCE_NOTICE_EVAR_COPY
+#ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                var[id].src  = line;
                var[id].line = line_num;
                var[id].pos  = pos;  // TODO указывает на последующий пробел.

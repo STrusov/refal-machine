@@ -112,23 +112,49 @@ int interpret(
 
 //   rf_index bracket[];
 
+   // Здесь хранятся индексы e-переменных в порядке их появления в образце.
+   // Если имеется несколько способов присваивания значений свободным переменным
+   // (то есть e-переменным, чей размер изначально не известен), то выбирается
+   // такой способ, при котором самая левая принимает наиболее короткое значение.
+   // Для чего при первом вхождении размер переменной (в `var_stack[]`) задаётся
+   // пустым, а индекс и адрес инструкции сохраняются в нижеследующем стеке.
+   // В случае, если в текущих границах e-переменных сопоставление не происходит,
+   // границы переменной с вершины стека (то есть самой правой) увеличиваются
+   // и образец проверяется повторно. Если же увеличение размера правой
+   // переменной не приводит к сопоставлению, расширяем предыдущую, начав
+   // формирование последующих заново. И так далее, рекурсивно до начала стека.
+   unsigned evar_max = REFAL_TRANSLATOR_LOCALS_DEFAULT;
+   struct {
+      rf_index ip;   // откат образца при расширении evar
+      rf_index idx;  // откат поля зрения на переменную с данным индексом.
+   } evar[evar_max];
+
 execute:
    ++step;
    enum interpreter_state state = is_pattern;
    rf_index ip  = next_sentence;       // текущая инструкция в предложении
    rf_index cur = vm->cell[prev].next; // текущий элемент в образце
-   rf_index evar_ip = 0;   // откат образца при расширении evar
-   rf_index evar = vars;   // откат поля зрения (изначально недействителен).
    rf_index result = 0;    // результат формируется между этой и vm->free.
+   int ep = -1;      // текущая открытая e-переменная (индекс недействителен исходно)
+
 sentence:
-   // При возможности расширяем последнюю e-переменную в текущем предложении.
+   // При возможности расширяем e-переменные в текущем предложении.
    // Иначе переходим к следующему образцу.
-   if (evar < vars && var[evar].next != next) {
-      cur = vm->cell[var[evar].next].next;
-      var[evar].next = cur;
-      ip = evar_ip;
+   if (ep >= 0) {
+      // Если при расширении правой переменной безуспешно дошли до конца образца,
+      // откатываем на предыдущую e-переменную.
+      while (var[evar[ep].idx].next == next) {
+         if (--ep < 0)
+            goto next_sentence;
+      }
+      local = evar[ep].idx;
+      cur = vm->cell[var[local].next].next;
+      var[local].next = cur;
+      ip = evar[ep].ip;
+      ++local;
    } else {
-      evar = vars;
+next_sentence:
+      ep = -1;
       local = 0;
       ip = next_sentence;
    }
@@ -228,20 +254,31 @@ sentence:
             // возможного расширения диапазона (если дальше образец расходится).
             // При повторных — сопоставляем.
             if (vm->cell[ip].link >= local) {
-               evar = vm->cell[ip].link;
-               assert(local == evar);   // TODO убрать, заменив условие выше.
+               if (++ep == evar_max) {
+                  // TODO аналогичная проверка выполняется и при трансляции.
+                  inconsistence(st, "превышен лимит e-переменных", ep, ip);
+                  goto error;
+               }
+               assert(local == vm->cell[ip].link);   // TODO убрать, заменив условие выше.
+               evar[ep].idx = vm->cell[ip].link;
                if (&var[local] == &var_stack[vars]) {
                   goto error_var_stack_overflow;
                }
-               var[evar].s    = cur;
-               var[evar].next = cur;
+               var[local].s    = cur;
+               var[local].next = cur;
                ++local;
-               evar_ip = vm->cell[ip].next;
+               evar[ep].ip = vm->cell[ip].next;
                goto next;  // cur не меняется, исходно диапазон пуст.
             } else {
-               assert(0);
-               //if (!rf_evar_equal(vm, cur, next, var[evar-1], var[evar]))
-
+               rf_index e = vm->cell[ip].link;
+               // Размер закрытой переменной равен таковому для первого вхождения.
+               for (rf_index s = var[e].s; s != var[e].next; s = vm->cell[s].next) {
+                  if (vm->cell[s].data != vm->cell[cur].data
+                   || vm->cell[s].tag != vm->cell[cur].tag)
+                     goto sentence;
+                  cur = vm->cell[cur].next;
+               }
+               goto next;
             }
          case is_expression:
 evar_expression:

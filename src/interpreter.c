@@ -110,6 +110,8 @@ int interpret(
    // начиная с 0. Используем счётчик как индикатор инициализации переменных.
    unsigned local = 0;
 
+//   rf_index bracket[];
+
 execute:
    ++step;
    enum interpreter_state state = is_pattern;
@@ -144,8 +146,6 @@ sentence:
       case rf_number:
       case rf_atom:
       case rf_identifier:
-      case rf_opening_bracket:
-      case rf_closing_bracket:
          switch (state) {
          case is_pattern:
             // При наличии данных в Поле Зрения сравниваем с образцом.
@@ -156,6 +156,35 @@ sentence:
             goto next;
          case is_expression:
             rf_alloc_value(vm, vm->cell[ip].data, tag);
+            goto next;
+         }
+
+      case rf_opening_bracket:
+         switch (state) {
+         case is_pattern:
+            // Данные (link) не совпадают (адресуют разные скобки).
+            if (cur == next || vm->cell[cur].tag != rf_opening_bracket) {
+               goto sentence;
+            }
+            cur = vm->cell[cur].next;
+            goto next;
+         case is_expression:
+            // TODO связать с закрывающей.
+            rf_alloc_command(vm, rf_opening_bracket);
+            goto next;
+         }
+
+      case rf_closing_bracket:
+         switch (state) {
+         case is_pattern:
+            if (cur == next || vm->cell[cur].tag != rf_closing_bracket) {
+               goto sentence;
+            }
+            cur = vm->cell[cur].next;
+            goto next;
+         case is_expression:
+            // TODO связать с открывающей.
+            rf_alloc_command(vm, rf_closing_bracket);
             goto next;
          }
 

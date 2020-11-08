@@ -1,0 +1,17 @@
+* Тесты взяты из Refal-05 (автор Александр Коновалов)
+* https://github.com/Mazdaywik/Refal-05
+
+Test {
+   e.Begin (e.Inner) e.End (e.Left 'X' e.Inner)
+      = <Prout "evar-loops-nested">;
+}
+
+WithE {
+   (e.Prefix e.Suffix) e.Prefixes-B (e.Prefix) e.Suffix
+      = <Prout "evar-loops-in-empty-subexpr">;
+}
+
+go = <Test ('er') ('super') ('super') ('abba' 'X' 'super')>
+     <WithE ('prefix') ('prefix')>
+     <WithE () ()>;
+

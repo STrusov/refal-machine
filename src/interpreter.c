@@ -217,8 +217,7 @@ next_sentence:
             goto next;
          case is_expression:
             if (bp == bracket_max) {
-               inconsistence(st, "переполнен стек структурных скобок", bp, ip);
-               goto error;
+               goto error_bracket_stack_overflow;
             }
             bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
             goto next;
@@ -312,11 +311,9 @@ next_sentence:
                goto next;
             }
          case is_expression:
-evar_expression:
             if (vm->cell[ip].link >= local) {
                goto error_undefined_variable;
             }
-            // TODO копировать при повторном вхождении.
             const rf_index eidx = vm->cell[ip].link;
             if (var[eidx].s != var[eidx].next) {
                rf_alloc_evar_move(vm, vm->cell[var[eidx].s].prev, var[eidx].next);
@@ -330,8 +327,29 @@ evar_expression:
             inconsistence(st, "rf_evar_copy в образце", ip, step);
             goto error;
          case is_expression:
-            assert(0);
-            goto evar_expression;
+            if (vm->cell[ip].link >= local) {
+               goto error_undefined_variable;
+            }
+            const rf_index e = vm->cell[ip].link;
+            for (rf_index s = var[e].s; s != var[e].next; s = vm->cell[s].next) {
+               rf_type t = vm->cell[s].tag;
+               switch (t) {
+               case rf_opening_bracket:
+                  if (bp == bracket_max) {
+                     goto error_bracket_stack_overflow;
+                  }
+                  bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
+                  break;
+               case rf_closing_bracket:
+                  // Непарная скобка должна быть определена при сопоставлении.
+                  assert(bp);
+                  rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
+                  break;
+               default:
+                  rf_alloc_value(vm, vm->cell[s].data, t);
+               }
+            }
+            goto next;
          }
 
       // Начало предложения. Далее следует выражение-образец (возможно, пустое).
@@ -467,6 +485,10 @@ error_undefined_variable:
 
 error_var_stack_overflow:
    inconsistence(st, "стек переменных исчерпан", &var[local] - var_stack, vars);
+   goto error;
+
+error_bracket_stack_overflow:
+   inconsistence(st, "переполнен стек структурных скобок", bp, ip);
    goto error;
 }
 

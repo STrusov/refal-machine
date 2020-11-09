@@ -110,7 +110,12 @@ int interpret(
    // начиная с 0. Используем счётчик как индикатор инициализации переменных.
    unsigned local = 0;
 
-//   rf_index bracket[];
+   // В стеке хранится индекс ячейки открывающей структурной скобки,
+   // используемый для связывания с парной закрывающей (при копировании
+   // e-переменных и формировании результата командами из поля программы).
+   unsigned bracket_max = 5 * stack_size;
+   rf_index bracket[bracket_max];
+   unsigned bp = 0;
 
    // Здесь хранятся индексы e-переменных в порядке их появления в образце.
    // Если имеется несколько способов присваивания значений свободным переменным
@@ -137,6 +142,9 @@ execute:
    rf_index result = 0;    // результат формируется между этой и vm->free.
    int ep = -1;      // текущая открытая e-переменная (индекс недействителен исходно)
 
+   // Тип текущего элемента образца.
+   rf_type tag = rf_undefined;
+
 sentence:
    // При возможности расширяем e-переменные в текущем предложении.
    // Иначе переходим к следующему образцу.
@@ -149,6 +157,19 @@ sentence:
       }
       local = evar[ep].idx;
       cur = vm->cell[var[local].next].next;
+      // Пропуск до закрытой скобки можно считать преждевременной оптимизацией,
+      // но иначе придётся вводить лишнюю сущность для проверки баланса скобок.
+      if (tag != rf_opening_bracket && vm->cell[cur].tag == rf_opening_bracket) {
+         cur = vm->cell[cur].link;
+         // TODO накладно проверять, попадает ли индекс в диапазон до next.
+         // Задача транслятора это гарантировать. Для случая, когда байт-код
+         // получен из другого источника, проверим на принадлежность массиву.
+         if (!(cur < vm->size)) {
+            inconsistence(st, "недействительная структурная скобка", cur, vm->size);
+            goto error;
+         }
+         cur = vm->cell[cur].next;
+      }
       var[local].next = cur;
       ip = evar[ep].ip;
       ++local;
@@ -162,7 +183,7 @@ next_sentence:
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
       // - [не определено] — для обычных функций несколько предложений в {блоке}.
-      rf_type tag = vm->cell[ip].tag;
+      tag = vm->cell[ip].tag;
       switch (tag) {
       case rf_undefined:
          inconsistence(st, "значение не определено", ip, step);
@@ -195,8 +216,11 @@ next_sentence:
             cur = vm->cell[cur].next;
             goto next;
          case is_expression:
-            // TODO связать с закрывающей.
-            rf_alloc_command(vm, rf_opening_bracket);
+            if (bp == bracket_max) {
+               inconsistence(st, "переполнен стек структурных скобок", bp, ip);
+               goto error;
+            }
+            bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
             goto next;
          }
 
@@ -209,8 +233,12 @@ next_sentence:
             cur = vm->cell[cur].next;
             goto next;
          case is_expression:
-            // TODO связать с открывающей.
-            rf_alloc_command(vm, rf_closing_bracket);
+            if (!bp) {
+               // TODO аналогичная проверка выполняется и при трансляции.
+               inconsistence(st, "непарная закрывающая скобка", ip, step);
+               goto error;
+            }
+            rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
             goto next;
          }
 
@@ -273,8 +301,11 @@ next_sentence:
                rf_index e = vm->cell[ip].link;
                // Размер закрытой переменной равен таковому для первого вхождения.
                for (rf_index s = var[e].s; s != var[e].next; s = vm->cell[s].next) {
-                  if (vm->cell[s].data != vm->cell[cur].data
-                   || vm->cell[s].tag != vm->cell[cur].tag)
+                  rf_type t = vm->cell[s].tag;
+                  if (t != vm->cell[cur].tag)
+                     goto sentence;
+                  if (t != rf_opening_bracket && t != rf_closing_bracket
+                   && vm->cell[s].data != vm->cell[cur].data)
                      goto sentence;
                   cur = vm->cell[cur].next;
                }

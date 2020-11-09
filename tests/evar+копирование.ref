@@ -1,0 +1,12 @@
+
+Test {
+  (e.1) (e.2) (e.3) = e.2 e.1 e.2 e.3 e.2;
+}
+
+Eq { (e.x) e.x = <Prout 'copies-e: ' e.x>; }
+
+go =
+   <Eq ('xxyy') <Test ('xx') () ('yy')>>
+   <Eq ('zzxxzzyyzz') <Test ('xx') ('zz') ('yy')>>
+   <Eq (('zz')'xx'('zz')'yy'('zz')) <Test ('xx') (('zz')) ('yy')>>
+   ;

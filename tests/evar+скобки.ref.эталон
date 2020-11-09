@@ -1,0 +1,4 @@
+repeated-left
+repeated-right
+e.1:AB e.2:C+DEF
+e.:AB-[31m([0mC+DEF[31m)[0m

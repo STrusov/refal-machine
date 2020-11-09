@@ -1,0 +1,32 @@
+* Тесты взяты из Refal-05 (автор Александр Коновалов)
+* https://github.com/Mazdaywik/Refal-05
+
+Eq-l { e.Equal (e.Equal) = <Prout "repeated-left">; }
+
+Test-l {
+   (e.Repeated) e.Repeated e.Repeated e.Tail = (e.Repeated) (e.Tail);
+}
+
+
+Eq-r { e.Equal (e.Equal) = <Prout "repeated-right">; }
+
+Test-r {
+   (e.Repeated) e.Tail e.Repeated e.Repeated = (e.Repeated) (e.Tail);
+}
+
+
+* Примеры из книги «РЕФАЛ-5 Руководство…» (автор Турчин В.Ф.)
+
+e1 {
+   e.1 '+' e.2 = <Prout 'e.1:' e.1 ' e.2:' e.2>;
+   e. = <Prout 'e.:'e.>
+}
+
+go =
+   <Eq-l <Test-l () 'ABC'> (() ('ABC'))>
+   <Eq-r <Test-r () 'ABC'> (() ('ABC'))>
+
+   <e1 'A' 'B' '+' 'C' '+' 'D' 'E' 'F'>
+   <e1 'A' 'B' '-' ('C' '+' 'D' 'E' 'F')>
+   ;
+

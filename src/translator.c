@@ -167,10 +167,10 @@ lexem_identifier_complete:
                // При следующем вхождении устанавливаем значение tag2 по
                // сохранённому индексу, а индекс заменяем на текущий.
                rf_index id = ids->n[node].val.value;
-               if (id_type == id_evar && var[id].opcode) {
+               if (id_type != id_svar && var[id].opcode) {
                   vm->u[var[id].opcode].tag2 = 1;
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
-                  performance(st, "создаётся копия e-переменной", var[id].line,
+                  performance(st, "создаётся копия переменной", var[id].line,
                                   var[id].pos, var[id].src, end);
 #endif
                }

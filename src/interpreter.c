@@ -165,8 +165,7 @@ sentence:
          // Задача транслятора это гарантировать. Для случая, когда байт-код
          // получен из другого источника, проверим на принадлежность массиву.
          if (!(cur < vm->size)) {
-            inconsistence(st, "недействительная структурная скобка", cur, vm->size);
-            goto error;
+            goto error_link_out_of_range;
          }
          cur = vm->u[cur].next;
       }
@@ -180,6 +179,10 @@ next_sentence:
       ip = next_sentence;
    }
    while (1) {
+      // Индекс текущей переменной. Вынесен сюда, поскольку
+      // обработка t-переменных совмещена с таковой для s- и e-.
+      rf_index v = -1;
+
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
       // - [не определено] — для обычных функций несколько предложений в {блоке}.
@@ -233,31 +236,49 @@ next_sentence:
             goto next;
          case is_expression:
             if (!bp) {
-               // TODO аналогичная проверка выполняется и при трансляции.
-               inconsistence(st, "непарная закрывающая скобка", ip, step);
-               goto error;
+               goto error_parenthesis_unpaired;
             }
             rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
             goto next;
          }
 
       case rf_svar:
+      case rf_tvar:
+         v = vm->u[ip].link;
          switch (state) {
          case is_pattern:
             if (cur == next) {
                goto sentence;
             }
-            const rf_index svar = vm->u[ip].link;
+            // Скобка допустима только для термов (t-переменных)
+            const rf_type t = vm->u[cur].tag;
+            if (t == rf_closing_bracket) {
+               goto error_parenthesis_unpaired;
+            }
             // При первом вхождении присваиваем переменной значение образца.
             // При повторных сопоставляем.
-            if (svar >= local) {
-               assert(local == svar);   // TODO убрать, заменив условие выше.
+            if (v >= local) {
+               assert(local == v);  // TODO убрать, заменив условие выше.
                if (&var[local] == &var_stack[vars]) {
                   goto error_var_stack_overflow;
                }
-               var[svar].s = cur;
+               var[v].s = cur;
+               if (t == rf_opening_bracket) {
+                  if (tag == rf_svar)
+                     goto sentence;
+                  cur = vm->u[cur].link;
+                  // TODO см. замечание в sentence.
+                  if (!(cur < vm->size)) {
+                     goto error_link_out_of_range;
+                  }
+                  assert(vm->u[cur].tag == rf_closing_bracket);
+                  var[v].next = vm->u[cur].next;
+               }
                ++local;
-            } else if (!rf_svar_equal(vm, cur, var[svar].s)) {
+            } else if (t == rf_opening_bracket) {
+               assert(tag == rf_tvar);
+               goto evar_compare;
+            } else if (!rf_svar_equal(vm, cur, var[v].s)) {
                goto sentence;
             }
             cur = vm->u[cur].next;
@@ -266,12 +287,17 @@ next_sentence:
             if (vm->u[ip].link > local) {
                goto error_undefined_variable;
             }
-            const rf_index sval = var[vm->u[ip].link].s;
+            const rf_index sval = var[v].s;
+            if (vm->u[sval].tag == rf_opening_bracket) {
+               assert(tag == rf_tvar);
+               goto evar_express;
+            }
             rf_alloc_value(vm, vm->u[sval].data, vm->u[sval].tag);
             goto next;
          }
 
       case rf_evar:
+         v = vm->u[ip].link;
          switch (state) {
          // e-переменная изначально принимает минимальный (0й размер).
          // Если дальнейшая часть образца не совпадает, размер увеличивается.
@@ -280,7 +306,7 @@ next_sentence:
             // образце (как границу next) и запоминаем индекс переменной для
             // возможного расширения диапазона (если дальше образец расходится).
             // При повторных — сопоставляем.
-            if (vm->u[ip].link >= local) {
+            if (v >= local) {
                if (++ep == evar_max) {
                   // TODO аналогичная проверка выполняется и при трансляции.
                   inconsistence(st, "превышен лимит e-переменных", ep, ip);
@@ -297,9 +323,9 @@ next_sentence:
                evar[ep].ip = vm->u[ip].next;
                goto next;  // cur не меняется, исходно диапазон пуст.
             } else {
-               rf_index e = vm->u[ip].link;
+evar_compare:
                // Размер закрытой переменной равен таковому для первого вхождения.
-               for (rf_index s = var[e].s; s != var[e].next; s = vm->u[s].next) {
+               for (rf_index s = var[v].s; s != var[v].next; s = vm->u[s].next) {
                   rf_type t = vm->u[s].tag;
                   if (t != vm->u[cur].tag)
                      goto sentence;
@@ -314,11 +340,11 @@ next_sentence:
             if (vm->u[ip].link >= local) {
                goto error_undefined_variable;
             }
-            const rf_index e = vm->u[ip].link;
+evar_express:
             // Копируем все вхождения кроме последнего (которое переносим).
             // Транслятор отметил копии ненулевым tag2.
             if (vm->u[ip].tag2) {
-               for (rf_index s = var[e].s; s != var[e].next; s = vm->u[s].next) {
+               for (rf_index s = var[v].s; s != var[v].next; s = vm->u[s].next) {
                   rf_type t = vm->u[s].tag;
                   switch (t) {
                   case rf_opening_bracket:
@@ -337,8 +363,8 @@ next_sentence:
                   }
                }
             } else {
-               if (var[e].s != var[e].next)
-                  rf_alloc_evar_move(vm, vm->u[var[e].s].prev, var[e].next);
+               if (var[v].s != var[v].next)
+                  rf_alloc_evar_move(vm, vm->u[var[v].s].prev, var[v].next);
             }
             goto next;
          }
@@ -480,6 +506,15 @@ error_var_stack_overflow:
 
 error_bracket_stack_overflow:
    inconsistence(st, "переполнен стек структурных скобок", bp, ip);
+   goto error;
+
+error_parenthesis_unpaired:
+   // TODO аналогичная проверка выполняется и при трансляции.
+   inconsistence(st, "непарная закрывающая скобка", ip, step);
+   goto error;
+
+error_link_out_of_range:
+   inconsistence(st, "недействительная структурная скобка", cur, vm->size);
    goto error;
 }
 

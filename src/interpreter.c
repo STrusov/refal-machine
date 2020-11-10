@@ -89,7 +89,7 @@ int interpret(
 
    // Границы поля зрения:
    rf_index next = vm->free;
-   rf_index prev = vm->cell[next].prev;
+   rf_index prev = vm->u[next].prev;
 
    unsigned stack_size = 100;
    struct {
@@ -137,8 +137,8 @@ int interpret(
 execute:
    ++step;
    enum interpreter_state state = is_pattern;
-   rf_index ip  = next_sentence;       // текущая инструкция в предложении
-   rf_index cur = vm->cell[prev].next; // текущий элемент в образце
+   rf_index ip  = next_sentence;    // текущая инструкция в предложении
+   rf_index cur = vm->u[prev].next; // текущий элемент в образце
    rf_index result = 0;    // результат формируется между этой и vm->free.
    int ep = -1;      // текущая открытая e-переменная (индекс недействителен исходно)
 
@@ -156,11 +156,11 @@ sentence:
             goto next_sentence;
       }
       local = evar[ep].idx;
-      cur = vm->cell[var[local].next].next;
+      cur = vm->u[var[local].next].next;
       // Пропуск до закрытой скобки можно считать преждевременной оптимизацией,
       // но иначе придётся вводить лишнюю сущность для проверки баланса скобок.
-      if (tag != rf_opening_bracket && vm->cell[cur].tag == rf_opening_bracket) {
-         cur = vm->cell[cur].link;
+      if (tag != rf_opening_bracket && vm->u[cur].tag == rf_opening_bracket) {
+         cur = vm->u[cur].link;
          // TODO накладно проверять, попадает ли индекс в диапазон до next.
          // Задача транслятора это гарантировать. Для случая, когда байт-код
          // получен из другого источника, проверим на принадлежность массиву.
@@ -168,7 +168,7 @@ sentence:
             inconsistence(st, "недействительная структурная скобка", cur, vm->size);
             goto error;
          }
-         cur = vm->cell[cur].next;
+         cur = vm->u[cur].next;
       }
       var[local].next = cur;
       ip = evar[ep].ip;
@@ -183,7 +183,7 @@ next_sentence:
       // При входе в функцию, tag первой ячейки:
       // - rf_equal — для простых функций.
       // - [не определено] — для обычных функций несколько предложений в {блоке}.
-      tag = vm->cell[ip].tag;
+      tag = vm->u[ip].tag;
       switch (tag) {
       case rf_undefined:
          inconsistence(st, "значение не определено", ip, step);
@@ -199,10 +199,10 @@ next_sentence:
             if (cur == next || !rf_svar_equal(vm, cur, ip)) {
                goto sentence;
             }
-            cur = vm->cell[cur].next;
+            cur = vm->u[cur].next;
             goto next;
          case is_expression:
-            rf_alloc_value(vm, vm->cell[ip].data, tag);
+            rf_alloc_value(vm, vm->u[ip].data, tag);
             goto next;
          }
 
@@ -210,10 +210,10 @@ next_sentence:
          switch (state) {
          case is_pattern:
             // Данные (link) не совпадают (адресуют разные скобки).
-            if (cur == next || vm->cell[cur].tag != rf_opening_bracket) {
+            if (cur == next || vm->u[cur].tag != rf_opening_bracket) {
                goto sentence;
             }
-            cur = vm->cell[cur].next;
+            cur = vm->u[cur].next;
             goto next;
          case is_expression:
             if (bp == bracket_max) {
@@ -226,10 +226,10 @@ next_sentence:
       case rf_closing_bracket:
          switch (state) {
          case is_pattern:
-            if (cur == next || vm->cell[cur].tag != rf_closing_bracket) {
+            if (cur == next || vm->u[cur].tag != rf_closing_bracket) {
                goto sentence;
             }
-            cur = vm->cell[cur].next;
+            cur = vm->u[cur].next;
             goto next;
          case is_expression:
             if (!bp) {
@@ -247,7 +247,7 @@ next_sentence:
             if (cur == next) {
                goto sentence;
             }
-            const rf_index svar = vm->cell[ip].link;
+            const rf_index svar = vm->u[ip].link;
             // При первом вхождении присваиваем переменной значение образца.
             // При повторных сопоставляем.
             if (svar >= local) {
@@ -260,14 +260,14 @@ next_sentence:
             } else if (!rf_svar_equal(vm, cur, var[svar].s)) {
                goto sentence;
             }
-            cur = vm->cell[cur].next;
+            cur = vm->u[cur].next;
             goto next;
          case is_expression:
-            if (vm->cell[ip].link > local) {
+            if (vm->u[ip].link > local) {
                goto error_undefined_variable;
             }
-            const rf_index sval = var[vm->cell[ip].link].s;
-            rf_alloc_value(vm, vm->cell[sval].data, vm->cell[sval].tag);
+            const rf_index sval = var[vm->u[ip].link].s;
+            rf_alloc_value(vm, vm->u[sval].data, vm->u[sval].tag);
             goto next;
          }
 
@@ -280,43 +280,43 @@ next_sentence:
             // образце (как границу next) и запоминаем индекс переменной для
             // возможного расширения диапазона (если дальше образец расходится).
             // При повторных — сопоставляем.
-            if (vm->cell[ip].link >= local) {
+            if (vm->u[ip].link >= local) {
                if (++ep == evar_max) {
                   // TODO аналогичная проверка выполняется и при трансляции.
                   inconsistence(st, "превышен лимит e-переменных", ep, ip);
                   goto error;
                }
-               assert(local == vm->cell[ip].link);   // TODO убрать, заменив условие выше.
-               evar[ep].idx = vm->cell[ip].link;
+               assert(local == vm->u[ip].link);   // TODO убрать, заменив условие выше.
+               evar[ep].idx = vm->u[ip].link;
                if (&var[local] == &var_stack[vars]) {
                   goto error_var_stack_overflow;
                }
                var[local].s    = cur;
                var[local].next = cur;
                ++local;
-               evar[ep].ip = vm->cell[ip].next;
+               evar[ep].ip = vm->u[ip].next;
                goto next;  // cur не меняется, исходно диапазон пуст.
             } else {
-               rf_index e = vm->cell[ip].link;
+               rf_index e = vm->u[ip].link;
                // Размер закрытой переменной равен таковому для первого вхождения.
-               for (rf_index s = var[e].s; s != var[e].next; s = vm->cell[s].next) {
-                  rf_type t = vm->cell[s].tag;
-                  if (t != vm->cell[cur].tag)
+               for (rf_index s = var[e].s; s != var[e].next; s = vm->u[s].next) {
+                  rf_type t = vm->u[s].tag;
+                  if (t != vm->u[cur].tag)
                      goto sentence;
                   if (t != rf_opening_bracket && t != rf_closing_bracket
-                   && vm->cell[s].data != vm->cell[cur].data)
+                   && vm->u[s].data != vm->u[cur].data)
                      goto sentence;
-                  cur = vm->cell[cur].next;
+                  cur = vm->u[cur].next;
                }
                goto next;
             }
          case is_expression:
-            if (vm->cell[ip].link >= local) {
+            if (vm->u[ip].link >= local) {
                goto error_undefined_variable;
             }
-            const rf_index eidx = vm->cell[ip].link;
+            const rf_index eidx = vm->u[ip].link;
             if (var[eidx].s != var[eidx].next) {
-               rf_alloc_evar_move(vm, vm->cell[var[eidx].s].prev, var[eidx].next);
+               rf_alloc_evar_move(vm, vm->u[var[eidx].s].prev, var[eidx].next);
             }
             goto next;
          }
@@ -327,12 +327,12 @@ next_sentence:
             inconsistence(st, "rf_evar_copy в образце", ip, step);
             goto error;
          case is_expression:
-            if (vm->cell[ip].link >= local) {
+            if (vm->u[ip].link >= local) {
                goto error_undefined_variable;
             }
-            const rf_index e = vm->cell[ip].link;
-            for (rf_index s = var[e].s; s != var[e].next; s = vm->cell[s].next) {
-               rf_type t = vm->cell[s].tag;
+            const rf_index e = vm->u[ip].link;
+            for (rf_index s = var[e].s; s != var[e].next; s = vm->u[s].next) {
+               rf_type t = vm->u[s].tag;
                switch (t) {
                case rf_opening_bracket:
                   if (bp == bracket_max) {
@@ -346,7 +346,7 @@ next_sentence:
                   rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
                   break;
                default:
-                  rf_alloc_value(vm, vm->cell[s].data, t);
+                  rf_alloc_value(vm, vm->u[s].data, t);
                }
             }
             goto next;
@@ -356,8 +356,8 @@ next_sentence:
       case rf_sentence:
          switch (state) {
          case is_pattern:
-            next_sentence = vm->cell[ip].data;
-            cur = vm->cell[prev].next;
+            next_sentence = vm->u[ip].data;
+            cur = vm->u[prev].next;
             goto next;
          case is_expression:
             goto complete;
@@ -390,7 +390,7 @@ next_sentence:
             stack[sp].next   = next;
             stack[sp].result = result;
             ++sp;
-            prev = vm->cell[vm->free].prev;
+            prev = vm->u[vm->free].prev;
             goto next;
          }
 
@@ -400,7 +400,7 @@ next_sentence:
             goto error_execution_bracket;
          case is_expression:
             next = vm->free;
-            struct rtrie_val function = rtrie_val_from_raw(vm->cell[ip].data);
+            struct rtrie_val function = rtrie_val_from_raw(vm->u[ip].data);
             switch (function.tag) {
             case rft_enum:
                inconsistence(st, "пустая функция", ip, step);
@@ -459,7 +459,7 @@ complete:   rf_free_evar(vm, prev, next);
             goto stop;
          }
       }
-next: ip = vm->cell[ip].next;
+next: ip = vm->u[ip].next;
    }
 stop:
    if (!rf_is_evar_empty(vm, prev, next)) {

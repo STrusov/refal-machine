@@ -40,11 +40,11 @@ void rf_output(
 {
    assert(prev != next);
    enum rf_type prevt = rf_undefined;
-   for (rf_index i = prev; (i = vm->cell[i].next) != next; ) {
-      switch (vm->cell[i].tag) {
+   for (rf_index i = prev; (i = vm->u[i].next) != next; ) {
+      switch (vm->u[i].tag) {
       case rf_char: {
             char utf8[5];
-            wchar_t chr = vm->cell[i].chr;
+            wchar_t chr = vm->u[i].chr;
             if (chr < 0x80) {
                utf8[0] = chr;
                utf8[1] = '\x0';
@@ -68,13 +68,13 @@ void rf_output(
             break;
          }
       case rf_number:
-         fprintf(stream, prevt == rf_number ? " %li" : "%li", vm->cell[i].num);
+         fprintf(stream, prevt == rf_number ? " %li" : "%li", vm->u[i].num);
          break;
       case rf_atom:
          fprintf(stream, prevt == rf_atom
                  ? RF_COLOR_SYMBOL" %s"RF_ESC_RESET
                  : RF_COLOR_SYMBOL"%s"RF_ESC_RESET,
-                 vm->cell[i].atom);
+                 vm->u[i].atom);
          break;
       case rf_opening_bracket:
          fprintf(stream, RF_COLOR_BRACKET"("RF_ESC_RESET);
@@ -88,7 +88,7 @@ void rf_output(
          fprintf(stderr, "[%u]: rf_undefined\n", i);
          assert(0);
       }
-      prevt = vm->cell[i].tag;
+      prevt = vm->u[i].tag;
 #ifndef NDEBUG
       fflush(stream);
 #endif

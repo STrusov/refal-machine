@@ -168,7 +168,7 @@ lexem_identifier_complete:
                // индексу на id_evar_copy и индекс на текущий.
                rf_index id = ids->n[node].val.value;
                if (id_type == id_evar && var[id].opcode) {
-                  vm->cell[var[id].opcode].tag = rf_evar_copy;
+                  vm->u[var[id].opcode].tag = rf_evar_copy;
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                   performance(st, "создаётся копия e-переменной", var[id].line,
                                   var[id].pos, var[id].src, end);
@@ -189,8 +189,8 @@ lexem_identifier_complete_global:
                // Если открыта вычислительная скобка, задаём ей адрес
                // первой вычислимой функции из выражения.
                if (ids->n[node].val.tag != rft_enum && cmd_exec[ep]
-               && rtrie_val_from_raw(vm->cell[cmd_exec[ep]].data).tag == rft_undefined) {
-                  vm->cell[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[node].val);
+               && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
+                  vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[node].val);
                } else {
                   rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
                }
@@ -411,7 +411,7 @@ lexem_identifier_complete_global:
             assert(function_block > 0);
             --function_block;
             // Код операции rf_complete размещается в sentence_complete.
-            vm->cell[cmd_sentence].data = vm->free;
+            vm->u[cmd_sentence].data = vm->free;
             cmd_sentence = 0;
             goto sentence_complete;
          // ; начинает предложение-образец, пустой в случае завершения функции.
@@ -422,7 +422,7 @@ lexem_identifier_complete_global:
                syntax_error(st, "образец без общего выражения (пропущено = ?)", line_num, pos, line, end);
                goto error;
             }
-            vm->cell[cmd_sentence].tag = rf_complete;
+            vm->u[cmd_sentence].tag = rf_complete;
             semantic = ss_source;
             goto next_char;
          }
@@ -490,11 +490,11 @@ lexem_identifier_complete_global:
             }
             assert(ep > 0);
             // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
-            if (rtrie_val_from_raw(vm->cell[cmd_exec[ep]].data).tag == rft_undefined) {
+            if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
                syntax_error(st, "активное выражение должно содержать имя вычислимой функции", line_num, pos, line, end);
                goto error;
             }
-            rf_alloc_value(vm, vm->cell[cmd_exec[ep]].data, rf_execute_close);
+            rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute_close);
             cmd_exec[ep--] = 0;
             lexer = lex_whitespace;
             goto next_char;
@@ -611,7 +611,7 @@ sentence_complete:
             // ссылку на данные следующего и размещаем новый маркер.
             if (cmd_sentence) {
                rf_index new_sentence = rf_alloc_command(vm, rf_sentence);
-               vm->cell[cmd_sentence].data = new_sentence;
+               vm->u[cmd_sentence].data = new_sentence;
                cmd_sentence = new_sentence;
                semantic = ss_pattern;
                local = 0;

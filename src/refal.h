@@ -124,9 +124,9 @@ typedef struct rf_cell {
  * частью подвыраждения (операция вставки).
  */
 typedef struct refal_vm {
-   rf_cell     *cell;   ///< Массив, содержащий ячейки.
-   rf_index    size;    ///< Размер массива.
-   rf_index    free;    ///< Первый свободный элемент.
+   rf_cell     *u;   ///< Массив, содержащий ячейки.
+   rf_index    size; ///< Размер массива.
+   rf_index    free; ///< Первый свободный элемент.
 } rf_vm;
 
 /**
@@ -139,19 +139,19 @@ void *refal_vm_init(
       struct refal_vm   *restrict vm,  ///< Структура для инициализации.
       rf_index size)                   ///< Предполагаемый размер (в ячейках).
 {
-   vm->cell = malloc(size * sizeof(rf_cell));
-   if (vm->cell) {
+   vm->u = malloc(size * sizeof(rf_cell));
+   if (vm->u) {
       vm->size = size;
       for (rf_index i = 0; i < size; ++i) {
-         vm->cell[i].tag = rf_undefined;
-         vm->cell[i].next = i + 1;
-         vm->cell[i].tag2 = 0;
-         vm->cell[i + 1].prev = i;
+         vm->u[i].tag = rf_undefined;
+         vm->u[i].next = i + 1;
+         vm->u[i].tag2 = 0;
+         vm->u[i + 1].prev = i;
       }
-      vm->cell[size - 1].next = 0;
+      vm->u[size - 1].next = 0;
       vm->free = 2;   // TODO 1? \see `rf_insert_next()`
    }
-   return vm->cell;
+   return vm->u;
 }
 
 /**
@@ -163,8 +163,8 @@ void refal_vm_free(
 {
    assert(vm);
    // TODO освободить ресурсы, ссылки на которые могут храниться в ячейках.
-   free(vm->cell);
-   vm->cell = 0;
+   free(vm->u);
+   vm->u = 0;
    vm->size = 0;
    vm->free = 0;
 }
@@ -180,10 +180,10 @@ void *refal_vm_check(
       struct refal_message *status)
 {
    assert(vm);
-   if (status && !vm->cell) {
+   if (status && !vm->u) {
       critical_error(status, "недостаточно памяти для поля зрения", -errno, vm->size);
    }
-   return vm->cell;
+   return vm->u;
 }
 
 static inline
@@ -196,8 +196,8 @@ void rf_vm_stats(
    rf_index i = prev;
    size_t view_count = 0;
    while (1) {
-      assert(vm->cell[vm->cell[i].next].prev == i);
-      i = vm->cell[i].next;
+      assert(vm->u[vm->u[i].next].prev == i);
+      i = vm->u[i].next;
       if (i == next)
          break;
       ++view_count;
@@ -206,16 +206,16 @@ void rf_vm_stats(
    i = vm->free;
    while (1) {
       ++forward_count;
-      if (!vm->cell[i].next)
+      if (!vm->u[i].next)
          break;
-      i = vm->cell[i].next;
+      i = vm->u[i].next;
    }
    size_t backward_count = 0;
    while (1) {
       ++backward_count;
       if (i == vm->free)
          break;
-      i = vm->cell[i].prev;
+      i = vm->u[i].prev;
    }
    printf("В поле зрения %lu элементов. Активное подвыражение (%u %u). "
           "Свободно: %lu(%lu).\n", view_count, prev, next,
@@ -258,22 +258,22 @@ void rf_free_evar(
 {
    assert(prev != next);
    assert(vm->free != prev);
-   const rf_index first = vm->cell[prev].next;
+   const rf_index first = vm->u[prev].next;
    if (first != next) {
-      const rf_index last  = vm->cell[next].prev;
+      const rf_index last  = vm->u[next].prev;
       // Связать ячейки, граничащие с удаляемыми.
-      vm->cell[prev].next = next;
-      vm->cell[next].prev = prev;
+      vm->u[prev].next = next;
+      vm->u[next].prev = prev;
       // Добавить ячейки после vm->free.
-      const rf_index heap = vm->cell[vm->free].next;
-      vm->cell[vm->free].next = first;
-      vm->cell[vm->free].tag2 = 0;
-      vm->cell[first].prev = vm->free;
-      vm->cell[first].tag  = rf_undefined;
-      vm->cell[last].next = heap;
-      vm->cell[last].tag2 = 0;
-      vm->cell[heap].prev = last;
-      vm->cell[heap].tag  = rf_undefined;
+      const rf_index heap = vm->u[vm->free].next;
+      vm->u[vm->free].next = first;
+      vm->u[vm->free].tag2 = 0;
+      vm->u[first].prev = vm->free;
+      vm->u[first].tag  = rf_undefined;
+      vm->u[last].next = heap;
+      vm->u[last].tag2 = 0;
+      vm->u[heap].prev = last;
+      vm->u[heap].tag  = rf_undefined;
       // TODO закрыть описатели (handle), при наличии.
    }
 }
@@ -285,7 +285,7 @@ static inline
 void rf_free_last(
       struct refal_vm   *restrict vm)
 {
-   vm->free = vm->cell[vm->free].prev;
+   vm->free = vm->u[vm->free].prev;
 }
 
 /**
@@ -304,12 +304,12 @@ void rf_insert_next(
 {
    assert(first != prev);
    assert(first != vm->free);
-   const rf_index last = vm->cell[vm->free].prev;
-   const rf_index next = vm->cell[prev].next;
-   vm->cell[last].next = next;
-   vm->cell[next].prev = last;
-   vm->cell[prev].next = first;
-   vm->cell[first].prev = prev;
+   const rf_index last = vm->u[vm->free].prev;
+   const rf_index next = vm->u[prev].next;
+   vm->u[last].next = next;
+   vm->u[next].prev = last;
+   vm->u[prev].next = first;
+   vm->u[first].prev = prev;
 }
 
 /**
@@ -323,12 +323,12 @@ void rf_insert_prev(
       rf_index          first)
 {
    assert(first != next);
-   const rf_index last = vm->cell[vm->free].prev;
-   const rf_index prev = vm->cell[next].prev;
-   vm->cell[last].next = next;
-   vm->cell[next].prev = last;
-   vm->cell[prev].next = first;
-   vm->cell[first].prev = prev;
+   const rf_index last = vm->u[vm->free].prev;
+   const rf_index prev = vm->u[next].prev;
+   vm->u[last].next = next;
+   vm->u[next].prev = last;
+   vm->u[prev].next = first;
+   vm->u[first].prev = prev;
 }
 
 /**
@@ -341,16 +341,16 @@ void rf_splice_evar_prev(
       rf_index          next,
       rf_index          pos)
 {
-   const rf_index first = vm->cell[prev].next;
+   const rf_index first = vm->u[prev].next;
    if (first != next) {
-      const rf_index last  = vm->cell[next].prev;
-      const rf_index n_prev = vm->cell[pos].prev;
-      vm->cell[prev].next = next;
-      vm->cell[next].prev = prev;
-      vm->cell[pos].prev  = last;
-      vm->cell[last].next = pos;
-      vm->cell[n_prev].next = first;
-      vm->cell[first].prev = n_prev;
+      const rf_index last  = vm->u[next].prev;
+      const rf_index n_prev = vm->u[pos].prev;
+      vm->u[prev].next = next;
+      vm->u[next].prev = prev;
+      vm->u[pos].prev  = last;
+      vm->u[last].next = pos;
+      vm->u[n_prev].next = first;
+      vm->u[first].prev = n_prev;
    }
 }
 
@@ -375,18 +375,18 @@ rf_index rf_alloc_evar_move(
    assert(prev != next);
    assert(vm->free != prev);
    assert(vm->free != next);
-   const rf_index first = vm->cell[prev].next;
+   const rf_index first = vm->u[prev].next;
    assert(first != next);
-   const rf_index last = vm->cell[next].prev;
+   const rf_index last = vm->u[next].prev;
    // Связать ячейки, граничащие с удаляемыми.
-   vm->cell[prev].next = next;
-   vm->cell[next].prev = prev;
+   vm->u[prev].next = next;
+   vm->u[next].prev = prev;
    // Вставляем перед свободными.
-   const rf_index allocated = vm->cell[vm->free].prev;
-   vm->cell[allocated].next = first;
-   vm->cell[first].prev = allocated;
-   vm->cell[vm->free].prev = last;
-   vm->cell[last].next = vm->free;
+   const rf_index allocated = vm->u[vm->free].prev;
+   vm->u[allocated].next = first;
+   vm->u[first].prev = allocated;
+   vm->u[vm->free].prev = last;
+   vm->u[last].next = vm->free;
    return first;
 }
 
@@ -399,12 +399,12 @@ rf_index rf_alloc_value(
       uint64_t          value,
       rf_type           tag)
 {
-   assert(vm->cell);
+   assert(vm->u);
    assert(vm->free);
    rf_index i = vm->free;
-   vm->cell[i].data = value;
-   vm->cell[i].tag  = tag;
-   vm->free = vm->cell[i].next;
+   vm->u[i].data = value;
+   vm->u[i].tag  = tag;
+   vm->free = vm->u[i].next;
    return i;
 }
 
@@ -427,12 +427,12 @@ rf_index rf_alloc_atom(
       struct refal_vm   *restrict vm,
       const char        *str)
 {
-   assert(vm->cell);
+   assert(vm->u);
    assert(vm->free);
    rf_index i = vm->free;
-   vm->cell[i].atom = str;
-   vm->cell[i].tag  = rf_atom;
-   vm->free = vm->cell[i].next;
+   vm->u[i].atom = str;
+   vm->u[i].tag  = rf_atom;
+   vm->free = vm->u[i].next;
    return i;
 }
 
@@ -469,10 +469,10 @@ void rf_link_brackets(
       rf_index opening,
       rf_index closing)
 {
-    assert(vm->cell[opening].tag == rf_opening_bracket);
-    assert(vm->cell[closing].tag == rf_closing_bracket);
-    vm->cell[opening].link = closing;
-    vm->cell[closing].link = opening;
+    assert(vm->u[opening].tag == rf_opening_bracket);
+    assert(vm->u[closing].tag == rf_closing_bracket);
+    vm->u[opening].link = closing;
+    vm->u[closing].link = opening;
 }
 
 /**
@@ -485,7 +485,7 @@ int rf_is_evar_empty(
       rf_index          prev,
       rf_index          next)
 {
-    return vm->cell[prev].next == next;
+    return vm->u[prev].next == next;
 }
 
 /**
@@ -501,8 +501,8 @@ int rf_svar_equal(
    /* Сначала сравниваем данные, поскольку:                                */
    /* 1. даже при равенстве тегов, они вероятно, различаются;              */
    /* 2. теги хранятся в битовом поле и требуют команды AND для выделения. */
-   return vm->cell[s1].data == vm->cell[s2].data
-       && vm->cell[s1].tag  == vm->cell[s2].tag;
+   return vm->u[s1].data == vm->u[s2].data
+       && vm->u[s1].tag  == vm->u[s2].tag;
 }
 
 /**\}*/

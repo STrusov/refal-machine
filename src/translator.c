@@ -163,12 +163,12 @@ lexem_identifier_complete:
                if (ids->n[node].val.tag == rft_undefined) {
                   goto error_identifier_undefined;
                }
-               // При первом вхождении создаём id_evar и запоминаем её индекс.
-               // При следующем вхождении меняем значение по сохранённому
-               // индексу на id_evar_copy и индекс на текущий.
+               // При первом вхождении создаём переменную и запоминаем её индекс.
+               // При следующем вхождении устанавливаем значение tag2 по
+               // сохранённому индексу, а индекс заменяем на текущий.
                rf_index id = ids->n[node].val.value;
                if (id_type == id_evar && var[id].opcode) {
-                  vm->u[var[id].opcode].tag = rf_evar_copy;
+                  vm->u[var[id].opcode].tag2 = 1;
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                   performance(st, "создаётся копия e-переменной", var[id].line,
                                   var[id].pos, var[id].src, end);

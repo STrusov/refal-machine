@@ -314,40 +314,31 @@ next_sentence:
             if (vm->u[ip].link >= local) {
                goto error_undefined_variable;
             }
-            const rf_index eidx = vm->u[ip].link;
-            if (var[eidx].s != var[eidx].next) {
-               rf_alloc_evar_move(vm, vm->u[var[eidx].s].prev, var[eidx].next);
-            }
-            goto next;
-         }
-
-      case rf_evar_copy:
-         switch (state) {
-         case is_pattern:
-            inconsistence(st, "rf_evar_copy в образце", ip, step);
-            goto error;
-         case is_expression:
-            if (vm->u[ip].link >= local) {
-               goto error_undefined_variable;
-            }
             const rf_index e = vm->u[ip].link;
-            for (rf_index s = var[e].s; s != var[e].next; s = vm->u[s].next) {
-               rf_type t = vm->u[s].tag;
-               switch (t) {
-               case rf_opening_bracket:
-                  if (bp == bracket_max) {
-                     goto error_bracket_stack_overflow;
+            // Копируем все вхождения кроме последнего (которое переносим).
+            // Транслятор отметил копии ненулевым tag2.
+            if (vm->u[ip].tag2) {
+               for (rf_index s = var[e].s; s != var[e].next; s = vm->u[s].next) {
+                  rf_type t = vm->u[s].tag;
+                  switch (t) {
+                  case rf_opening_bracket:
+                     if (bp == bracket_max) {
+                        goto error_bracket_stack_overflow;
+                     }
+                     bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
+                     break;
+                  case rf_closing_bracket:
+                     // Непарная скобка должна быть определена при сопоставлении.
+                     assert(bp);
+                     rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
+                     break;
+                  default:
+                     rf_alloc_value(vm, vm->u[s].data, t);
                   }
-                  bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-                  break;
-               case rf_closing_bracket:
-                  // Непарная скобка должна быть определена при сопоставлении.
-                  assert(bp);
-                  rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
-                  break;
-               default:
-                  rf_alloc_value(vm, vm->u[s].data, t);
                }
+            } else {
+               if (var[e].s != var[e].next)
+                  rf_alloc_evar_move(vm, vm->u[var[e].s].prev, var[e].next);
             }
             goto next;
          }

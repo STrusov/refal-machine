@@ -49,6 +49,13 @@ size_t refal_translate_to_bytecode(
    // и для возможности изменить тип функции (с пустой на вычислимую).
    rtrie_index ident = 0;
 
+   // РЕФАЛ позволяет произвольный порядок определения функций.
+   // При последовательном проходе не все идентификаторы определены, такие
+   // сопровождаются дополнительной информацией и организуются в список,
+   // границы хранятся здесь.
+   rf_index undefined_fist = 0;
+   rf_index undefined_last = 0;
+
    enum id_type id_type = id_global;
    // Локальные идентификаторы храним в таблице символов как продолжение
    // глобальных, отделяясь символом который не может встретиться в Unicode.
@@ -185,20 +192,47 @@ lexem_identifier_complete:
                break;
             }
 lexem_identifier_complete_global:
-            if (!(node < 0) && ids->n[node].val.tag != rft_undefined) {
+            assert(!(node < 0));
+            if (ids->n[node].val.tag != rft_undefined) {
                // Если открыта вычислительная скобка, задаём ей адрес
                // первой вычислимой функции из выражения.
                if (ids->n[node].val.tag != rft_enum && cmd_exec[ep]
                && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
+                  // Если в поле действия данной скобки встретился идентификатор,
+                  // который на данный момент не определён, не известно,
+                  // вычислим ли он. Возможно, именно определённая для него
+                  // функция и должна быть вызвана скобкой. В таком случае
+                  // откладываем решение до этапа, когда разрешаются
+                  // неопределённые на данном проходе идентификаторы.
+                  if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).value)
+                     goto lexem_identifier_undefined;
                   vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[node].val);
                } else {
                   rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
                }
-               // TODO заменить символы идентификатора связанным значением
-               // из префиксного дерева (пока символы не копируются, см. далее).
             } else {
-               // TODO РЕФАЛ позволяет объявлять функции после использования в тексте.
-               goto error_identifier_undefined;
+lexem_identifier_undefined:
+               // После первого прохода поищем, не появилось ли определение.
+               rf_alloc_value(vm, node, rf_undefined);
+               rf_index l = rf_alloc_value(vm, 0, rf_undefined);
+               if (!undefined_fist)
+                  undefined_fist = l;
+               if (undefined_last)
+                  vm->u[undefined_last].link = l;
+               undefined_last = l;
+               // Если открыта скобка и функция ей не присвоена, добавим
+               // rf_execute, а скобке зададим фиктивное значение, что бы при
+               // проверке в закрывающей скобке отличить неопределённые
+               // идентификаторы от отсутствия таковых.
+               if (cmd_exec[ep] && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
+                  rf_alloc_value(vm, cmd_exec[ep], rf_execute);
+                  struct rtrie_val f = { .tag = rft_undefined, .value = 1 };
+                  vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(f);
+               }
+               // На случай ошибки.
+               rf_alloc_value(vm, line_num, rf_undefined);
+               rf_alloc_value(vm, pos, rf_undefined);
+               rf_alloc_atom(vm, line);
             }
             goto next_char;
          }
@@ -490,11 +524,17 @@ lexem_identifier_complete_global:
             }
             assert(ep > 0);
             // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
-            if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
-               syntax_error(st, "активное выражение должно содержать имя вычислимой функции", line_num, pos, line, end);
-               goto error;
+            // Если функция не определена, но между скобок содержатся
+            // идентификаторы (.value == 1) задаём открывающей скобке ссылку на эту.
+            rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute_close);
+            struct rtrie_val f = rtrie_val_from_raw(vm->u[cmd_exec[ep]].data);
+            if (f.tag == rft_undefined) {
+               if (!f.value) {
+                  syntax_error(st, "активное выражение должно содержать имя вычислимой функции", line_num, pos, line, end);
+                  goto error;
+               }
+               vm->u[cmd_exec[ep]].data = ec;
             }
-            rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute_close);
             cmd_exec[ep--] = 0;
             lexer = lex_whitespace;
             goto next_char;
@@ -794,11 +834,9 @@ lexem_identifier_local_exp_check:
             default:
 lexem_identifier_global:
                id_type = id_global;
-               // Если идентификатор уже определён, можно будет заменить его значением.
-               node = rtrie_find_first(ids, chr);
-#if 0
-               rf_alloc_atom(vm, chr);
-#endif
+               // Если идентификатор не существует, добавляем.
+               // После первого прохода проверим, не появилось ли определение.
+               node = rtrie_insert_first(ids, chr);
                goto next_char;
             }
          }
@@ -822,10 +860,7 @@ lexem_identifier:
                break;
             }
          case ss_expression:
-            node = rtrie_find_next(ids, node, chr);
-#if 0
-            rf_alloc_atom(vm, chr);
-#endif
+            node = rtrie_insert_next(ids, node, chr);
             goto next_char;
          }
       case lex_string_quoted:
@@ -846,6 +881,76 @@ complete:
          syntax_error(st, "не завершено определение функции (пропущена } ?)", line_num, pos, line, end);
       else
          syntax_error(st, "не завершено определение функции (пропущена ; ?)", line_num, pos, line, end);
+      goto error;
+   }
+
+   // Ищем, не появилось ли определение идентификаторов.
+   // На первой итерации проверяем только идентификаторы внутри скобок,
+   // что бы присвоить адрес вычислимой функции. Подходящий идентификатор
+   // маркируется для удаления на следующей итерации (список односвязный).
+   // На второй итерации разрешаем оставшиеся идентификаторы, удаляя их.
+   // Если какой-то оказывается внутри скобки, которой так и не присвоен адрес,
+   // значит активное выражение не может быть вычислено, сообщаем об ошибке.
+   for (int ex = 1; ex >= 0; --ex) {
+      rf_index last_exec = 0;
+      for (rf_index undef = undefined_fist; undef; ) {
+         assert(vm->u[undef].tag == rf_undefined);
+         const rf_index opcode = vm->u[undef].prev;
+         rf_index s = vm->u[undef].next;
+         undef = vm->u[undef].link;
+
+         rf_index exec_open = 0;
+         if (vm->u[s].tag == rf_execute) {
+            exec_open = vm->u[s].link;
+            s = vm->u[s].next;
+         } else if (ex) {
+            continue;
+         }
+         line_num = vm->u[s].num;
+         s = vm->u[s].next;
+         pos  = vm->u[s].num;
+         s = vm->u[s].next;
+         line = vm->u[s].atom;
+         s = vm->u[s].next;
+
+         if (vm->u[opcode].tag == rf_complete) {
+            assert(!ex);
+            rf_free_evar(vm, vm->u[opcode].prev, s);
+            continue;
+         }
+         rtrie_index n = vm->u[opcode].link;
+         if (ids->n[n].val.tag == rft_undefined) {
+            // TODO Надо ли связывать оставшиеся в список?
+            if (!ex)
+               syntax_error(st, "идентификатор не определён", line_num, pos, line, end);
+            continue;
+         }
+         // Скобке присваивается первая вычислимая функция, так что порядок
+         // обработки списка неопределённых идентификаторов важен.
+         if (exec_open) {
+            rf_index exec_close = vm->u[exec_open].link;
+            if (rtrie_val_from_raw(vm->u[exec_close].data).tag == rft_undefined) {
+               if (ids->n[n].val.tag != rft_enum) {
+                  assert(ex);
+                  vm->u[exec_close].data = rtrie_val_to_raw(ids->n[n].val);
+                  // временный маркер для следующей итерации.
+                  vm->u[opcode].tag = rf_complete;
+                  continue;
+               } else if (ex) {
+                  continue;
+               } else if (last_exec != exec_close) {
+                  last_exec = exec_close;
+                  syntax_error(st, "активное выражение должно содержать "
+                               "вычислимую функцию", line_num, pos, line, end);
+               }
+            } else if (ex) {
+               continue;
+            }
+         }
+         vm->u[opcode].tag  = rf_identifier;
+         vm->u[opcode].link = rtrie_val_to_raw(ids->n[n].val);
+         rf_free_evar(vm, opcode, s);
+      }
    }
 
 error:

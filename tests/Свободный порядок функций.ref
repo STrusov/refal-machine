@@ -1,0 +1,16 @@
+
+go = <f1>
+     <f3 id4>;
+
+f1 = <id1 f2 f1 id2>;
+
+f2 {
+   id1 f1 id2 = <Prout 'f2'>;
+}
+
+f3 {
+   id4 = <Prout 'f3'>;
+}
+
+id2;
+id1;

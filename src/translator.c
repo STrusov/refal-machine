@@ -920,10 +920,12 @@ complete:
          }
          rtrie_index n = vm->u[opcode].link;
          if (ids->n[n].val.tag == rft_undefined) {
-            // TODO Надо ли связывать оставшиеся в список?
-            if (!ex)
-               syntax_error(st, "идентификатор не определён", line_num, pos, line, end);
-            continue;
+            // TODO опциональное поведение?
+            if (ex)
+               continue;
+            warning(st, "неявное определение идентификатора", line_num, pos, line, end);
+            ids->n[n].val.tag   = rft_enum;
+            ids->n[n].val.value = ++enum_couner;
          }
          // Скобке присваивается первая вычислимая функция, так что порядок
          // обработки списка неопределённых идентификаторов важен.

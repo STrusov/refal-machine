@@ -1,13 +1,12 @@
 /**\file
  * \brief Интерфейс транслятора исходного текста в байт-код.
  *
- * \defgroup translator Транслятор РЕФАЛ программы.
- *
+ * \addtogroup translator Транслятор РЕФАЛ программы.
+ * \{
  */
 
 #pragma once
 
-#include "message.h"
 #include "rtrie.h"
 #include "refal.h"
 
@@ -31,6 +30,41 @@ struct refal_translator_config {
 };
 
 /**
+ * Заносит в таблицу символов информацию о функциях в машинном коде.
+ * \result количество занятых узлов (TODO надо ли?).
+ */
+static inline
+rtrie_index refal_import(
+      struct refal_trie                    *ids,   ///< Таблица символов.
+      const struct refal_import_descriptor *lib)   ///< Массив описателей импорта.
+{
+   const rtrie_index free = ids->free;
+   for (int ordinal = 0; lib->name; ++lib, ++ordinal) {
+      const char *p = lib->name;
+      assert(p);
+      rtrie_index idx = rtrie_insert_first(ids, *p++);
+      while (*p) {
+         idx = rtrie_insert_next(ids, idx, *p++);
+      }
+      ids->n[idx].val.tag   = rft_machine_code;
+      ids->n[idx].val.value = ordinal;
+   }
+   return ids->free - free;
+}
+
+/**
+ * Переводит исходный текст в байт-код для интерпретатора.
+ * При этом заполняется таблица символов.
+ * \return количество необработанных байт исходного файла. 0 при успехе.
+ */
+size_t refal_translate_file_to_bytecode(
+      struct refal_trie    *ids,    ///< Таблица символов.
+      struct refal_vm      *vm,     ///< Память для целевого кода.
+      const char           *name,   ///< имя файла с исходным текстом.
+      struct refal_message *st
+      );
+
+/**
  * Переводит исходный текст в пригодный для интерпретации код.
  * \result Оставшееся необработанным количество байт исходного текста.
  * TODO возможна ситуация, когда функция вернёт 0, но трансляция с ошибкой.
@@ -42,3 +76,5 @@ size_t refal_translate_to_bytecode(
       const char           *end,    ///< Адрес за последним символом исходного текста.
       struct refal_message *st
       );
+
+/**\}*/

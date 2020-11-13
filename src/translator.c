@@ -1,11 +1,29 @@
 
 #include "translator.h"
+#include "library.h"
 
 #include <assert.h>
 #include <stddef.h>
 
-#include "rtrie.h"
 
+size_t refal_translate_file_to_bytecode(
+      struct refal_trie    *ids,
+      struct refal_vm      *vm,
+      const char           *name,
+      struct refal_message *st)
+{
+   st->source = name;
+   size_t source_size = 0;
+   const char *source = mmap_file(name, &source_size);
+   if (source == MAP_FAILED) {
+      if (st)
+         critical_error(st, "исходный текст недоступен", -errno, source_size);
+      return -1;
+   }
+   size_t r = refal_translate_to_bytecode(ids, vm, source, &source[source_size], st);
+   munmap((void*)source, source_size);
+   return source_size - r;
+}
 
 enum lexer_state {
    lex_leadingspace,    ///< Пробелы в начале строки.

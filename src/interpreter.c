@@ -2,11 +2,9 @@
  * \brief Реализация РЕФАЛ интерпретатора.
  */
 
-#include <error.h>
 #include "library.h"
-#include "rtrie.h"
-#include "refal.h"
 #include "translator.h"
+#include "interpreter.h"
 
 
 static inline
@@ -20,76 +18,28 @@ void inconsistence(
 }
 
 
-struct refal_interpreter {
-   struct refal_trie ids;  ///< Идентификаторы.
-   struct refal_vm   vm;   ///< Байт-код и поле зрения.
-};
-
-static inline
-void refal_interpreter_init(
-      struct refal_interpreter   *it)
-{
-   rtrie_alloc(&it->ids, 100);
-   refal_vm_init(&it->vm, 500);
-}
-
-static inline
-void refal_interpreter_free(
-      struct refal_interpreter   *it)
-{
-   rtrie_free(&it->ids);
-   refal_vm_free(&it->vm);
-}
-
-
-static inline
-rtrie_index refal_import(
-      struct refal_trie                      *rt,
-      const struct refal_import_descriptor   *lib,
-      struct refal_message                   *ectx)
-{
-   const rtrie_index free = rt->free;
-   for (int ordinal = 0; lib->name; ++lib, ++ordinal) {
-      const char *p = lib->name;
-      assert(p);
-      rtrie_index idx = rtrie_insert_first(rt, *p++);
-      while (*p) {
-         idx = rtrie_insert_next(rt, idx, *p++);
-      }
-      rt->n[idx].val.tag   = rft_machine_code;
-      rt->n[idx].val.value = ordinal;
-   }
-   return rt->free - free;
-}
-
-
 enum interpreter_state {
    is_pattern,       ///< Левая часть предложения (до знака =).
    is_expression,    ///< Правая часть предложения (после знака =).
 };
 
-/**
- * Выполняет функцию РЕФАЛ.
- *
+/**\details
    Предполагаемый формат функции:
-   - Имя функции: маркер со ссылкой на следующее поле (может отсутствовать).
+   - Имя функции: маркер со ссылкой на следующее поле (не реализовано).
    - Предложение: маркер со ссылкой на следующее предложение (может отсутствовать).
       - выражение-образец (может отсутствовать).
       - rf_equal — начало общего выражения.
    - rf_complete признак завершения функции.
  */
-static
-int interpret(
+int refal_interpret_bytecode(
       struct refal_vm      *vm,
-      rf_index             next_sentence, ///< Начальная инструкция.
+      rf_index             prev,
+      rf_index             next,
+      rf_index             next_sentence,
       struct refal_message *st)
 {
    st->source = "интерпретатор";
    size_t step = 0;
-
-   // Границы поля зрения:
-   rf_index next = vm->free;
-   rf_index prev = vm->u[next].prev;
 
    unsigned stack_size = 100;
    struct {
@@ -516,61 +466,4 @@ error_parenthesis_unpaired:
 error_link_out_of_range:
    inconsistence(st, "недействительная структурная скобка", cur, vm->size);
    goto error;
-}
-
-/**
- * Переводит исходный текст в байт-код для интерпретатора.
- * При этом заполняется таблица символов.
- * \return количество необработанных байт исходного файла. 0 при успехе.
- */
-static
-size_t translate(
-      struct refal_interpreter   *ri,
-      const char           *name,      ///< имя файла с исходным текстом.
-      struct refal_message *st)
-{
-   st->source = name;
-   size_t source_size = 0;
-   const char *source = mmap_file(name, &source_size);
-   if (source == MAP_FAILED) {
-      if (st)
-         critical_error(st, "исходный текст недоступен", -errno, source_size);
-      return -1;
-   }
-   size_t r = refal_translate_to_bytecode(&ri->ids, &ri->vm, source, &source[source_size], st);
-   munmap((void*)source, source_size);
-   return source_size - r;
-}
-
-
-int main(int argc, char **argv)
-{
-   struct refal_message status = {
-         .handler = refal_message_print,
-         .source  = "Интерпретатор РЕФАЛ",
-   };
-
-   if (argc != 2) {
-      critical_error(&status, "укажите одно имя файла с исходным текстом", argc, 0);
-      return 0;
-   }
-
-   struct refal_interpreter refint;
-   refal_interpreter_init(&refint);
-
-   if (rtrie_check(&refint.ids, &status) && refal_vm_check(&refint.vm, &status)) {
-
-      refal_import(&refint.ids, library, &status);
-
-      translate(&refint, argv[1], &status);
-
-      struct rtrie_val entry = rtrie_get_value(&refint.ids, "go");
-      if (entry.tag != rft_byte_code) {
-         critical_error(&status, "не определена функция go", entry.value, 0);
-      } else {
-         interpret(&refint.vm, entry.value, &status);
-      }
-   }
-   refal_interpreter_free(&refint);
-   return 0;
 }

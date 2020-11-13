@@ -1,7 +1,8 @@
 /**\file
  * \brief Работа с сообщениями (ошибки, предупреждения).
  *
- * \defgroup messages Сообщения РЕФАЛ.
+ * \addtogroup messages Сообщения РЕФАЛ.
+ * \{
  */
 
 #pragma once
@@ -18,8 +19,7 @@ typedef void refal_message_handler(
       struct refal_message *message ///< Параметры сообщения.
       );
 
-/**\ingroup messages
- *
+/**
  * Содержит подробности сообщения и обработчик (для вывода).
  */
 struct refal_message {
@@ -34,8 +34,7 @@ struct refal_message {
    const char *end;     ///< Адрес за границей участка текста (обращение недопустимо).
 };
 
-/**\ingroup messages
- *
+/**
  * Выводит сообщение в поток вывода.
  */
 refal_message_handler refal_message_print;
@@ -43,10 +42,11 @@ refal_message_handler refal_message_print;
 /**
  * Конструирует `struct refal_message`, за исключением поля `source`.
  * Вызывает обработчик при наличии.
+ * Может вызываться с равным NULL указателем на объект — без эффекта.
  */
 static inline
 void refal_message(
-      struct refal_message *msg, ///< Адрес объекта либо NULL.
+      struct refal_message *msg,
       const char *type,
       const char *detail,
       intmax_t    line,
@@ -112,4 +112,4 @@ void performance(
    refal_message(msg, "замечание", detail, line, position, begin, end);
 }
 
-
+/**\}*/

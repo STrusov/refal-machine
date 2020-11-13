@@ -21,6 +21,9 @@
 
 #pragma once
 
+/**\addtogroup library-aux Вспомогательные функции.
+ * \{
+ */
 enum { refal_library_size = 2 };
 
 extern
@@ -36,6 +39,8 @@ void refal_library_call(
    assert(ordinal < refal_library_size);
    library[ordinal].function(vm, prev, next);
 }
+
+/**\}*/
 
 rf_cfunction Print;
 rf_function  Prout;
@@ -56,21 +61,20 @@ void Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
  */
 void Prout(rf_vm *restrict vm, rf_index prev, rf_index next);
 
-/**\}*/
-
-/**\defgroup lib-aux Вспомогательные функции.
+/**\addtogroup library-aux
  * \{
  */
 
 /**
  * Отображает файл в память.
  *
+ * \retval size Размер содержимого.
  * \result Указатель на начало файла либо \c MAP_FAILED при ошибке.
  */
 static inline
 void *mmap_file(
       const char  *name,   ///< Имя файла.
-      size_t      *size)   ///\retval size Размер содержимого.
+      size_t      *size)   ///< Указатель для сохранения результата.
 {
    void *addr = MAP_FAILED;
    const int fd = open(name, O_RDONLY);
@@ -86,3 +90,5 @@ void *mmap_file(
 }
 
 /**\}*/
+/**\}*/
+

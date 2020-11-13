@@ -1,11 +1,14 @@
 /**\file
  * \brief Реализация префиксного дерева.
  *
- * \defgroup syntax_tree Внутреннее представление РЕФАЛ программы.
+ * \addtogroup translator
+ * \{
+ * \addtogroup syntax_tree Таблица символов.
  *
  * Идентификаторы (имена функциональных определений) хранятся в виде
  * префиксного тернарного дерева. Структура заполнятся при чтении исходного
  * текста постепенно, по одному символу.
+ * \{
  */
 
 #pragma once
@@ -16,10 +19,6 @@
 #include <wchar.h>
 
 #include "refal.h"
-
-/**\addtogroup syntax_tree
- * \{
- */
 
 /**
  * Индекс для адресации ячеек массива, где хранятся префиксы.
@@ -154,7 +153,7 @@ rtrie_index rtrie_new_node(
  */
 static inline
 rtrie_index rtrie_insert_at(
-      struct refal_trie *restrict rt,
+      struct refal_trie *restrict rt,  ///< Таблица символов.
       rtrie_index       idx,           ///< Начальный узел поиска.
       wchar_t           chr)           ///< Текущий символ имени.
 {
@@ -189,7 +188,7 @@ rtrie_index rtrie_insert_at(
  */
 static inline
 rtrie_index rtrie_insert_first(
-      struct refal_trie *restrict rt,
+      struct refal_trie *restrict rt,  ///< Таблица символов.
       wchar_t           chr)           ///< Первый символ имени.
 {
    return rtrie_insert_at(rt, 0, chr);
@@ -202,7 +201,7 @@ rtrie_index rtrie_insert_first(
  */
 static inline
 rtrie_index rtrie_insert_next(
-      struct refal_trie *restrict rt,
+      struct refal_trie *restrict rt,  ///< Таблица символов.
       rtrie_index       idx,           ///< Результат предыдущего поиска.
       wchar_t           chr)           ///< Текущий символ имени.
 {
@@ -219,7 +218,7 @@ rtrie_index rtrie_insert_next(
  */
 static inline
 rtrie_index rtrie_find_at(
-      struct refal_trie *restrict rt,
+      struct refal_trie *restrict rt,  ///< Таблица символов.
       rtrie_index       idx,           ///< Начальный узел поиска.
       wchar_t           chr)           ///< Текущий символ имени.
 {
@@ -246,7 +245,7 @@ rtrie_index rtrie_find_at(
  */
 static inline
 rtrie_index rtrie_find_first(
-      struct refal_trie *restrict rt,
+      struct refal_trie *restrict rt,  ///< Таблица символов.
       wchar_t           chr)           ///< Первый символ имени.
 {
    return rtrie_find_at(rt, 0, chr);
@@ -258,7 +257,7 @@ rtrie_index rtrie_find_first(
  */
 static inline
 rtrie_index rtrie_find_next(
-      struct refal_trie *restrict rt,
+      struct refal_trie *restrict rt,  ///< Таблица символов.
       rtrie_index       idx,           ///< Результат предыдущего поиска.
       wchar_t           chr)           ///< Первый символ имени.
 {
@@ -300,4 +299,4 @@ struct rtrie_val rtrie_get_value(
 }
 
 /**\}*/
-
+/**\}*/

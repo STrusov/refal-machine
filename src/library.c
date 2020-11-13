@@ -26,7 +26,7 @@ const struct refal_import_descriptor library[] = {
 #define RF_COLOR_SYMBOL     RF_ESC_COLOR_BLUE
 #define RF_COLOR_BRACKET    RF_ESC_COLOR_RED
 
-/**\ingroup lib-aux
+/**\ingroup library-aux
  *
  * Вывод подвыражения в поток.
  * Сохраняет подвыражение в поле зрения.

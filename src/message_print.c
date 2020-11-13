@@ -6,7 +6,8 @@
 #include <stdio.h>
 #include "message.h"
 
-/**
+/**\ingroup messages
+ *
  * Выводит сообщение.
  * По умолчанию (если \c context не задан) вывод осуществляется в \c stdout.
  */

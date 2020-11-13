@@ -2,10 +2,31 @@
  * \brief Исполнитель РЕФАЛ-программ.
  */
 
+#define _GNU_SOURCE
+#include <sys/mman.h>
+
 #include "library.h"
 #include "interpreter.h"
 #include "translator.h"
 
+//#define REFAL_INITIAL_MEMORY (128*1024/sizeof(rf_cell))
+#define REFAL_INITIAL_MEMORY (4*1024/sizeof(rf_cell))
+
+void *refal_malloc(size_t size)
+{
+   return mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+}
+
+void *refal_realloc(void *ptr, size_t old_size, size_t new_size)
+{
+   assert(0);
+   return mremap(ptr, old_size, new_size, MREMAP_MAYMOVE, NULL);
+}
+
+void refal_free(void *ptr, size_t size)
+{
+   munmap(ptr, size);
+}
 
 int main(int argc, char **argv)
 {
@@ -21,7 +42,7 @@ int main(int argc, char **argv)
 
    // Память РЕФАЛ-машины (байт-код и поле зрения совмещены).
    struct refal_vm   vm;
-   refal_vm_init(&vm, 500);
+   refal_vm_init(&vm, REFAL_INITIAL_MEMORY);
    if (refal_vm_check(&vm, &status)) {
 
       // Таблица символов.

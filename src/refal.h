@@ -128,6 +128,38 @@ typedef struct refal_vm {
    rf_index    free; ///< Первый свободный элемент.
 } rf_vm;
 
+
+/**\addtogroup mem Управление памятью РЕФАЛ-машины.
+ *
+ * Определение функций является задачей клиентского кода. В простейшем случае
+ * должно быть достаточно одноимённых функций стандартной библиотеки.
+ * realoc() в Linux использует перемещение страниц посредством mremap().
+ * Так же возможно избежать копирования в NT, создав отображение с SEC_RESERVE.
+ * \{
+ */
+/**
+ * Запрашивает память у системы.
+ * \param size требуемый объём памяти.
+ * \result начальный адрес распределённого блока.
+ */
+void *refal_malloc(size_t size);
+
+/**
+ * Изменяет (увеличивает) размер запрощенной ранее памяти.
+ * \param ptr начальный адрес памяти (результат `refal_malloc()`).
+ * \param old_size ранее распределённый объём памяти.
+ * \param new_size требуемый объём памяти.
+ */
+void *refal_realloc(void *ptr, size_t old_size, size_t new_size);
+
+/**
+ * Возвращает память системе.
+ * \param size ранее распределённый объём памяти.
+ * \param ptr начальный адрес памяти (результат `refal_malloc()`).
+ */
+void refal_free(void *ptr, size_t size);
+/** \}*/
+
 /**
  * Резервирует память для хранения поля зрения РЕФАЛ программы.
  * Связывает ячейки массива в список.
@@ -138,7 +170,7 @@ void *refal_vm_init(
       struct refal_vm   *restrict vm,  ///< Структура для инициализации.
       rf_index size)                   ///< Предполагаемый размер (в ячейках).
 {
-   vm->u = malloc(size * sizeof(rf_cell));
+   vm->u = refal_malloc(size * sizeof(rf_cell));
    if (vm->u) {
       vm->size = size;
       // 0-я ячейка зарезервирована:
@@ -165,8 +197,11 @@ rf_index refal_vm_alloc_1(
    rf_index i = vm->u[r].next;
    // Достраиваем список, если следующее звено отсутствует.
    if (!vm->u[i].next) {
-      assert(i + 1 < vm->size);
-
+      if (i + 1 >= vm->size) {
+         size_t size = vm->size * sizeof(rf_cell);
+         vm->u = refal_realloc(vm->u, size, 2 * size);
+         vm->size *= 2;
+      }
       vm->u[i].next = i + 1;
       vm->u[i].tag2 = 0;
       vm->u[i + 1].tag = rf_undefined;
@@ -185,7 +220,7 @@ void refal_vm_free(
 {
    assert(vm);
    // TODO освободить ресурсы, ссылки на которые могут храниться в ячейках.
-   free(vm->u);
+   refal_free(vm->u, vm->size);
    vm->u = 0;
    vm->size = 0;
    vm->free = 0;
@@ -557,5 +592,3 @@ struct refal_import_descriptor {
    };
 };
 
-
-/**\}*/

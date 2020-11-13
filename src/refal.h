@@ -141,16 +141,39 @@ void *refal_vm_init(
    vm->u = malloc(size * sizeof(rf_cell));
    if (vm->u) {
       vm->size = size;
-      for (rf_index i = 0; i < size; ++i) {
-         vm->u[i].tag = rf_undefined;
-         vm->u[i].next = i + 1;
-         vm->u[i].tag2 = 0;
-         vm->u[i + 1].prev = i;
-      }
-      vm->u[size - 1].next = 0;
-      vm->free = 2;   // TODO 1? \see `rf_insert_next()`
+      // 0-я ячейка зарезервирована:
+      // - 0 в поле next указывает, что следует достроить список;
+      // - при трансляции индекс считается не действительным (см `cmd_sentence`).
+      vm->free = 1;
+      vm->u[vm->free] = (struct rf_cell) { .next = vm->free + 1 };
    }
    return vm->u;
+}
+
+/**
+ * Выделяет в памяти РЕФАЛ-машины ячейку для новых данных.
+ * \result индекс распределённой ячейки.
+ */
+static inline
+rf_index refal_vm_alloc_1(
+      struct refal_vm   *restrict vm)
+{
+   assert(vm);
+   assert(vm->u);
+   rf_index r = vm->free;
+   assert(r);
+   rf_index i = vm->u[r].next;
+   // Достраиваем список, если следующее звено отсутствует.
+   if (!vm->u[i].next) {
+      assert(i + 1 < vm->size);
+
+      vm->u[i].next = i + 1;
+      vm->u[i].tag2 = 0;
+      vm->u[i + 1].tag = rf_undefined;
+      vm->u[i + 1].prev = i;
+   }
+   vm->free = i;
+   return r;
 }
 
 /**
@@ -193,7 +216,7 @@ void rf_vm_stats(
 {
 #ifndef  NDEBUG
    rf_index i = prev;
-   size_t view_count = 0;
+   rf_index view_count = 0;
    while (1) {
       assert(vm->u[vm->u[i].next].prev == i);
       i = vm->u[i].next;
@@ -201,7 +224,7 @@ void rf_vm_stats(
          break;
       ++view_count;
    }
-   size_t forward_count = 0;
+   rf_index forward_count = 0;
    i = vm->free;
    while (1) {
       ++forward_count;
@@ -209,16 +232,18 @@ void rf_vm_stats(
          break;
       i = vm->u[i].next;
    }
-   size_t backward_count = 0;
+   rf_index ununitialized = i + 1;
+   rf_index backward_count = 0;
    while (1) {
       ++backward_count;
       if (i == vm->free)
          break;
       i = vm->u[i].prev;
    }
-   printf("В поле зрения %lu элементов. Активное подвыражение (%u %u). "
-          "Свободно: %lu(%lu).\n", view_count, prev, next,
-          forward_count, backward_count);
+   printf("В поле зрения %u элементов. Активное подвыражение (%u %u). "
+          "Освобождено: %u(%u). Не инициализировано: %u. Всего: %u\n",
+          view_count, prev, next, forward_count, backward_count,
+          vm->size - ununitialized, vm->size);
 #endif
 }
 
@@ -398,12 +423,9 @@ rf_index rf_alloc_value(
       uint64_t          value,
       rf_type           tag)
 {
-   assert(vm->u);
-   assert(vm->free);
-   rf_index i = vm->free;
+   rf_index i = refal_vm_alloc_1(vm);
    vm->u[i].data = value;
    vm->u[i].tag  = tag;
-   vm->free = vm->u[i].next;
    return i;
 }
 
@@ -426,12 +448,9 @@ rf_index rf_alloc_atom(
       struct refal_vm   *restrict vm,
       const char        *str)
 {
-   assert(vm->u);
-   assert(vm->free);
-   rf_index i = vm->free;
+   rf_index i = refal_vm_alloc_1(vm);
    vm->u[i].atom = str;
    vm->u[i].tag  = rf_atom;
-   vm->free = vm->u[i].next;
    return i;
 }
 

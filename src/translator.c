@@ -706,6 +706,9 @@ sentence_complete:
          }
       case lex_string_dquoted:
       case lex_string_quoted:
+         if ((lexer == lex_string_dquoted && chr == '\'')
+          || (lexer == lex_string_quoted && chr == '"'))
+            goto lexem_string;
          // Кавычка внутри строки кодируется сдвоенной, иначе завершает строку.
          if (src != end && *src == (lexer == lex_string_quoted ? '\'':'"')) {
             ++src;

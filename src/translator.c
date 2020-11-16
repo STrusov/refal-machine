@@ -34,13 +34,21 @@ size_t refal_translate_to_bytecode(
       struct refal_message *st)
 {
    const char *restrict src = begin;
-   rtrie_index node = 0;      // последний добавленный в префиксное дерево узел.
-   rf_int number = 0;         // вычисляемое значение лексемы "число"
+
+   // При сканировании лексем "число" здесь накапливается результат.
+   rf_int number = 0;
+
+   // Идентификаторы заносятся в таблицу символов параллельно разбору исходного
+   // текста. Здесь хранится текущий добавленный в префиксное дерево узел.
+   rtrie_index node = 0;
 
    // Последний узел глобального идентификатора (текущей функции).
    // Используется как корень для локальных (переменных)
    // и для возможности изменить тип функции (с пустой на вычислимую).
    rtrie_index ident = 0;
+
+   // Значение задаётся пустым функциям (ENUM в Refal-05) для сопоставления.
+   rf_index enum_couner = 0;
 
    // РЕФАЛ позволяет произвольный порядок определения функций.
    // При последовательном проходе не все идентификаторы определены, такие
@@ -91,10 +99,8 @@ size_t refal_translate_to_bytecode(
    rf_index bracket[bracket_max];
    int bp = 0; // адресует свободный элемент.
 
-   // Значение задаётся пустым функциям (ENUM в Refal-05) для сопоставления.
-   rf_index enum_couner = 0;
-
-   unsigned line_num = 0;     // номер текущей строки
+   rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
+   int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
 
    // Состояние семантического анализатора.
    enum {
@@ -103,9 +109,6 @@ size_t refal_translate_to_bytecode(
       ss_pattern,          // Выражение-образец.
       ss_expression,       // Общее выражение (простой функции).
    } semantic = ss_source;
-
-   rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
-   int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
 
    // Состояние лексического анализатора.
    enum {
@@ -118,6 +121,8 @@ size_t refal_translate_to_bytecode(
       lex_number,          // Целое число.
       lex_identifier,      // Идентификатор (имя функции).
    } lexer  = lex_leadingspace;
+
+   unsigned line_num = 0;     // номер текущей строки
 
 next_line:
    ++line_num;

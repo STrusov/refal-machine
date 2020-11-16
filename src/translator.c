@@ -25,31 +25,6 @@ size_t refal_translate_file_to_bytecode(
    return source_size - r;
 }
 
-enum lexer_state {
-   lex_leadingspace,    ///< Пробелы в начале строки.
-   lex_whitespace,      ///< Пробелы после лексемы.
-   lex_comment_line,    ///< Строка комментария, начинается со *
-   lex_comment_c,       ///< Комментарии в стиле C /* */
-   lex_string_quoted,   ///< Знаковая строка в одинарных кавычках.
-   lex_string_dquoted,  ///< Знаковая строка в двойных кавычках.
-   lex_number,          ///< Целое число.
-   lex_identifier,      ///< Идентификатор (имя функции).
-//   lex_operator,        ///< Оператор.
-};
-
-enum semantic_state {
-   ss_source,           ///< Верхний уровень синтаксиса.
-   ss_identifier,       ///< Идентификатор.
-   ss_pattern,          ///< Выражение-образец.
-   ss_expression,       ///< Общее выражение (простой функции).
-};
-
-enum id_type {
-   id_global = rf_identifier,
-   id_svar   = rf_svar,       ///< s-переменная (один символ).
-   id_tvar   = rf_tvar,       ///< t-переменная (s- либо выражение в скобках).
-   id_evar   = rf_evar,       ///< e-переменная (произвольное количество элементов.
-};
 
 size_t refal_translate_to_bytecode(
       struct refal_trie    *const restrict ids,
@@ -74,7 +49,14 @@ size_t refal_translate_to_bytecode(
    rf_index undefined_fist = 0;
    rf_index undefined_last = 0;
 
-   enum id_type id_type = id_global;
+   // Тип текущего идентификатора.
+   enum {
+      id_global = rf_identifier, // Глобальная область видимости.
+      id_svar   = rf_svar,       // s-переменная (один символ).
+      id_tvar   = rf_tvar,       // t-переменная (s- либо выражение в скобках).
+      id_evar   = rf_evar,       // e-переменная (произвольное количество элементов.
+   } id_type = id_global;
+
    // Локальные идентификаторы храним в таблице символов как продолжение
    // глобальных, отделяясь символом который не может встретиться в Unicode.
    // Для каждого предложения вычисляется новый символ-разделитель (инкрементом),
@@ -113,12 +95,29 @@ size_t refal_translate_to_bytecode(
    rf_index enum_couner = 0;
 
    unsigned line_num = 0;     // номер текущей строки
-   enum semantic_state semantic = ss_source;
+
+   // Состояние семантического анализатора.
+   enum {
+      ss_source,           // Верхний уровень синтаксиса.
+      ss_identifier,       // Идентификатор.
+      ss_pattern,          // Выражение-образец.
+      ss_expression,       // Общее выражение (простой функции).
+   } semantic = ss_source;
 
    rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
    int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
 
-   enum lexer_state lexer  = lex_leadingspace;
+   // Состояние лексического анализатора.
+   enum {
+      lex_leadingspace,    // Пробелы в начале строки.
+      lex_whitespace,      // Пробелы после лексемы.
+      lex_comment_line,    // Строка комментария, начинается со *
+      lex_comment_c,       // Комментарии в стиле C /* */
+      lex_string_quoted,   // Знаковая строка в одинарных кавычках.
+      lex_string_dquoted,  // Знаковая строка в двойных кавычках.
+      lex_number,          // Целое число.
+      lex_identifier,      // Идентификатор (имя функции).
+   } lexer  = lex_leadingspace;
 
 next_line:
    ++line_num;

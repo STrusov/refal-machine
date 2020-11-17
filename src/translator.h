@@ -55,23 +55,24 @@ rtrie_index refal_import(
 /**
  * Переводит исходный текст в байт-код для интерпретатора.
  * При этом заполняется таблица символов.
- * \return количество необработанных байт исходного файла. 0 при успехе.
+ * \return 0 при успехе, -1 в случае отсутствия фала, иначе
+ * \see `refal_translate_to_bytecode()`.
  */
-size_t refal_translate_file_to_bytecode(
-      struct refal_trie    *ids,    ///< Таблица символов.
+int refal_translate_file_to_bytecode(
       struct refal_vm      *vm,     ///< Память для целевого кода.
+      struct refal_trie    *ids,    ///< Таблица символов.
       const char           *name,   ///< имя файла с исходным текстом.
       struct refal_message *st
       );
 
 /**
  * Переводит исходный текст в пригодный для интерпретации код.
- * \result Оставшееся необработанным количество байт исходного текста.
- * TODO возможна ситуация, когда функция вернёт 0, но трансляция с ошибкой.
+ * \result количество ошибок.
  */
-size_t refal_translate_to_bytecode(
-      struct refal_trie    *ids,    ///< Таблица символов.
+int refal_translate_to_bytecode(
       struct refal_vm      *vm,     ///< Память для целевого кода.
+      struct refal_trie    *ids,    ///< Таблица символов.
+      rtrie_index          module,  ///< Пространство имён модуля (0 - глобальное).
       const char           *begin,  ///< Адрес начала исходного текста
       const char           *end,    ///< Адрес за последним символом исходного текста.
       struct refal_message *st

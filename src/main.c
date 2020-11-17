@@ -51,7 +51,7 @@ int main(int argc, char **argv)
       if (rtrie_check(&ids, &status)) {
 
          refal_import(&ids, library);
-         refal_translate_file_to_bytecode(&ids, &vm, argv[1], &status);
+         refal_translate_file_to_bytecode(&vm, &ids, argv[1], &status);
 
          struct rtrie_val entry = rtrie_get_value(&ids, "Go");
          if (entry.tag != rft_byte_code)

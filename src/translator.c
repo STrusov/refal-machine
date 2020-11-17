@@ -1,34 +1,92 @@
 
+#define _POSIX_C_SOURCE 1
+
 #include "translator.h"
 #include "library.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <stddef.h>
+#include <string.h>
 
 
-size_t refal_translate_file_to_bytecode(
-      struct refal_trie    *ids,
+int refal_translate_file_to_bytecode(
       struct refal_vm      *vm,
+      struct refal_trie    *ids,
       const char           *name,
       struct refal_message *st)
 {
-   st->source = name;
-   size_t source_size = 0;
-   const char *source = mmap_file(name, &source_size);
-   if (source == MAP_FAILED) {
-      if (st)
-         critical_error(st, "исходный текст недоступен", -errno, source_size);
-      return -1;
+   int r = -1;
+   const char *os = refal_message_source(st, name);
+   size_t size = 0;
+   const char *src = mmap_file(name, &size);
+   if (src == MAP_FAILED) {
+      critical_error(st, "исходный текст недоступен", -errno, size);
+   } else {
+      r = refal_translate_to_bytecode(vm, ids, 0, src, &src[size], st);
+      munmap((void*)src, size);
    }
-   size_t r = refal_translate_to_bytecode(ids, vm, source, &source[source_size], st);
-   munmap((void*)source, source_size);
-   return source_size - r;
+   refal_message_source(st, os);
+   return r;
 }
 
+int refal_translate_module_to_bytecode(
+      struct refal_vm      *vm,
+      struct refal_trie    *ids,
+      rtrie_index          module,
+      const char           *name,
+      size_t               name_length,
+      struct refal_message *st)
+{
+   int r = -1;
+   // Ищем в каталоге с исходным текстом файлы модуля.
+   const static char ext1[] = ".реф";
+   const static char ext2[] = ".ref";
+   if (name_length + sizeof ext1 >= NAME_MAX) {
+      return -2;
+   }
+   unsigned pl = 0;
+   if (st && st->source) {
+      for (unsigned i = 0; st->source[i]; ++i) {
+         if (i == PATH_MAX - NAME_MAX) {
+            pl = 0;
+            break;
+         // TODO разделитель может быть другой.
+         } else if (st->source[i] == '/')
+            pl = i + 1;
+      }
+   }
+   char path[PATH_MAX];
+   if (pl)
+      strncpy(path, st->source, pl);
+   strncpy(&path[pl], name, name_length);
+   const char *const ext[2] = { ext2, ext1 };
+   for (int i = 1; i >= 0; --i) {
+      strcpy(&path[pl + name_length], ext[i]);
+      size_t size = 0;
+      const char *src = mmap_file(path, &size);
+      if (src != MAP_FAILED) {
+         const char *os = refal_message_source(st, path);
+         r = refal_translate_to_bytecode(vm, ids, module, src, &src[size], st);
+         munmap((void*)src, size);
+         refal_message_source(st, os);
+         if (r >= 0)
+            break;
+      }
+   }
+   if (r == -1) {
+      strcpy(&path[pl + name_length], ext1);
+      const char *os = refal_message_source(st, path);
+      critical_error(st, "исходный текст модуля недоступен", -errno, 0);
+      refal_message_source(st, os);
+   }
+   return r;
+}
 
-size_t refal_translate_to_bytecode(
-      struct refal_trie    *const restrict ids,
+int refal_translate_to_bytecode(
       struct refal_vm      *const restrict vm,
+      struct refal_trie    *const restrict ids,
+      rtrie_index          module,
       const char           *const begin,
       const char           *const end,
       struct refal_message *st)
@@ -47,7 +105,21 @@ size_t refal_translate_to_bytecode(
    // и для возможности изменить тип функции (с пустой на вычислимую).
    rtrie_index ident = 0;
 
+   // Начало и длина имени идентификатора. Для импорта модулей.
+   const char *ident_str = NULL;
+   size_t      ident_strlen = 0;
+
+   // Пространство имён текущего импортируемого модуля.
+   rtrie_index imports = 0;
+
+   // При импорте идентификаторов параллельно с определением в текущей
+   // области видимости происходит поиск в пространстве имён модуля.
+   rtrie_index import_node = 0;
+
    // Значение задаётся пустым функциям (ENUM в Refal-05) для сопоставления.
+   // Применяется предварительный инкремент, так что нумерация идёт от 1.
+   // Значение 0 используется для идентификаторов модулей (при разрешении имён)
+   // и в целевой код не переносится.
    rf_index enum_couner = 0;
 
    // РЕФАЛ позволяет произвольный порядок определения функций.
@@ -105,6 +177,7 @@ size_t refal_translate_to_bytecode(
    // Состояние семантического анализатора.
    enum {
       ss_source,           // Верхний уровень синтаксиса.
+      ss_import,           // Определён идентификатор модуля.
       ss_identifier,       // Идентификатор.
       ss_pattern,          // Выражение-образец.
       ss_expression,       // Общее выражение (простой функции).
@@ -134,6 +207,7 @@ next_char:
       goto complete;
    assert(src < end);
 
+   const char *const str = src;
    wchar_t chr = *(const unsigned char*)src++;
    ++pos;
    switch (chr) {
@@ -171,7 +245,15 @@ lexem_identifier_complete:
             assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
          case ss_source:
             semantic = ss_identifier;
+            ident_strlen = str - ident_str;
             ident = node;
+            goto next_char;
+         case ss_import:
+            if (import_node < 0) {
+               syntax_error(st, "импортируемый идентификатор не определён в модуле", line_num, pos, line, end);
+               goto error;
+            }
+            ids->n[node].val = ids->n[import_node].val;
             goto next_char;
          case ss_pattern:
             assert(!cmd_exec[ep]);
@@ -397,6 +479,8 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_identifier:
             assert(function_block == 0);
             if (ids->n[node].val.tag != rft_undefined) {
@@ -456,6 +540,8 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_identifier:
             assert(function_block == 0);
             if (ids->n[node].val.tag != rft_undefined) {
@@ -501,6 +587,8 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          // После последнего предложения ; может отсутствовать.
@@ -563,6 +651,8 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          case ss_pattern:
@@ -596,6 +686,8 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          case ss_pattern:
@@ -647,6 +739,8 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          case ss_pattern:
@@ -679,6 +773,8 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          case ss_pattern:
@@ -721,6 +817,9 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            semantic = ss_source;
+            goto next_char;
          // Идентификатор пустой функции (ENUM в Refal-05).
          case ss_identifier:
             if (ids->n[node].val.tag != rft_undefined) {
@@ -762,6 +861,86 @@ sentence_complete:
          }
       }
 
+   // Знак доллара в кириллической раскладке отсутствует, соответственно
+   // принципиально не используется, как и директивы $ENTRY, $EXTERN и т.п.
+#if 0
+   case '$':
+      assert(0);
+#endif
+
+   ///\subsection Является
+   ///
+   /// Двоеточие `:` в Расширенном РЕФАЛ используется в условиях (не реализовано).
+   ///
+   /// Применяется для импорта модулей, как земена $EXTERN (и *$FROM Refal-05).
+   ///
+   ///     ИмяМодуля: функция1 функция2;
+   case ':':
+      switch (lexer) {
+      case lex_comment_c:
+      case lex_comment_line:
+         goto next_char;
+      case lex_string_dquoted:
+      case lex_string_quoted:
+            goto lexem_string;
+      case lex_identifier:
+         --src; --pos;
+         goto lexem_identifier_complete;
+      case lex_number:
+         rf_alloc_int(vm, number);
+         lexer = lex_whitespace;
+      case lex_leadingspace:
+      case lex_whitespace:
+         switch (semantic) {
+         // Импорт из глобального пространства имён.
+         case ss_source:
+            imports = 0;
+            semantic = ss_import;
+            goto next_char;
+         case ss_import:
+            goto error_incorrect_import;
+         // Идентификатор внешнего модуля.
+         case ss_identifier:
+            switch (ids->n[node].val.tag) {
+            case rft_enum:
+               // Если идентификатор определён со значением 0, значит трансляция
+               // модуля уже выполнена. Импортируем идентификаторы.
+               if (!ids->n[node].val.value) {
+                  imports = rtrie_find_at(ids, node, ' ');
+                  assert(!(imports < 0));
+                  semantic = ss_import;
+                  goto next_char;
+               }
+            case rft_machine_code:
+            case rft_byte_code:
+               goto error_identifier_already_defined;
+            case rft_undefined:
+               break;
+            }
+            ids->n[node].val.tag   = rft_enum;
+            ids->n[node].val.value = 0;
+            lexer = lex_whitespace;
+            imports = rtrie_insert_at(ids, node, ' ');
+            int r = refal_translate_module_to_bytecode(vm, ids, imports,
+                                                   ident_str, ident_strlen, st);
+            switch (r) {
+            case -2:
+               syntax_error(st, "слишком длинное имя модуля", line_num, pos, line, end);
+               goto error;
+            case -1:
+               syntax_error(st, "недействительное имя модуля", line_num, pos, line, end);
+               goto error;
+            default:
+               semantic = ss_import;
+               goto next_char;
+            }
+         case ss_pattern:
+         case ss_expression:
+            syntax_error(st, "условия не поддерживаются", line_num, pos, line, end);
+            goto error;
+         }
+      }
+
    ///\section Строки
    ///
    /// Знаковые символы заключаются в одинарные или двойные кавычки.
@@ -792,6 +971,8 @@ sentence_complete:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_identifier:
             syntax_error(st, "строка неуместна (пропущено = или { в определении функции?)", line_num, pos, line, end);
             goto error;
@@ -840,6 +1021,8 @@ sentence_complete:
          case ss_identifier:
             syntax_error(st, "числа допустимы только в выражениях", line_num, pos, line, end);
             goto error;
+         case ss_import:
+            goto error_incorrect_import;
          case ss_pattern:
          case ss_expression:
             lexer = lex_number;
@@ -919,8 +1102,13 @@ symbol:
       case lex_whitespace:
          lexer = lex_identifier;
          switch (semantic) {
+         // Перечисленные после имени модуля идентификаторы импортируются,
+         // для чего ищутся в модуле и определяются в текущей области видимости.
+         case ss_import:
+            import_node = rtrie_find_at(ids, imports, chr);
          case ss_source:
-            node = rtrie_insert_first(ids, chr);
+            node = rtrie_insert_at(ids, module, chr);
+            ident_str = str;
             goto next_char;
          case ss_identifier:
             goto error_identifier_odd;
@@ -973,13 +1161,15 @@ lexem_identifier_global:
                id_type = id_global;
                // Если идентификатор не существует, добавляем.
                // После первого прохода проверим, не появилось ли определение.
-               node = rtrie_insert_first(ids, chr);
+               node = rtrie_insert_at(ids, module, chr);
                goto next_char;
             }
          }
       case lex_identifier:
 lexem_identifier:
          switch (semantic) {
+         case ss_import:
+            import_node = rtrie_find_next(ids, import_node, chr);
          case ss_source:
             node = rtrie_insert_next(ids, node, chr);
             goto next_char;
@@ -1091,13 +1281,18 @@ complete:
          rf_free_evar(vm, opcode, s);
       }
    }
+   return 0;
 
 error:
-   return src - begin;
+   return 1;
 
 error_identifier_already_defined:
    // TODO надо бы отобразить прежнее определение
    syntax_error(st, "повторное определение функции", line_num, pos, line, end);
+   goto error;
+
+error_incorrect_import:
+   syntax_error(st, "некорректное описание импорта (пропущено ; ?)", line_num, pos, line, end);
    goto error;
 
 error_incorrect_function_definition:

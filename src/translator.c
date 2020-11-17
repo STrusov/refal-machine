@@ -110,7 +110,15 @@ int refal_translate_to_bytecode(
    size_t      ident_strlen = 0;
 
    // Пространство имён текущего импортируемого модуля.
+   // Кроме того, идентификатор модуля может встречаться и в выражениях,
+   // определяя область поиска следующего за ним идентификатора.
    rtrie_index imports = 0;
+
+   // Для вывода предупреждений об идентификаторах модулей.
+   const char *redundant_module_id = "идентификатор модуля без функции не имеет смысла";
+   const char *im_str = 0;
+   unsigned   im_line = 0;
+   unsigned   im_pos  = 0;
 
    // При импорте идентификаторов параллельно с определением в текущей
    // области видимости происходит поиск в пространстве имён модуля.
@@ -305,7 +313,10 @@ lexem_identifier_complete:
                break;
             }
 lexem_identifier_complete_global:
-            assert(!(node < 0));
+            if (node < 0) {
+               assert(imports);
+               goto error_no_identifier_in_module;
+            }
             if (ids->n[node].val.tag != rft_undefined) {
                // Если открыта вычислительная скобка, задаём ей адрес
                // первой вычислимой функции из выражения.
@@ -320,11 +331,26 @@ lexem_identifier_complete_global:
                   if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).value)
                      goto lexem_identifier_undefined;
                   vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[node].val);
+                  imports = 0;
+               }
+               // rft_enum и нулевое значение означают идентификатор модуля.
+               // Используем соответствующую ветку для поиска следующего идентификатора.
+               else if (ids->n[node].val.tag == rft_enum && !ids->n[node].val.value) {
+                  assert(!imports);
+                  imports = rtrie_find_at(ids, node, ' ');
+                  im_str  = line;
+                  im_line = line_num;
+                  im_pos  = pos;
+                  assert(imports > 0);
                } else {
                   rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
+                  imports = 0;
                }
             } else {
 lexem_identifier_undefined:
+               if (imports) {
+                  goto error_no_identifier_in_module;
+               }
                // После первого прохода поищем, не появилось ли определение.
                rf_alloc_value(vm, node, rf_undefined);
                rf_index l = rf_alloc_value(vm, 0, rf_undefined);
@@ -499,6 +525,10 @@ lexem_identifier_undefined:
                syntax_error(st, "не закрыта структурная скобка", line_num, pos, line, end);
                goto error;
             }
+            if (imports) {
+               warning(st, redundant_module_id, im_line, im_pos, im_str, end);
+               imports = 0;
+            }
             if (ids->n[ident].val.tag == rft_enum) {
                ids->n[ident].val.tag   = rft_byte_code;
                ids->n[ident].val.value = cmd_sentence;
@@ -662,6 +692,10 @@ lexem_identifier_undefined:
                syntax_error(st, "превышен лимит вложенности вычислительных скобок", line_num, pos, line, end);
                goto error;
             }
+            if (imports) {
+               warning(st, redundant_module_id, im_line, im_pos, im_str, end);
+               imports = 0;
+            }
             cmd_exec[ep] = rf_alloc_command(vm, rf_execute);
             lexer = lex_whitespace;
             goto next_char;
@@ -696,6 +730,10 @@ lexem_identifier_undefined:
             if (!ep) {
                syntax_error(st, "непарная вычислительная скобка", line_num, pos, line, end);
                goto error;
+            }
+            if (imports) {
+               warning(st, redundant_module_id, im_line, im_pos, im_str, end);
+               imports = 0;
             }
             assert(ep > 0);
             // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
@@ -819,6 +857,7 @@ lexem_identifier_undefined:
             goto error_identifier_missing;
          case ss_import:
             semantic = ss_source;
+            imports = 0;
             goto next_char;
          // Идентификатор пустой функции (ENUM в Refal-05).
          case ss_identifier:
@@ -842,6 +881,10 @@ sentence_complete:
             if (bp) {
                syntax_error(st, "не закрыта структурная скобка", line_num, pos, line, end);
                goto error;
+            }
+            if (imports) {
+               warning(st, redundant_module_id, im_line, im_pos, im_str, end);
+               imports = 0;
             }
             // В функциях с блоком сохраняем в маркере текущего предложения
             // ссылку на данные следующего и размещаем новый маркер.
@@ -1159,9 +1202,14 @@ lexem_identifier_local_exp_check:
             default:
 lexem_identifier_global:
                id_type = id_global;
-               // Если идентификатор не существует, добавляем.
-               // После первого прохода проверим, не появилось ли определение.
-               node = rtrie_insert_at(ids, module, chr);
+               if (imports) {
+                  // Ищем в пространстве имён другого модуля.
+                  node = rtrie_find_at(ids, imports, chr);
+               } else {
+                  // Если идентификатор не существует, добавляем.
+                  // После первого прохода проверим, не появилось ли определение.
+                  node = rtrie_insert_at(ids, module, chr);
+               }
                goto next_char;
             }
          }
@@ -1187,7 +1235,11 @@ lexem_identifier:
                break;
             }
          case ss_expression:
-            node = rtrie_insert_next(ids, node, chr);
+            if (imports) {
+               node = rtrie_find_next(ids, node, chr);
+            } else {
+               node = rtrie_insert_next(ids, node, chr);
+            }
             goto next_char;
          }
       case lex_string_quoted:
@@ -1285,6 +1337,10 @@ complete:
 
 error:
    return 1;
+
+error_no_identifier_in_module:
+   syntax_error(st, "идентификатор не определён в модуле", line_num, pos, line, end);
+   goto error;
 
 error_identifier_already_defined:
    // TODO надо бы отобразить прежнее определение

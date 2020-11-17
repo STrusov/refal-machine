@@ -66,6 +66,24 @@ void refal_message(
    }
 }
 
+/**
+ * Устанавливает поле `source` в `struct refal_message`.
+ * Может вызываться с равным NULL указателем на объект — без эффекта.
+ * \result Прежнее значение.
+ */
+static inline
+const char *refal_message_source(
+      struct refal_message *msg,
+      const char           *source)
+{
+   const char *old = NULL;
+   if (msg) {
+      old = msg->source;
+      msg->source = source;
+   }
+   return old;
+}
+
 static inline
 void critical_error(
       struct refal_message *msg,

@@ -38,7 +38,7 @@ int refal_interpret_bytecode(
       rf_index             next_sentence,
       struct refal_message *st)
 {
-   st->source = "интерпретатор";
+   refal_message_source(st, "интерпретатор");
    size_t step = 0;
 
    unsigned stack_size = 100;

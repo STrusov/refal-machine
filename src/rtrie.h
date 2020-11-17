@@ -94,7 +94,7 @@ void *rtrie_alloc(
       struct refal_trie *rt,  ///< Структура для инициализации
       rtrie_index size)       ///< Предполагаемый размер (в узлах).
 {
-   rt->n = calloc(size, sizeof(struct rtrie_node));
+   rt->n = refal_malloc(size * sizeof(struct rtrie_node));
    if (rt->n) {
       rt->size = size;
    };
@@ -125,7 +125,10 @@ static inline
 void rtrie_free(
       struct refal_trie *rtrie)
 {
-   free(rtrie->n);
+   refal_free(rtrie->n, rtrie->size);
+   rtrie->n = 0;
+   rtrie->size = 0;
+   rtrie->free = 0;
 }
 
 /**
@@ -142,7 +145,12 @@ rtrie_index rtrie_new_node(
    assert(chr);
 
    rtrie_index node = rt->free++;
-   assert(node < rt->size);
+   assert(!(node > rt->size));
+   if (node == rt->size) {
+      size_t size = rt->size * sizeof(struct rtrie_node);
+      rt->n = refal_realloc(rt->n, size, 2 * size);
+      rt->size *= 2;
+   }
    rt->n[node] = (struct rtrie_node) { .chr = chr };
    return node;
 }

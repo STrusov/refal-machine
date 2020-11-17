@@ -12,6 +12,8 @@
 //#define REFAL_INITIAL_MEMORY (128*1024/sizeof(rf_cell))
 #define REFAL_INITIAL_MEMORY (4*1024/sizeof(rf_cell))
 
+#define REFAL_TRIE_INITIAL_MEMORY (128*1024/sizeof(struct rtrie_node))
+
 void *refal_malloc(size_t size)
 {
    return mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
@@ -47,7 +49,7 @@ int main(int argc, char **argv)
 
       // Таблица символов.
       struct refal_trie ids;
-      rtrie_alloc(&ids, 100);
+      rtrie_alloc(&ids, REFAL_TRIE_INITIAL_MEMORY);
       if (rtrie_check(&ids, &status)) {
 
          refal_import(&ids, library);

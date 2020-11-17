@@ -29,6 +29,8 @@ void refal_free(void *ptr, size_t size)
 
 int main(int argc, char **argv)
 {
+   int r = -1;
+
    struct refal_message status = {
          .handler = refal_message_print,
          .source  = "Интерпретатор РЕФАЛ",
@@ -36,7 +38,7 @@ int main(int argc, char **argv)
 
    if (argc != 2) {
       critical_error(&status, "укажите одно имя файла с исходным текстом", argc, 0);
-      return 0;
+      return EXIT_FAILURE;
    }
 
    // Память РЕФАЛ-машины (байт-код и поле зрения совмещены).
@@ -64,12 +66,20 @@ int main(int argc, char **argv)
             // Границы поля зрения:
             rf_index next = vm.free;
             rf_index prev = vm.u[next].prev;
-            refal_interpret_bytecode(&vm, prev, next, entry.value, &status);
+            r = refal_interpret_bytecode(&vm, prev, next, entry.value, &status);
+            // В случае ошибки среды, она выведена интерпретатором.
+            if (r > 0) {
+               puts("Отождествление невозможно.");
+            }
+            if (!rf_is_evar_empty(&vm, prev, next)) {
+               puts("Поле зрения:");   // TODO скорее всего, сообщение лишнее.
+               Prout(&vm, prev, next);
+            }
          }
       }
       rtrie_free(&ids);
    }
    refal_vm_free(&vm);
 
-   return 0;
+   return r ? EXIT_FAILURE : EXIT_SUCCESS;
 }

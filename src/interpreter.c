@@ -403,12 +403,10 @@ evar_express:
       case rf_complete:
          switch (state) {
          case is_pattern:
-            // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
-            rf_alloc_value(vm, 0, rf_undefined);
             // TODO Ошибки в байт-коде нет. Реализовать вывод текущего состояния.
-            rf_insert_prev(vm, next, rf_alloc_char(vm, '\n'));
-            rf_insert_prev(vm, next, rf_alloc_atom(vm, "Отождествление невозможно. "));
-            goto stop;
+            // TODO Раскрутка стека с размещением в поле зрения признака исключения?
+            rf_splice_evar_prev(vm, prev, next, stack[0].next);
+            return cur;
          case is_expression:
 complete:   rf_free_evar(vm, prev, next);
             assert(result);
@@ -423,21 +421,11 @@ complete:   rf_free_evar(vm, prev, next);
                var -= local;
                goto next;
             }
-            goto stop;
+            return 0;
          }
       }
 next: ip = vm->u[ip].next;
    }
-stop:
-   if (!rf_is_evar_empty(vm, prev, next)) {
-      // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
-      rf_alloc_value(vm, 0, rf_undefined);
-      rf_index n = rf_alloc_atom(vm, "Поле зрения:");
-      rf_alloc_char(vm, '\n');
-      rf_insert_next(vm, prev, n);
-      Prout(vm, prev, next);
-   }
-   return 0;
 
 error:
    return -1;

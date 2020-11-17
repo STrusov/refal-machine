@@ -9,9 +9,7 @@
 #include "interpreter.h"
 #include "translator.h"
 
-//#define REFAL_INITIAL_MEMORY (128*1024/sizeof(rf_cell))
-#define REFAL_INITIAL_MEMORY (4*1024/sizeof(rf_cell))
-
+#define REFAL_INITIAL_MEMORY      (128*1024/sizeof(rf_cell))
 #define REFAL_TRIE_INITIAL_MEMORY (128*1024/sizeof(struct rtrie_node))
 
 void *refal_malloc(size_t size)
@@ -21,7 +19,6 @@ void *refal_malloc(size_t size)
 
 void *refal_realloc(void *ptr, size_t old_size, size_t new_size)
 {
-   assert(0);
    return mremap(ptr, old_size, new_size, MREMAP_MAYMOVE, NULL);
 }
 

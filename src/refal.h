@@ -580,8 +580,12 @@ int rf_svar_equal(
  * \param vm   Указатель на объект виртуальной машины.
  * \param prev Элемент перед первым поля зрения функции.
  * \param next Элемент после последнего поля зрения функции.
+ * \result
+ *       - 0   — выполнено успешно;
+ *       - > 0 — неподходящее поле зрения (отождествление невозможно);
+ *       - < 0 — ошибка среды исполнения (при вызове функций ОС).
  */
-typedef void rf_cfunction(const rf_vm *restrict vm, rf_index prev, rf_index next);
+typedef int rf_cfunction(const rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\ingroup library
  *
@@ -589,8 +593,12 @@ typedef void rf_cfunction(const rf_vm *restrict vm, rf_index prev, rf_index next
  * \param vm   Указатель на объект виртуальной машины.
  * \param prev Элемент перед первым поля зрения функции.
  * \param next Элемент после последнего поля зрения функции.
+ * \result
+ *       - 0   — выполнено успешно;
+ *       - > 0 — неподходящее поле зрения (отождествление невозможно);
+ *       - < 0 — ошибка среды исполнения (при вызове функций ОС).
  */
-typedef void rf_function(rf_vm *restrict vm, rf_index prev, rf_index next);
+typedef int rf_function(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**
  * Связывает имя функции (текстовое) с её реализацией.

@@ -380,7 +380,17 @@ evar_express:
                   inconsistence(st, "библиотечная функция не существует", function.value, ip);
                   goto error;
                }
-               refal_library_call(vm, prev, next, function.value);
+               // TODO следует иметь ввиду, что при невозможности отождествления
+               // функции возвращают `rf_index`, тип без знака. При приведении его
+               // к int возможна трактовка результата как отрицательного значения.
+               const int r = refal_library_call(vm, prev, next, function.value);
+               if (r > 0) {
+                  cur = r;
+                  goto recognition_impossible;
+               } else if (r < 0) {
+                  inconsistence(st, "ошибка среды выполнения", -errno, ip);
+                  return r;
+               }
                // TODO убрать лишние (не изменяются при вызове).
                --sp;
                result = stack[sp].result;
@@ -403,6 +413,7 @@ evar_express:
       case rf_complete:
          switch (state) {
          case is_pattern:
+recognition_impossible:
             // TODO Ошибки в байт-коде нет. Реализовать вывод текущего состояния.
             // TODO Раскрутка стека с размещением в поле зрения признака исключения?
             rf_splice_evar_prev(vm, prev, next, stack[0].next);

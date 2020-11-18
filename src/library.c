@@ -32,7 +32,7 @@ const struct refal_import_descriptor library[] = {
  * Сохраняет подвыражение в поле зрения.
  */
 static inline
-void rf_output(
+int rf_output(
       const rf_vm *restrict vm,
       rf_index    prev,
       rf_index    next,
@@ -86,23 +86,27 @@ void rf_output(
       default:
          // TODO ситуация возникать не должна.
          fprintf(stderr, "[%u]: rf_undefined\n", i);
-         assert(0);
+         assert(i);
+         return i;
       }
       prevt = vm->u[i].tag;
 #ifndef NDEBUG
       fflush(stream);
 #endif
    }
+   return 0;
 }
 
-void Print(const rf_vm *restrict vm, rf_index prev, rf_index next)
+int Print(const rf_vm *restrict vm, rf_index prev, rf_index next)
 {
-    rf_output(vm, prev, next, stdout);
+    int r = rf_output(vm, prev, next, stdout);
     putchar('\n'); // в оригинале выводит и при пустом подвыражении.
+    return r;
 }
 
-void Prout(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Prout(rf_vm *restrict vm, rf_index prev, rf_index next)
 {
-    Print(vm, prev, next);
+    int r = Print(vm, prev, next);
     rf_free_evar(vm, prev, next);
+    return r;
 }

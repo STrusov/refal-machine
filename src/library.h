@@ -14,6 +14,9 @@
  * - номер ячейки, следующей за конечной ячейкой обрабатываемого подвыражения.
  *
  * \{
+ * \defgroup library-io    Функции ввода-вывода.
+ * \defgroup library-math  Арифметические функции.
+ * \defgroup library-str   Обработка символов и строк.
  */
 
 #include <assert.h>
@@ -22,6 +25,7 @@
 #pragma once
 
 /**\addtogroup library-aux Вспомогательные функции.
+ * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
 enum { refal_library_size = 2 };
@@ -30,20 +34,26 @@ extern
 const struct refal_import_descriptor library[refal_library_size + 1];
 
 static inline
-void refal_library_call(
+int refal_library_call(
       rf_vm    *vm,
       rf_index prev,
       rf_index next,
       rf_index ordinal)
 {
    assert(ordinal < refal_library_size);
-   library[ordinal].function(vm, prev, next);
+   return library[ordinal].function(vm, prev, next);
 }
 
 /**\}*/
+/**\}*/
 
+rf_function  Card;
 rf_cfunction Print;
 rf_function  Prout;
+
+/**\addtogroup library-io
+ * \{
+ */
 
 /**
  * Вывод подвыражения в стандартный поток вывода с переводом строки.
@@ -51,7 +61,7 @@ rf_function  Prout;
  *
         <Print e.Expr> == e.Expr
  */
-void Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
+int Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**
  * Вывод подвыражения в стандартный поток вывода с переводом строки.
@@ -59,7 +69,9 @@ void Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
  *
         <Prout e.Expr> == []
  */
-void Prout(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Prout(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**\}*/
 
 /**\addtogroup library-aux
  * \{
@@ -90,5 +102,3 @@ void *mmap_file(
 }
 
 /**\}*/
-/**\}*/
-

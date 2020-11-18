@@ -416,9 +416,6 @@ lexem_identifier_undefined:
    //      однострочный комментарий.
    case '*':
       switch (lexer) {
-      case lex_number:
-         assert(0);
-
       case lex_leadingspace:
          lexer = lex_comment_line;
          goto next_char;
@@ -432,10 +429,10 @@ lexem_identifier_undefined:
       case lex_string_quoted:
       case lex_string_dquoted:
          goto lexem_string;
+      case lex_number:
       case lex_whitespace:
-         assert(0);
-//         goto operator;
-         break;
+      case lex_identifier:
+         goto symbol;
       }
 
    /// Можно использовать комментарии в стиле Си:
@@ -463,11 +460,9 @@ lexem_identifier_undefined:
                goto next_char;
             }
          }
-         assert(0);
       case lex_number:
       case lex_identifier:
-         assert(0);
-         break;
+         goto symbol;
       case lex_comment_line:
       case lex_comment_c:
          goto next_char;
@@ -1146,7 +1141,9 @@ symbol:
       switch (lexer) {
       case lex_number:
          // TODO символ после цифры?
-         assert(0);
+         // Может быть частью шестнадцатеричного числа, что пока не поддержано.
+         rf_alloc_int(vm, number);
+         warning(st, "идентификаторы следует отделять от цифр пробелом", line_num, pos, line, end);
       case lex_leadingspace:
       case lex_whitespace:
          lexer = lex_identifier;

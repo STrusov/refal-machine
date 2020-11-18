@@ -9,6 +9,14 @@
 const struct refal_import_descriptor library[] = {
    { "Print",     { .cfunction = &Print } },
    { "Prout",     { &Prout              } },
+   { "Add",       { &Add                } },
+   { "Sub",       { &Sub                } },
+   { "Mul",       { &Mul                } },
+   { "Div",       { &Div                } },
+   { "+",         { &Add                } },
+   { "-",         { &Sub                } },
+   { "*",         { &Mul                } },
+   { "/",         { &Div                } },
    { NULL,        { NULL                } }
 };
 
@@ -109,4 +117,49 @@ int Prout(rf_vm *restrict vm, rf_index prev, rf_index next)
     int r = Print(vm, prev, next);
     rf_free_evar(vm, prev, next);
     return r;
+}
+
+
+typedef rf_int aop(rf_int s1, rf_int s2);
+
+static inline
+int calc(rf_vm *restrict vm, rf_index prev, rf_index next, aop *op)
+{
+   rf_index s1 = vm->u[prev].next;
+   if (s1 == next)
+      return s1;
+   rf_index s2 = vm->u[s1].next;
+   if (vm->u[s2].next != next)
+      return s2;
+   vm->u[s1].num = op(vm->u[s1].num, vm->u[s2].num);
+   rf_free_evar(vm, s1, next);
+   return 0;
+}
+
+static inline rf_int plus(rf_int s1, rf_int s2) { return s1 + s2; }
+
+int Add(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   return calc(vm, prev, next, plus);
+}
+
+static inline rf_int minus(rf_int s1, rf_int s2) { return s1 - s2; }
+
+int Sub(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   return calc(vm, prev, next, minus);
+}
+
+static inline rf_int multiplies(rf_int s1, rf_int s2) { return s1 * s2; }
+
+int Mul(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   return calc(vm, prev, next, multiplies);
+}
+
+static inline rf_int divides(rf_int s1, rf_int s2) { return s2 ? s1/s2 : s2; }
+
+int Div(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   return calc(vm, prev, next, divides);
 }

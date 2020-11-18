@@ -13,6 +13,9 @@
  * - номер ячейки, предшествующей начальной обрабатываемого подвыражения;
  * - номер ячейки, следующей за конечной ячейкой обрабатываемого подвыражения.
  *
+ * Описания функций заимствованы из книги Турчина В.Ф. (семантика с изменениями).
+ * Нотация из Refal-05 Коновалова Александра.
+ *
  * \{
  * \defgroup library-io    Функции ввода-вывода.
  * \defgroup library-math  Арифметические функции.
@@ -28,7 +31,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 2 };
+enum { refal_library_size = 10 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -51,6 +54,13 @@ rf_function  Card;
 rf_cfunction Print;
 rf_function  Prout;
 
+rf_function  Add;
+rf_function  Sub;
+rf_function  Mul;
+rf_function  Div;
+
+rf_function  Numb;
+
 /**\addtogroup library-io
  * \{
  */
@@ -70,6 +80,40 @@ int Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
         <Prout e.Expr> == []
  */
 int Prout(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**\}*/
+
+/**\addtogroup library-math
+ * \{
+ */
+
+/**
+ * Возвращает сумму операндов (2-х s-переменных).
+ *
+       <Add s.NUMBER s.NUMBER> == s.NUMBER
+*/
+int Add(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Вычитает 2-ю s-переменную из 1-й в возвращает разность.
+ *
+       <Sub s.NUMBER s.NUMBER> == s.NUMBER
+*/
+int Sub(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Возвращает произведение операндов (2-х s-переменных).
+ *
+       <Mul s.NUMBER s.NUMBER> == s.NUMBER
+*/
+int Mul(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Возвращает частное от деления 1-й s-переменной на 2-ю, или 0 при ошибке деления.
+ *
+       <Div s.NUMBER s.NUMBER> == s.NUMBER
+*/
+int Div(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
 

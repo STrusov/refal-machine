@@ -31,7 +31,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 10 };
+enum { refal_library_size = 11 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -64,6 +64,16 @@ rf_function  Numb;
 /**\addtogroup library-io
  * \{
  */
+
+/**
+ * Возвращает следующую строку из входного файла.
+ * Если ввод производится из файла, при достижении конца файла возвращается
+ * макро-цифра 0 (строк больше нет). При считывании с терминала тот же эффект
+ * вызывает ввод комбинации Ctrl+D (Ctrl+Z в Windows).
+ *
+        <Card> == s.CHAR* 0?
+*/
+int Card(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**
  * Вывод подвыражения в стандартный поток вывода с переводом строки.

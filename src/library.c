@@ -9,6 +9,7 @@
 const struct refal_import_descriptor library[] = {
    { "Print",     { .cfunction = &Print } },
    { "Prout",     { &Prout              } },
+   { "Card",      { &Card               } },
    { "Add",       { &Add                } },
    { "Sub",       { &Sub                } },
    { "Mul",       { &Mul                } },
@@ -33,6 +34,46 @@ const struct refal_import_descriptor library[] = {
 
 #define RF_COLOR_SYMBOL     RF_ESC_COLOR_BLUE
 #define RF_COLOR_BRACKET    RF_ESC_COLOR_RED
+
+
+/**\ingroup library-aux
+ *
+ * Вводит строку из потока и размещает её в новой памяти.
+ * \result номер первой ячейки введённых данных.
+ */
+static inline
+rf_index rf_alloc_input(
+      rf_vm *restrict vm, FILE *stream)
+{
+   rf_index i = vm->free;
+   unsigned state = 0;
+   while (1) {
+      int c = fgetc(stream);
+      if (c == '\n') {
+         break;
+      } else if (c == EOF) {
+         // Признак конца файла не включается в строку,
+         // возвращается по отдельному запросу.
+         if (i == vm->free) {
+            rf_alloc_int(vm, 0);
+         }
+         break;
+      }
+      rf_alloc_char_decode_utf8(vm, (unsigned char)c, &state);
+   }
+   return i;
+}
+
+int Card(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_index s1 = vm->u[prev].next;
+   if (s1 != next)
+      return s1;
+   // Поле зрения пусто, просто продолжаем размещать данные в области
+   // формирования результата вызывающей функции (интерпретатора).
+   rf_alloc_input(vm, stdin);
+   return 0;
+}
 
 /**\ingroup library-aux
  *

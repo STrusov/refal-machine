@@ -528,6 +528,63 @@ rf_index rf_alloc_int(
 }
 
 /**
+ * Добавляет в свободную часть списка символ, получаемый из последовательности
+ * UTF-8. Если текущий октет представляет часть последовательности, происходит
+ * частичное декодирование символа, дополняемое при следующем вызове.
+ * \retval state указывает, сколько октетов требуется для полного декодирования
+ *         текущего символа.
+ * \result Номер содержащей символ ячейки.
+ */
+static inline
+rf_index rf_alloc_char_decode_utf8(
+      struct refal_vm   *restrict vm,
+      unsigned char     octet,   ///< текущий элемент последовательности UTF-8.
+      unsigned          *state)  ///< состояние декодера. 0 при первом вызове.
+{
+   rf_index i;
+   switch (*state) {
+   case 0:
+      i = refal_vm_alloc_1(vm);
+      vm->u[i].tag  = rf_char;
+      switch (octet) {
+      // ASCII
+      case 0x00 ... 0x7f:
+         vm->u[i].data = octet;
+         return i;
+      // 2 байта на символ.
+      case 0xc0 ... 0xdf:
+         *state = 1;
+         vm->u[i].data = 0x1f & octet;
+         return i;
+      // 3 байта на символ.
+      case 0xe0 ... 0xef:
+         *state = 2;
+         vm->u[i].data = 0x0f & octet;
+         return i;
+      // 4 байта на символ.
+      case 0xf0 ... 0xf4:
+         *state = 3;
+         vm->u[i].data = 0x03 & octet;
+         return i;
+      default:
+         assert(0);
+         vm->u[i].data = 0;
+         return i;
+      }
+   default:
+      assert(0);
+   case 1:
+   case 2:
+   case 3:
+      i = vm->u[vm->free].prev;
+      assert(vm->u[i].tag == rf_char);
+      --*state;
+      vm->u[i].chr = (vm->u[i].chr << 6) | (0x3f & octet);
+      return i;
+   }
+}
+
+/**
  * Связывает открывающую и закрывающую скобки ссылками друг на друга.
  */
 static inline

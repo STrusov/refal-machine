@@ -114,7 +114,7 @@ int rf_output(
                utf8[3] = 0x80 | (chr & 0x3f);
                utf8[4] = '\x0';
             }
-            fprintf(stream, utf8);
+            fprintf(stream, "%s", utf8);
             break;
          }
       case rf_number:

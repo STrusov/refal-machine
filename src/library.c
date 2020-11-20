@@ -18,6 +18,7 @@ const struct refal_import_descriptor library[] = {
    { "-",         { &Sub                } },
    { "*",         { &Mul                } },
    { "/",         { &Div                } },
+   { "Numb",      { &Numb               } },
    { NULL,        { NULL                } }
 };
 
@@ -203,4 +204,21 @@ static inline rf_int divides(rf_int s1, rf_int s2) { return s2 ? s1/s2 : s2; }
 int Div(rf_vm *restrict vm, rf_index prev, rf_index next)
 {
    return calc(vm, prev, next, divides);
+}
+
+
+int Numb(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_int result = 0;
+   for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
+      if (vm->u[s].tag != rf_char)
+         break;
+      wchar_t c = vm->u[s].chr;
+      if (c < '0' || c > '9')
+         break;
+      result = 10 * result + c - '0';
+   }
+   rf_free_evar(vm, prev, next);
+   rf_alloc_int(vm, result);
+   return 0;
 }

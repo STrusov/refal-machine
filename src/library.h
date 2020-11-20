@@ -31,7 +31,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 11 };
+enum { refal_library_size = 12 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -124,6 +124,21 @@ int Mul(rf_vm *restrict vm, rf_index prev, rf_index next);
        <Div s.NUMBER s.NUMBER> == s.NUMBER
 */
 int Div(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**\}*/
+
+/**\addtogroup library-str
+ * \{
+ */
+
+/**
+ * Возвращает макро-цифру, представленную строкой в поле зрения.
+ * Если аргумент не начинается с последовательности цифр, функция возвращает 0.
+ *
+       <Numb s.Digit* e.Skipped> == s.NUMBER
+       s.Digit ::= '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+*/
+int Numb(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
 

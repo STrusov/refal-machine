@@ -106,10 +106,10 @@ sentence:
             goto next_sentence;
       }
       local = evar[ep].idx;
-      cur = vm->u[var[local].next].next;
-      // Пропуск до закрытой скобки можно считать преждевременной оптимизацией,
-      // но иначе придётся вводить лишнюю сущность для проверки баланса скобок.
-      if (tag != rf_opening_bracket && vm->u[cur].tag == rf_opening_bracket) {
+      cur = var[local].next;
+      // Если переменную требуется расширить и первый соответствующий её символ
+      // в образце — структурная скобка, пропускаем до закрывающей.
+      if (vm->u[cur].tag == rf_opening_bracket) {
          cur = vm->u[cur].link;
          // TODO накладно проверять, попадает ли индекс в диапазон до next.
          // Задача транслятора это гарантировать. Для случая, когда байт-код
@@ -117,8 +117,8 @@ sentence:
          if (!(cur < vm->size)) {
             goto error_link_out_of_range;
          }
-         cur = vm->u[cur].next;
       }
+      cur = vm->u[cur].next;
       var[local].next = cur;
       ip = evar[ep].ip;
       ++local;

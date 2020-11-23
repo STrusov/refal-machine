@@ -53,7 +53,13 @@ int refal_interpret_bytecode(
 
    unsigned vars = 5 * stack_size;
    struct {
+      // s-переменная или первый элемент e- или t- переменной.
       rf_index s;
+      // При сопоставлении — для простоты — элемент после e- t- переменной.
+      // Однако, такой элемент может быть начальным для другой переменной,
+      // что сделает недействительным её границы после перемещения данной.
+      // При исполнении rf_equal происходит корректировка: значение адресует
+      // последний элемент переменной, иначе аннулируется (диапазон пуст).
       rf_index next;
    } var_stack[vars], *var = var_stack;
    // Переменные в блоке нумеруются увеличивающимися монотонно значениями
@@ -213,6 +219,9 @@ next_sentence:
                   goto error_var_stack_overflow;
                }
                var[v].s = cur;
+               // Коррекция границ (в rf_equal) для s-переменных не требуется.
+               // Тип переменной в тот момент определяется по 0 в данном поле.
+               var[v].next = 0;
                if (t == rf_opening_bracket) {
                   if (tag == rf_svar)
                      goto sentence;
@@ -290,11 +299,15 @@ evar_compare:
             if (vm->u[ip].link >= local) {
                goto error_undefined_variable;
             }
+            // e-переменная возможно пуста, что не относится к t-переменным.
+            if (!var[v].next) {
+               goto next;
+            }
 evar_express:
             // Копируем все вхождения кроме последнего (которое переносим).
             // Транслятор отметил копии ненулевым tag2.
             if (vm->u[ip].tag2) {
-               for (rf_index s = var[v].s; s != var[v].next; s = vm->u[s].next) {
+               for (rf_index s = var[v].s; ; s = vm->u[s].next) {
                   rf_type t = vm->u[s].tag;
                   switch (t) {
                   case rf_opening_bracket:
@@ -311,10 +324,11 @@ evar_express:
                   default:
                      rf_alloc_value(vm, vm->u[s].data, t);
                   }
+                  if (s == var[v].next)
+                     break;
                }
             } else {
-               if (var[v].s != var[v].next)
-                  rf_alloc_evar_move(vm, vm->u[var[v].s].prev, var[v].next);
+               rf_alloc_evar_move(vm, vm->u[var[v].s].prev, vm->u[var[v].next].next);
             }
             goto next;
          }
@@ -336,6 +350,17 @@ evar_express:
          case is_pattern:
             if (cur != next) {
                goto sentence;
+            }
+            // Что бы безопасно перемещать переменные, скорректируем границы.
+            for (unsigned i = local; i--; ) {
+               // Для s-переменных поле исходно 0.
+               rf_index et_end = var[i].next;
+               if (et_end) {
+                  if (et_end == var[i].s)
+                     var[i].next = 0;
+                  else
+                     var[i].next = vm->u[et_end].prev;
+               }
             }
             state = is_expression;
             result = vm->free;

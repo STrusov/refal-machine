@@ -264,6 +264,10 @@ lexem_identifier_complete:
                syntax_error(st, "импортируемый идентификатор не определён в модуле", line_num, pos, line, end);
                goto error;
             }
+            if (ids->n[node].val.tag != rft_undefined) {
+               syntax_error(st, "импортируемый идентификатор уже определён", line_num, pos, line, end);
+               goto error;
+            }
             ids->n[node].val = ids->n[import_node].val;
             goto next_char;
          case ss_pattern:

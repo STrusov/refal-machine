@@ -54,9 +54,16 @@ int main(int argc, char **argv)
          refal_import(&ids, library);
          refal_translate_file_to_bytecode(&vm, &ids, argv[1], &status);
 
-         struct rtrie_val entry = rtrie_get_value(&ids, "Go");
-         if (entry.tag != rft_byte_code)
-            entry = rtrie_get_value(&ids, "go");
+         // Классический РЕФАЛ игнорирует содержимое поля зрения после
+         // исполнения точки входа Go. Повторяем поведение.
+         // Для точки входа go выводим поле зрения, как результат программы.
+         int show_result = 0;
+         struct rtrie_val entry = rtrie_get_value(&ids, "go");
+         if (entry.tag == rft_byte_code) {
+            show_result = 1;
+         } else {
+            entry = rtrie_get_value(&ids, "Go");
+         }
 
 //         rtrie_free(&ids);
 
@@ -70,8 +77,9 @@ int main(int argc, char **argv)
             // В случае ошибки среды, она выведена интерпретатором.
             if (r > 0) {
                puts("Отождествление невозможно.");
+               show_result = 1;
             }
-            if (!rf_is_evar_empty(&vm, prev, next)) {
+            if (show_result && !rf_is_evar_empty(&vm, prev, next)) {
                puts("Поле зрения:");   // TODO скорее всего, сообщение лишнее.
                Prout(&vm, prev, next);
             }

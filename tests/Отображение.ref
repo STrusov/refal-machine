@@ -1,0 +1,22 @@
+
+Inc {
+   s. = <s. + 1>
+}
+
+Map {
+   t.Fn t.Next e.Tail = <Mu t.Fn t.Next> <Map t.Fn e.Tail>;
+   t.Fn = ;
+}
+
+Вывод {
+   e. = <Prout e.>
+}
+
+Data = 0 1 2 3 4 5 6 7 8 9;
+
+go =  <Mu <Data> Prout>
+      <Mu Prout <Data>>
+      <Mu <Data> Вывод>
+      <Mu Вывод <Data>>
+      <Prout <Map Inc <Map Print <Data>>>>
+      ;

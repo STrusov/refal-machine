@@ -398,9 +398,30 @@ evar_express:
                inconsistence(st, "пустая функция", ip, step);
                goto error;
             case rft_undefined:
-               inconsistence(st, "неопределённая функция", ip, step);
-               goto error;
+               goto error_undefined_identifier;
             case rft_machine_code:
+               // Функции Mu соответствует индекс 0.
+               // Ищем в поле зрения вычислимую функцию и вызываем её.
+               if (!function.value) {
+                  for (rf_index id = vm->u[prev].next; id != next; id = vm->u[id].next)
+                     if (vm->u[id].tag == rf_identifier) {
+                        function = rtrie_val_from_raw(vm->u[id].data);
+                        switch (function.tag) {
+                        case rft_undefined:
+                           goto error_undefined_identifier;
+                        case rft_enum:
+                           continue;
+                        case rft_byte_code:
+                           rf_free_evar(vm, vm->u[id].prev, vm->u[id].next);
+                           goto execute_byte_code;
+                        case rft_machine_code:
+                           rf_free_evar(vm, vm->u[id].prev, vm->u[id].next);
+                           goto execute_machine_code;
+                        }
+                     }
+                  goto recognition_impossible;
+               }
+execute_machine_code:
                if (!(function.value < refal_library_size)) {
                   inconsistence(st, "библиотечная функция не существует", function.value, ip);
                   goto error;
@@ -423,6 +444,7 @@ evar_express:
                prev   = stack[sp].prev;
                goto next;
             case rft_byte_code:
+execute_byte_code:
                if (!(sp < stack_size)) {
                   inconsistence(st, "стек вызовов исчерпан", sp, ip);
                   goto error;
@@ -468,6 +490,10 @@ error:
 
 error_execution_bracket:
    inconsistence(st, "вычислительная скобка в образце", ip, step);
+   goto error;
+
+error_undefined_identifier:
+   inconsistence(st, "неопределённая функция", ip, step);
    goto error;
 
 error_undefined_variable:

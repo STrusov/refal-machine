@@ -7,6 +7,8 @@
 #include "library.h"
 
 const struct refal_import_descriptor library[] = {
+   // Mu - реализована в интерпретаторе и должна быть 0-м элементом.
+   { "Mu",        { NULL                } },
    { "Print",     { .cfunction = &Print } },
    { "Prout",     { &Prout              } },
    { "Card",      { &Card               } },

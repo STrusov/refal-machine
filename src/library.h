@@ -20,6 +20,7 @@
  * \defgroup library-io    Функции ввода-вывода.
  * \defgroup library-math  Арифметические функции.
  * \defgroup library-str   Обработка символов и строк.
+ * \defgroup library-rt    Системные функции.
  */
 
 #include <assert.h>
@@ -31,7 +32,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 12 };
+enum { refal_library_size = 13 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -139,6 +140,22 @@ int Div(rf_vm *restrict vm, rf_index prev, rf_index next);
        s.Digit ::= '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 */
 int Numb(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**\}*/
+
+/**\addtogroup library-rt
+ * \{
+ */
+
+/**
+ * Ищет в поле зрения элемент, являющийся идентификатором вычислимой функции,
+ * после чего применяет определённую им функцию к выражению e.Arg1 e.Arg2.
+ *
+       <Mu e.Arg1 s.Func e.Arg2> == <s.Func e.Arg>
+
+  Функция реализована непосредственно в интерпретаторе.
+*/
+int Mu(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
 

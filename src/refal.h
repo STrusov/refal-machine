@@ -585,6 +585,41 @@ rf_index rf_alloc_char_decode_utf8(
 }
 
 /**
+ * Кодирует символ из ячейки РЕФАЛ-машины в последовательность UTF-8.
+ * \result количество байт последовательности.
+ */
+static inline
+unsigned rf_encode_utf8(
+      const struct refal_vm   *restrict vm,
+      rf_index                s,
+      char                    ptr[4])
+{
+   wchar_t chr = vm->u[s].chr;
+   unsigned size = 0;
+   if (chr < 0x80) {
+      ptr[0] = chr;
+      size = 1;
+   } else if (chr < 0x800) {
+      ptr[0] = 0xc0 | (chr >> 6);
+      ptr[1] = 0x80 | (chr & 0x3f);
+      size = 2;
+   } else if (chr < 0x10000) {
+      ptr[0] = 0xe0 | (chr >> 12);
+      ptr[1] = 0x80 | ((chr >> 6) & 0x3f);
+      ptr[2] = 0x80 | (chr & 0x3f);
+      size = 3;
+   } else {
+      ptr[0] = 0xf0 | ( chr >> 18);
+      ptr[1] = 0x80 | ((chr >> 12) & 0x3f);
+      ptr[2] = 0x80 | ((chr >>  6) & 0x3f);
+      ptr[3] = 0x80 | (chr & 0x3f);
+      size = 4;
+   }
+   return size;
+}
+
+
+/**
  * Связывает открывающую и закрывающую скобки ссылками друг на друга.
  */
 static inline

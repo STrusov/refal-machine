@@ -96,26 +96,7 @@ int rf_output(
       switch (vm->u[i].tag) {
       case rf_char: {
             char utf8[5];
-            wchar_t chr = vm->u[i].chr;
-            if (chr < 0x80) {
-               utf8[0] = chr;
-               utf8[1] = '\x0';
-            } else if (chr < 0x800) {
-               utf8[0] = 0xc0 | (chr >> 6);
-               utf8[1] = 0x80 | (chr & 0x3f);
-               utf8[2] = '\x0';
-            } else if (chr < 0x10000) {
-               utf8[0] = 0xe0 | (chr >> 12);
-               utf8[1] = 0x80 | ((chr >> 6) & 0x3f);
-               utf8[2] = 0x80 | (chr & 0x3f);
-               utf8[3] = '\x0';
-            } else {
-               utf8[0] = 0xf0 | ( chr >> 18);
-               utf8[1] = 0x80 | ((chr >> 12) & 0x3f);
-               utf8[2] = 0x80 | ((chr >>  6) & 0x3f);
-               utf8[3] = 0x80 | (chr & 0x3f);
-               utf8[4] = '\x0';
-            }
+            utf8[rf_encode_utf8(vm, i, utf8)] = '\0';
             fprintf(stream, "%s", utf8);
             break;
          }

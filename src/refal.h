@@ -618,6 +618,23 @@ unsigned rf_encode_utf8(
    return size;
 }
 
+/**
+ * Размещает в свободной памяти строку.
+ * \result Номер содержащей первый символ строки ячейки.
+ */
+static inline
+rf_index rf_alloc_string(
+      struct refal_vm   *restrict vm,
+      const char        *str)
+{
+   rf_index r = vm->free;
+   unsigned state = 0;
+   char c;
+   while ((c = *str++)) {
+      rf_alloc_char_decode_utf8(vm, (unsigned char)c, &state);
+   }
+   return r;
+}
 
 /**
  * Связывает открывающую и закрывающую скобки ссылками друг на друга.
@@ -632,6 +649,25 @@ void rf_link_brackets(
     assert(vm->u[closing].tag == rf_closing_bracket);
     vm->u[opening].link = closing;
     vm->u[closing].link = opening;
+}
+
+/**
+ * Размещает в свободной памяти массив строк,
+ * заключая каждую в структурные скобки.
+ */
+static inline
+rf_index rf_alloc_strv(
+      struct refal_vm   *restrict vm,
+      int               strc,
+      const char *const *strv)
+{
+   rf_index r = vm->free;
+   for (int i = 0; i < strc; ++i) {
+      rf_index ob = rf_alloc_command(vm, rf_opening_bracket);
+      rf_alloc_string(vm, strv[i]);
+      rf_link_brackets(vm, ob, rf_alloc_command(vm, rf_closing_bracket));
+   }
+   return r;
 }
 
 /**

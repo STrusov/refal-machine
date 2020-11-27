@@ -2,6 +2,8 @@
  * \brief Реализация стандартной библиотеки РЕФАЛ-5.
  */
 
+#define _POSIX_C_SOURCE 1
+#include <limits.h>
 #include <stdio.h>
 
 #include "library.h"
@@ -12,6 +14,11 @@ const struct refal_import_descriptor library[] = {
    { "Print",     { .cfunction = &Print } },
    { "Prout",     { &Prout              } },
    { "Card",      { &Card               } },
+   { "Open",      { &Open               } },
+   { "Close",     { &Close              } },
+   { "Get",       { &Get                } },
+   { "Put",       { &Put                } },
+   { "Putout",    { &Putout             } },
    { "Add",       { &Add                } },
    { "Sub",       { &Sub                } },
    { "Mul",       { &Mul                } },
@@ -23,7 +30,6 @@ const struct refal_import_descriptor library[] = {
    { "Numb",      { &Numb               } },
    { NULL,        { NULL                } }
 };
-
 
 #define RF_ESC_COLOR_BLACK      "\33[30m"
 #define RF_ESC_COLOR_RED        "\33[31m"
@@ -142,6 +148,104 @@ int Prout(rf_vm *restrict vm, rf_index prev, rf_index next)
     int r = Print(vm, prev, next);
     rf_free_evar(vm, prev, next);
     return r;
+}
+
+static
+FILE *file[REFAL_LIBRARY_LEGACY_FILES];
+
+int Open(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_index s = vm->u[prev].next;
+   if (s == next || vm->u[s].tag != rf_char)
+      return s;
+   wchar_t m = vm->u[s].chr;
+   if (!(m == 'r' || m == 'w' || m == 'a'))
+      return s;
+
+   s = vm->u[s].next;
+   if (s == next || vm->u[s].tag != rf_number)
+      return s;
+   rf_int fno = vm->u[s].num;
+   if (!(fno > 0 && fno < REFAL_LIBRARY_LEGACY_FILES))
+      return s;
+
+   char path[PATH_MAX + 4];
+   unsigned size = 0;
+   for (s = vm->u[s].next; s != next; s = vm->u[s].next) {
+      if (size >= PATH_MAX)
+         return s;
+      size += rf_encode_utf8(vm, s, &path[size]);
+   }
+   if (!size)
+      return s;
+   path[size] = '\0';
+
+   if (file[fno]) {
+      fclose(file[fno]);
+   }
+
+   char mode[2] = { (char)m, '\0' };
+   file[fno] = fopen(path, mode);
+
+   rf_free_evar(vm, prev, next);
+   return 0;
+}
+
+int Close(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_index s = vm->u[prev].next;
+   if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
+      return s;
+
+   rf_int fno = vm->u[s].num;
+   if (!(fno > 0 && fno < REFAL_LIBRARY_LEGACY_FILES))
+      return s;
+
+   if (file[fno]) {
+      fclose(file[fno]);
+      file[fno] = NULL;
+   }
+   rf_free_evar(vm, prev, next);
+   return 0;
+}
+
+int Get(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_index s = vm->u[prev].next;
+   if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
+      return s;
+
+   rf_int fno = vm->u[s].num;
+   if (!(fno >= 0 && fno < REFAL_LIBRARY_LEGACY_FILES))
+      return s;
+
+   rf_free_evar(vm, prev, next);
+   rf_alloc_input(vm, fno ? file[fno] : stdin);
+   return 0;
+}
+
+int Put(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_index s = vm->u[prev].next;
+   if (s == next || vm->u[s].tag != rf_number)
+      return s;
+
+   rf_int fno = vm->u[s].num;
+   if (!(fno >= 0 && fno < REFAL_LIBRARY_LEGACY_FILES))
+      return s;
+
+   FILE *f = fno ? file[fno] : stdout;
+   int r = rf_output(vm, s, next, f);
+   rf_free_evar(vm, prev, vm->u[s].next);
+   fputc('\n', f); // в оригинале выводит и при пустом подвыражении.
+   return r;
+}
+
+int Putout(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   int r = Put(vm, prev, next);
+   rf_free_evar(vm, prev, next);
+   return r;
 }
 
 

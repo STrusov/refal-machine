@@ -28,11 +28,17 @@
 
 #pragma once
 
+/**
+ * Максимальное количество файловых дескрипторов,
+ * поддерживаемых встроенными функциями классического РЕФАЛ-5.
+ */
+#define REFAL_LIBRARY_LEGACY_FILES 40
+
 /**\addtogroup library-aux Вспомогательные функции.
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 13 };
+enum { refal_library_size = 18 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -54,6 +60,11 @@ int refal_library_call(
 rf_function  Card;
 rf_cfunction Print;
 rf_function  Prout;
+rf_function  Open;
+rf_function  Close;
+rf_function  Get;
+rf_function  Put;
+rf_function  Putout;
 
 rf_function  Add;
 rf_function  Sub;
@@ -91,6 +102,44 @@ int Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
         <Prout e.Expr> == []
  */
 int Prout(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Открывает файл e.FileName и связывает его с файловым дескриптором s.FileNo.
+ * s.Mode является одним из символов: 'r' (открыть для чтения), 'w' (открыть для
+ * записи; если файл существует содержимое удаляется), либо 'a' (открыть для
+ * записи в конец файла).
+ * Дескриптор файла является целым числом в диапазоне 1…39
+ * \see REFAL_LIBRARY_LEGACY_FILES.
+ *
+ * Если текущим режимом является чтение, а файл не существует, выдаётся ошибка.
+ *
+ * TODO указанная конвенция малопригодна для практических применений.
+ *
+        <Open s.Mode s.FileNo e.FileName> == []
+        s.Mode ::=
+            'r' | 'w' | 'a'
+ */
+int Open(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Закрывает соответствующий дескриптору s.FileNo файл.
+ *
+        <Close s.FileNo> == []
+ */
+int Close(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Действует подобно Card, за исключением того, что получает данные из файла,
+ * указанного s.FileNo.
+ *
+        <Get s.FileNo> == s.Char* 0?
+        s.FileNo ::= s.NUMBER
+ */
+int Get(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+int Put(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+int Putout(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
 

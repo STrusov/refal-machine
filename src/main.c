@@ -36,8 +36,8 @@ int main(int argc, char **argv)
          .source  = "Интерпретатор РЕФАЛ",
    };
 
-   if (argc != 2) {
-      critical_error(&status, "укажите одно имя файла с исходным текстом", argc, 0);
+   if (argc < 2) {
+      critical_error(&status, "укажите имя файла с исходным текстом", argc, 0);
       return EXIT_FAILURE;
    }
 
@@ -54,25 +54,41 @@ int main(int argc, char **argv)
          refal_import(&ids, library);
          refal_translate_file_to_bytecode(&vm, &ids, argv[1], &status);
 
+         // Границы поля зрения:
+         rf_index next = vm.free;
+         rf_index prev = vm.u[next].prev;
+
          // Классический РЕФАЛ игнорирует содержимое поля зрения после
          // исполнения точки входа Go. Повторяем поведение.
          // Для точки входа go выводим поле зрения, как результат программы.
          int show_result = 0;
-         struct rtrie_val entry = rtrie_get_value(&ids, "go");
+
+         // Для точек входа main и Main размещаем в поле зрения аргументы
+         // командной строки. Имя интерпретатора (0-й) удаляем.
+         struct rtrie_val entry = rtrie_get_value(&ids, "main");
          if (entry.tag == rft_byte_code) {
             show_result = 1;
          } else {
-            entry = rtrie_get_value(&ids, "Go");
+            entry = rtrie_get_value(&ids, "Main");
+         }
+         if (entry.tag == rft_byte_code) {
+            rf_alloc_strv(&vm, argc - 1, (const char**)&argv[1]);
+         } else {
+            // Точки входа классического РЕФАЛ не получают аргументы.
+            entry = rtrie_get_value(&ids, "go");
+            if (entry.tag == rft_byte_code) {
+               show_result = 1;
+            } else {
+               entry = rtrie_get_value(&ids, "Go");
+            }
          }
 
 //         rtrie_free(&ids);
 
          if (entry.tag != rft_byte_code) {
-            critical_error(&status, "не определена начальная функция (go)", entry.value, 0);
+            critical_error(&status, "не определена начальная функция (main или go)", entry.value, 0);
          } else {
-            // Границы поля зрения:
-            rf_index next = vm.free;
-            rf_index prev = vm.u[next].prev;
+            next = vm.free;
             r = refal_interpret_bytecode(&vm, prev, next, entry.value, &status);
             // В случае ошибки среды, она выведена интерпретатором.
             if (r > 0) {

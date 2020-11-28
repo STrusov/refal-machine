@@ -18,6 +18,10 @@ go =
    <Prout '567 / 8 = ' <Div 567 8>>
    <Prout '567 / 0 = ' <Div 567 0>>
    <Prout '567 mod 8 = ' <Mod 567 8>>
+   
+   <Prout '<Compare 1 2> = ' <Compare 1 2>>
+   <Prout '<Compare 2 1> = ' <Compare 2 1>>
+   <Prout '<Compare 1 1> = ' <Compare 1 1>>
 
    <Prout '22 + 33 = ' <22 + 33>>
    <Prout '22 + 33 = ' <22+ 33>>

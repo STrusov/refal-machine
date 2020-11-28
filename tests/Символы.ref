@@ -1,0 +1,12 @@
+
+go =  <Prout <Chr <Print <Ord'09 AZ ая ☺ 🜀'>>>>
+      <Symb-test 1>
+      <Symb-test 2147483647>
+      <Symb-test 9223372036854775807>
+      <Symb-test <0 - 1>> 
+      <Symb-test <0 - 9223372036854775807>>
+      <Symb-test <Sub <0 - 9223372036854775807> 1>>
+      ;
+Symb-test {
+   s. = <Prout s. ' = ' <Symb s.>>;
+}

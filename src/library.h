@@ -38,7 +38,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 18 };
+enum { refal_library_size = 19 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -70,6 +70,7 @@ rf_function  Add;
 rf_function  Sub;
 rf_function  Mul;
 rf_function  Div;
+rf_function  Mod;
 
 rf_function  Numb;
 
@@ -174,6 +175,13 @@ int Mul(rf_vm *restrict vm, rf_index prev, rf_index next);
        <Div s.NUMBER s.NUMBER> == s.NUMBER
 */
 int Div(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Возвращает остаток от деления 1-й s-переменной на 2-ю, или 0 при ошибке деления.
+ *
+       <Div s.NUMBER s.NUMBER> == s.NUMBER
+*/
+int Mod(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
 

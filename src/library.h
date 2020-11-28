@@ -38,7 +38,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 20 };
+enum { refal_library_size = 23 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -74,6 +74,9 @@ rf_function  Mod;
 rf_function  Compare;
 
 rf_function  Numb;
+rf_function  Symb;
+rf_function  Chr;
+rf_function  Ord;
 
 /**\addtogroup library-io
  * \{
@@ -208,6 +211,28 @@ int Compare(rf_vm *restrict vm, rf_index prev, rf_index next);
        s.Digit ::= '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 */
 int Numb(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Является обратной к функции Numb. Возвращает строку десятичных цифр,
+ * представляющую s.NUMBER. В данной реализации тип чисел знаковый.
+ *
+       <Symb s.NUMBER> == s.CHAR+
+ */
+int Symb(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Замещает всякое число в e.Expr литерой с соответствующим кодом.
+ *
+       <Chr e.Expr> == e.Expr’
+ */
+int Chr(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Замещает всякую литерой в e.Expr её кодом в UCS-4 (UTF-32).
+ *
+       <Ord e.Expr> == e.Expr’
+ */
+int Ord(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
 

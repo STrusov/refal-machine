@@ -30,6 +30,9 @@ const struct refal_import_descriptor library[] = {
    { "*",         { &Mul                } },
    { "/",         { &Div                } },
    { "Numb",      { &Numb               } },
+   { "Symb",      { &Symb               } },
+   { "Ord",       { &Ord                } },
+   { "Chr",       { &Chr                } },
    { NULL,        { NULL                } }
 };
 
@@ -335,5 +338,51 @@ int Numb(rf_vm *restrict vm, rf_index prev, rf_index next)
    }
    rf_free_evar(vm, prev, next);
    rf_alloc_int(vm, result);
+   return 0;
+}
+
+int Symb(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_index s = vm->u[prev].next;
+   if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
+      return s;
+
+   rf_int num = vm->u[s].num;
+   rf_free_evar(vm, prev, next);
+
+   // TODO учесть остальные архитектуры.
+   unsigned long unum = num;
+   if (num < 0) {
+      unum = -num;
+      rf_alloc_char(vm, '-');
+   }
+   char digits[8 * sizeof(unum) * /* lg(2) */ 3/10];
+   unsigned n = 0;
+   do {
+      assert(n < sizeof(digits));
+      digits[n++] = unum % 10 + '0';
+      unum /= 10;
+   } while (unum);
+   while (n--) {
+      rf_alloc_char(vm, digits[n]);
+   }
+   return 0;
+}
+
+int Ord(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
+      if (vm->u[s].tag == rf_char)
+         vm->u[s].tag = rf_number;
+   }
+   return 0;
+}
+
+int Chr(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
+      if (vm->u[s].tag == rf_number)
+         vm->u[s].tag = rf_char;
+   }
    return 0;
 }

@@ -38,7 +38,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 23 };
+enum { refal_library_size = 24 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -73,6 +73,7 @@ rf_function  Div;
 rf_function  Mod;
 rf_function  Compare;
 
+rf_function  Type;
 rf_function  Numb;
 rf_function  Symb;
 rf_function  Chr;
@@ -202,6 +203,23 @@ int Compare(rf_vm *restrict vm, rf_index prev, rf_index next);
 /**\addtogroup library-str
  * \{
  */
+
+/**
+ * Возвращает s.Type s.SubType e.Expr, где e.Expr остаётся неизменным, а
+ * s.Type и s.SubType зависят от типа первого элемента выражения e.Expr:
+ * - 'Lu'   заглавная латинская буква
+ * - 'Ll'   строчная латинская буква
+ * - 'P0'   печатный символ
+ * - 'O0'   остальные символы
+ * - 'D0'   десятичная цифра
+ * - 'Wi'   идентификатор (функция). В книге 'F'.
+ * - 'N0'   число
+ * - 'B0'   скобка (открывающая)
+ * - '*0'   пустое выражение
+ *
+ * TODO доработать для Unicode.
+ */
+int Type(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**
  * Возвращает макро-цифру, представленную строкой в поле зрения.

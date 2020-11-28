@@ -29,6 +29,7 @@ const struct refal_import_descriptor library[] = {
    { "-",         { &Sub                } },
    { "*",         { &Mul                } },
    { "/",         { &Div                } },
+   { "Type",      { &Type               } },
    { "Numb",      { &Numb               } },
    { "Symb",      { &Symb               } },
    { "Ord",       { &Ord                } },
@@ -322,6 +323,59 @@ int Compare(rf_vm *restrict vm, rf_index prev, rf_index next)
       vm->u[s1].data = '0';
    }
    rf_free_evar(vm, s1, next);
+   return 0;
+}
+
+
+int Type(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_index s = vm->u[prev].next;
+   char subtype = '0';
+   char type = '?';
+   rf_index result = refal_vm_alloc_1(vm);
+   if (s == next) {
+      rf_alloc_char(vm, '*');
+   } else {
+      switch (vm->u[s].tag) {
+      case rf_identifier:
+         type = 'W';
+         subtype = 'i';
+         break;
+      case rf_number:
+         type = 'N';
+         break;
+      case rf_opening_bracket:
+         type = 'B';
+         break;
+      case rf_char:
+         switch (vm->u[s].chr) {
+         case '0'...'9':
+            type = 'D';
+            break;
+         case 'A'...'Z':
+            type = 'L';
+            subtype = 'u';
+            break;
+         case 'a'...'z':
+            type = 'L';
+            subtype = 'l';
+            break;
+         case '\0'...' '-1:
+            type = 'O';
+            break;
+         default:
+            type = 'P';
+            break;
+         }
+         break;
+      default:
+         assert(0);
+      }
+   }
+   rf_alloc_char(vm, type);
+   rf_alloc_char(vm, subtype);
+   rf_splice_evar_prev(vm, result, vm->free, s);
+   rf_free_last(vm);
    return 0;
 }
 

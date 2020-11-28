@@ -24,6 +24,7 @@ const struct refal_import_descriptor library[] = {
    { "Mul",       { &Mul                } },
    { "Div",       { &Div                } },
    { "Mod",       { &Mod                } },
+   { "Compare",   { &Compare            } },
    { "+",         { &Add                } },
    { "-",         { &Sub                } },
    { "*",         { &Mul                } },
@@ -299,6 +300,26 @@ static inline rf_int modulus(rf_int s1, rf_int s2) { return s2 ? s1%s2 : s2; }
 int Mod(rf_vm *restrict vm, rf_index prev, rf_index next)
 {
    return calc(vm, prev, next, modulus);
+}
+
+int Compare(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   rf_index s1 = vm->u[prev].next;
+   if (s1 == next)
+      return s1;
+   rf_index s2 = vm->u[s1].next;
+   if (vm->u[s2].next != next)
+      return s2;
+   vm->u[s1].tag = rf_char;
+   if (vm->u[s1].num < vm->u[s2].num) {
+      vm->u[s1].data = '-';
+   } else if (vm->u[s1].num > vm->u[s2].num) {
+      vm->u[s1].data = '+';
+   } else {
+      vm->u[s1].data = '0';
+   }
+   rf_free_evar(vm, s1, next);
+   return 0;
 }
 
 int Numb(rf_vm *restrict vm, rf_index prev, rf_index next)

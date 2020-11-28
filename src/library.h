@@ -38,7 +38,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 19 };
+enum { refal_library_size = 20 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -71,6 +71,7 @@ rf_function  Sub;
 rf_function  Mul;
 rf_function  Div;
 rf_function  Mod;
+rf_function  Compare;
 
 rf_function  Numb;
 
@@ -179,9 +180,19 @@ int Div(rf_vm *restrict vm, rf_index prev, rf_index next);
 /**
  * Возвращает остаток от деления 1-й s-переменной на 2-ю, или 0 при ошибке деления.
  *
-       <Div s.NUMBER s.NUMBER> == s.NUMBER
+       <Mod s.NUMBER s.NUMBER> == s.NUMBER
 */
 int Mod(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ *  Сравнивает два числа и возвращает '-', когда s.X меньше, чем s.Y;
+ *  '+', когда больше; '0', когда равны.
+ *
+       <Compare s.X s.Y>
+         == '-' | '0' | '+'
+        s.X, s.Y ::= s.NUMBER
+ */
+int Compare(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
 

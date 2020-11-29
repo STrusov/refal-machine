@@ -34,6 +34,7 @@ const struct refal_import_descriptor library[] = {
    { "Symb",      { &Symb               } },
    { "Ord",       { &Ord                } },
    { "Chr",       { &Chr                } },
+   { "GetEnv",    { &GetEnv             } },
    { NULL,        { NULL                } }
 };
 
@@ -438,5 +439,38 @@ int Chr(rf_vm *restrict vm, rf_index prev, rf_index next)
       if (vm->u[s].tag == rf_number)
          vm->u[s].tag = rf_char;
    }
+   return 0;
+}
+
+
+int GetEnv(rf_vm *restrict vm, rf_index prev, rf_index next)
+{
+   extern char **environ;
+   rf_index name = vm->u[prev].next;
+   char **env = environ;
+   while (*env) {
+      const char *restrict ename = *env;
+      for (rf_index s = name; s != next; s = vm->u[s].next) {
+         if (vm->u[s].tag != rf_char) {
+            return s;
+         }
+         char utf8[4];
+         unsigned n = rf_encode_utf8(vm, s, utf8);
+         // Имя не может содержать =
+         if (!*utf8 || *utf8 == '=')
+            goto exit;
+         for (unsigned i = 0; i != n; ++i)
+            if (utf8[i] != *ename++)
+               goto next_var;
+      }
+      if (*ename++ == '=') {
+         rf_alloc_string(vm, ename);
+         goto exit;
+      }
+next_var:
+      ++env;
+   }
+exit:
+   rf_free_evar(vm, prev, next);
    return 0;
 }

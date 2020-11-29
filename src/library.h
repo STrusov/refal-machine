@@ -38,7 +38,7 @@
  * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
-enum { refal_library_size = 24 };
+enum { refal_library_size = 25 };
 
 extern
 const struct refal_import_descriptor library[refal_library_size + 1];
@@ -78,6 +78,8 @@ rf_function  Numb;
 rf_function  Symb;
 rf_function  Chr;
 rf_function  Ord;
+
+rf_function  GetEnv;
 
 /**\addtogroup library-io
  * \{
@@ -282,6 +284,17 @@ int Arg(rf_vm *restrict vm, rf_index prev, rf_index next);
   Функция реализована непосредственно в интерпретаторе.
 */
 int Mu(rf_vm *restrict vm, rf_index prev, rf_index next);
+
+/**
+ * Возвращает в поле зрения значение переменной окружения с именем e.EnvName.
+ *
+ * TODO Реализация из Refal-05 не различает случаи, когда переменная определена
+ * с пустым значением, или не определена.
+ *
+       <GetEnv e.EnvName> == e.EnvValue
+       e.EnvName, e.EnvValue ::= s.CHAR*
+ */
+int GetEnv(rf_vm *restrict vm, rf_index prev, rf_index next);
 
 /**\}*/
 

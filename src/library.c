@@ -55,6 +55,9 @@ const struct refal_import_descriptor library[] = {
 /**\ingroup library-aux
  *
  * Вводит строку из потока и размещает её в новой памяти.
+ * В случае ошибки чтения или конца потока в поле зрения возвращается число 0.
+ * В случае вызова для файла, который предварительно не удалось открыть функцией
+ * Open, указатель потока равен NULL, так же возвращает 0.
  * \result номер первой ячейки введённых данных.
  */
 static inline
@@ -62,6 +65,8 @@ rf_index rf_alloc_input(
       rf_vm *restrict vm, FILE *stream)
 {
    rf_index i = vm->free;
+   if (!stream)
+      goto eof;
    unsigned state = 0;
    while (1) {
       int c = fgetc(stream);
@@ -71,7 +76,7 @@ rf_index rf_alloc_input(
          // Признак конца файла не включается в строку,
          // возвращается по отдельному запросу.
          if (i == vm->free) {
-            rf_alloc_int(vm, 0);
+eof:        rf_alloc_int(vm, 0);
          }
          break;
       }
@@ -104,6 +109,7 @@ int rf_output(
       FILE        *stream)
 {
    assert(prev != next);
+   assert(stream);
    enum rf_type prevt = rf_undefined;
    for (rf_index i = prev; (i = vm->u[i].next) != next; ) {
       switch (vm->u[i].tag) {

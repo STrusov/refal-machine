@@ -1,0 +1,4 @@
+
+go =  <Prout <GetEnv 'DISPLAY'>>
+*      <Prout <GetEnv 'ЦЦ'>>
+      ;

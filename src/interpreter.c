@@ -405,7 +405,8 @@ evar_express:
                // Ищем в поле зрения вычислимую функцию и вызываем её.
                if (!function.value) {
                   for (rf_index id = vm->u[prev].next; id != next; id = vm->u[id].next)
-                     if (vm->u[id].tag == rf_identifier) {
+                     switch (vm->u[id].tag) {
+                     case rf_identifier:
                         function = rtrie_val_from_raw(vm->u[id].data);
                         switch (function.tag) {
                         case rft_undefined:
@@ -419,6 +420,13 @@ evar_express:
                            rf_free_evar(vm, vm->u[id].prev, vm->u[id].next);
                            goto execute_machine_code;
                         }
+                     case rf_opening_bracket:
+                        id = vm->u[id].link;
+                        if (!(id < vm->size)) {
+                           goto error_link_out_of_range;
+                        }
+                     default:
+                        continue;
                      }
                   goto recognition_impossible;
                }

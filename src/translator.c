@@ -105,14 +105,25 @@ int refal_translate_to_bytecode(
    // и для возможности изменить тип функции (с пустой на вычислимую).
    rtrie_index ident = 0;
 
+   // Текущее пространство имён, куда заносятся идентификаторы.
+   // Имена модулей дублируются так же в глобальном пространстве,
+   // при импорте модуля временно меняется на 0.
+   rtrie_index namespace = module;
+
    // Начало и длина имени идентификатора. Для импорта модулей.
    const char *ident_str = NULL;
    size_t      ident_strlen = 0;
+   // Номер первого символа идентификатора в строке. Так же и для вывода ошибки.
+   unsigned    ident_pos = 0;
 
    // Пространство имён текущего импортируемого модуля.
    // Кроме того, идентификатор модуля может встречаться и в выражениях,
    // определяя область поиска следующего за ним идентификатора.
    rtrie_index imports = 0;
+
+   // Импортированное в текущую область видимости имя модуля.
+   // Используется для связи с ветвью идентификаторов модуля.
+   rtrie_index imports_local = 0;
 
    // Для вывода предупреждений об идентификаторах модулей.
    const char *redundant_module_id = "идентификатор модуля без функции не имеет смысла";
@@ -261,7 +272,9 @@ lexem_identifier_complete:
             goto next_char;
          case ss_import:
             if (import_node < 0) {
-               syntax_error(st, "импортируемый идентификатор не определён в модуле", line_num, pos, line, end);
+               syntax_error(st, "идентификатор не определён в модуле "
+                                "(возможно, взаимно-рекурсовный импорт)",
+                                line_num, pos, line, end);
                goto error;
             }
             if (ids->n[node].val.tag != rft_undefined) {
@@ -344,7 +357,7 @@ lexem_identifier_complete_global:
                // Используем соответствующую ветку для поиска следующего идентификатора.
                else if (ids->n[node].val.tag == rft_enum && !ids->n[node].val.value) {
                   assert(!imports);
-                  imports = rtrie_find_at(ids, node, ' ');
+                  imports = rtrie_find_next(ids, node, ' ');
                   im_str  = line;
                   im_line = line_num;
                   im_pos  = pos;
@@ -957,9 +970,14 @@ sentence_complete:
                // Если идентификатор определён со значением 0, значит трансляция
                // модуля уже выполнена. Импортируем идентификаторы.
                if (!ids->n[node].val.value) {
-                  imports = rtrie_find_at(ids, node, ' ');
+                  imports = rtrie_find_next(ids, node, ' ');
                   assert(!(imports < 0));
                   semantic = ss_import;
+                  namespace = module;
+                  if (imports_local) {
+                     ids->n[imports_local] = ids->n[imports];
+                     imports_local = 0;
+                  }
                   goto next_char;
                }
             case rft_machine_code:
@@ -971,7 +989,37 @@ sentence_complete:
             ids->n[node].val.tag   = rft_enum;
             ids->n[node].val.value = 0;
             lexer = lex_whitespace;
-            imports = rtrie_insert_at(ids, node, ' ');
+            // Имя модуля внесено в текущее пространство имён, что гарантирует
+            // отсутствие иного одноимённого идентификатора и даёт возможность
+            // квалифицированного (именем модуля) поиска идентификаторов.
+            //
+            // Поскольку другие модули могут импортировать этот же модуль,
+            // необходимо обеспечить идентичность идентификаторов, а так же нет
+            // смысла повторно транслировать уже импортированный модуль.
+            // Обе задачи решаются импортом всех модулей в одну (глобальную)
+            // область видимости. Выполняется откат, трансляция имени модуля
+            // происходит повторно, что дублирует его имя в корне таблицы
+            // символов. Содержимое модуля транслируется, идентификаторы
+            // заносятся в соответствующую ветку.
+            // После чего в данный узел "пробел" следует скопировать
+            // соответствующий ему из глобального пространства, что обеспечит
+            // единообразный импорт идентификаторов модуля.
+            imports = rtrie_insert_next(ids, node, ' ');
+            if (module && namespace == module) {
+               namespace = 0;
+               imports_local = imports;
+               imports = 0;
+               src = ident_str;
+               pos = ident_pos;
+               semantic = ss_source;
+               goto next_char;
+            }
+            assert(!namespace);
+            if (imports_local) {
+               ids->n[imports_local] = ids->n[imports];
+               imports_local = 0;
+            }
+            namespace = module;
             int r = refal_translate_module_to_bytecode(vm, ids, imports,
                                                    ident_str, ident_strlen, st);
             switch (r) {
@@ -1160,8 +1208,9 @@ symbol:
          case ss_import:
             import_node = rtrie_find_at(ids, imports, chr);
          case ss_source:
-            node = rtrie_insert_at(ids, module, chr);
+            node = rtrie_insert_at(ids, namespace, chr);
             ident_str = str;
+            ident_pos = pos;
             goto next_char;
          case ss_identifier:
             goto error_identifier_odd;
@@ -1218,7 +1267,8 @@ lexem_identifier_global:
                } else {
                   // Если идентификатор не существует, добавляем.
                   // После первого прохода проверим, не появилось ли определение.
-                  node = rtrie_insert_at(ids, module, chr);
+                  assert(namespace == module);
+                  node = rtrie_insert_at(ids, namespace, chr);
                }
                goto next_char;
             }

@@ -63,18 +63,41 @@ int main(int argc, char **argv)
          // Для точки входа go выводим поле зрения, как результат программы.
          int show_result = 0;
 
-         // Для точек входа main и Main размещаем в поле зрения аргументы
-         // командной строки. Имя интерпретатора (0-й) удаляем.
-         struct rtrie_val entry = rtrie_get_value(&ids, "main");
+         // Точка входа может как получать аргументы командной строки,
+         // так и вызываться с пустым полем зрения.
+         int pass_args = 0;
+
+         // Для точек входа Начало проверяем, принимает ли вызываемая функция
+         // аргументы, и передаём по необходимости.
+         struct rtrie_val entry = rtrie_get_value(&ids, "начало");
          if (entry.tag == rft_byte_code) {
             show_result = 1;
          } else {
-            entry = rtrie_get_value(&ids, "Main");
+            entry = rtrie_get_value(&ids, "Начало");
          }
          if (entry.tag == rft_byte_code) {
-            rf_alloc_strv(&vm, argc - 1, (const char**)&argv[1]);
-         } else {
-            // Точки входа классического РЕФАЛ не получают аргументы.
+            rf_index oc = entry.value;
+            if (vm.u[oc].tag == rf_sentence)
+               oc = vm.u[oc].next;
+            if (vm.u[oc].tag != rf_equal)
+               pass_args = 1;
+         }
+
+         // Для точек входа main и Main всегда передаём аргументы.
+         if (entry.tag != rft_byte_code) {
+            entry = rtrie_get_value(&ids, "main");
+            if (entry.tag == rft_byte_code) {
+               show_result = 1;
+            } else {
+               entry = rtrie_get_value(&ids, "Main");
+            }
+            if (entry.tag == rft_byte_code) {
+               pass_args = 1;
+            }
+         }
+
+         // Точки входа классического РЕФАЛ не получают аргументы.
+         if (entry.tag != rft_byte_code) {
             entry = rtrie_get_value(&ids, "go");
             if (entry.tag == rft_byte_code) {
                show_result = 1;
@@ -86,8 +109,12 @@ int main(int argc, char **argv)
 //         rtrie_free(&ids);
 
          if (entry.tag != rft_byte_code) {
-            critical_error(&status, "не определена начальная функция (main или go)", entry.value, 0);
+            critical_error(&status, "не определена функция Начало, Main или Go", entry.value, 0);
          } else {
+            // Имя интерпретатора не передаём среди аргументов.
+            if (pass_args) {
+               rf_alloc_strv(&vm, argc - 1, (const char**)&argv[1]);
+            }
             next = vm.free;
             r = refal_interpret_bytecode(&vm, prev, next, entry.value, &status);
             // В случае ошибки среды, она выведена интерпретатором.

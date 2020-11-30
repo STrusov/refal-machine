@@ -272,6 +272,41 @@ rtrie_index rtrie_find_next(
    return idx < 0 ? idx : rtrie_find_at(rt, rt->n[idx].next, chr);
 }
 
+static inline
+wchar_t decode_utf8(
+      const char  *restrict *str_ptr)
+{
+   wchar_t chr = 0;
+   unsigned more = 0;
+   const unsigned char *restrict str = (const unsigned char*)*str_ptr;
+   unsigned char octet = *str++;
+   switch (octet) {
+   case 0x00 ... 0x7f:
+      chr = octet;
+      break;
+   case 0xc0 ... 0xdf:
+      more = 1;
+      chr = 0x1f & octet;
+      break;
+   case 0xe0 ... 0xef:
+      more = 2;
+      chr = 0x0f & octet;
+      break;
+   case 0xf0 ... 0xf4:
+      more = 3;
+      chr = 0x03 & octet;
+      break;
+   default:
+      assert(0);
+      break;
+   }
+   while (more-- && (octet = *str++)) {
+      chr = (chr << 6) | (0x3f & octet);
+   }
+   *str_ptr = (const char*)str;
+   return chr;
+}
+
 /**
  * Находит соответствующее последовательности символов `prefix` значение
  * `struct rtrie_val` и возвращает его.
@@ -287,11 +322,11 @@ struct rtrie_val rtrie_get_value(
    assert(*prefix);
 
    rtrie_index idx = 0;
-   wchar_t chr = *prefix++;
+   wchar_t chr = decode_utf8(&prefix);
    while (1) {
       if (chr == rt->n[idx].chr) {
          if (*prefix) {
-            chr = *prefix++;
+            chr = decode_utf8(&prefix);
             idx = rt->n[idx].next;
          } else {
             return rt->n[idx].val;

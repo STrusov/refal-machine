@@ -235,9 +235,10 @@ next_sentence:
                   var[v].next = vm->u[cur].next;
                }
                ++local;
-            } else if (t == rf_opening_bracket) {
-               assert(tag == rf_tvar);
+            } else if (t == rf_opening_bracket && tag == rf_tvar) {
                goto evar_compare;
+            } else if (t == rf_opening_bracket) {
+               goto sentence;
             } else if (!rf_svar_equal(vm, cur, var[v].s)) {
                goto sentence;
             }

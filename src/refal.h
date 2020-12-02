@@ -159,7 +159,7 @@ struct refal_vm {
 void *refal_malloc(size_t size);
 
 /**
- * Изменяет (увеличивает) размер запрощенной ранее памяти.
+ * Изменяет (увеличивает) размер запрошенной ранее памяти.
  * \param ptr начальный адрес памяти (результат `refal_malloc()`).
  * \param old_size ранее распределённый объём памяти.
  * \param new_size требуемый объём памяти.
@@ -361,7 +361,9 @@ void rf_free_last(
    vm->free = vm->u[vm->free].prev;
 }
 
-/**
+/* * Эта и следующая функции унаследованы от А-Рефала и не применяются.
+ *   TODO удалить либо исправить.
+ *
  * Перемещает в поле зрения между prev и prev.next ячейки свободной части списка
  * начиная с first по [vm->free].prev включительно:
 
@@ -385,7 +387,7 @@ void rf_insert_next(
    vm->u[first].prev = prev;
 }
 
-/**
+/* *
  * Перемещает в поле зрения между next.prev и next ячейки свободной части списка
  * начиная с first по [vm->free].prev включительно.
  */
@@ -511,9 +513,9 @@ rf_index rf_alloc_char(
       struct refal_vm   *vm,
       wchar_t           chr)
 {
-    // Обнуляем старшие разряды, что бы работало обобщённое сравнение
-    // s-переменных.
-    return rf_alloc_value(vm, chr, rf_char);
+   // Очищаем старшие разряды, что бы работало обобщённое сравнение
+   // s-переменных.
+   return rf_alloc_value(vm, chr, rf_char);
 }
 
 /**
@@ -642,13 +644,13 @@ rf_index rf_alloc_string(
 static inline
 void rf_link_brackets(
       struct refal_vm   *vm,
-      rf_index opening,
-      rf_index closing)
+      rf_index          opening,
+      rf_index          closing)
 {
-    assert(vm->u[opening].tag == rf_opening_bracket);
-    assert(vm->u[closing].tag == rf_closing_bracket);
-    vm->u[opening].link = closing;
-    vm->u[closing].link = opening;
+   assert(vm->u[opening].tag == rf_opening_bracket);
+   assert(vm->u[closing].tag == rf_closing_bracket);
+   vm->u[opening].link = closing;
+   vm->u[closing].link = opening;
 }
 
 /**

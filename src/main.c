@@ -14,12 +14,14 @@
 
 void *refal_malloc(size_t size)
 {
-   return mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+   void *p = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+   return p != MAP_FAILED ? p : NULL;
 }
 
 void *refal_realloc(void *ptr, size_t old_size, size_t new_size)
 {
-   return mremap(ptr, old_size, new_size, MREMAP_MAYMOVE, NULL);
+   void *p = mremap(ptr, old_size, new_size, MREMAP_MAYMOVE, NULL);
+   return p != MAP_FAILED ? p : NULL;
 }
 
 void refal_free(void *ptr, size_t size)

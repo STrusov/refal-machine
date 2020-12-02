@@ -13,9 +13,9 @@
 /** При трансляции выдаётся замечание о копировании переменной (дорогая операция).*/
 #define REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
 
-#define REFAL_TRANSLATOR_LOCALS_DEFAULT 100
-#define REFAL_TRANSLATOR_EXECS_DEFAULT 100
-#define REFAL_TRANSLATOR_BRACKETS_DEFAULT 100
+#define REFAL_TRANSLATOR_LOCALS_DEFAULT   128
+#define REFAL_TRANSLATOR_EXECS_DEFAULT    128
+#define REFAL_TRANSLATOR_BRACKETS_DEFAULT 128
 
 /**
  * Конфигурация транслятора.
@@ -27,6 +27,15 @@
 struct refal_translator_config {
    unsigned locals_limit;  ///< Допустимое количество переменных в предложении.
    unsigned execs_limit;   ///< Допустимое количество вложенных вызовов функций.
+   unsigned brackets_limit;///< Допустимое количество вложенных скобок.
+
+   ///\{ Выводить предупреждения
+   unsigned warn_implicit_declaration:1;  ///< неявное определение идентификатора.
+   ///\}
+
+   ///\{ Выводить замечания
+   unsigned notice_copy:1; ///< копирование переменных.
+   ///\}
 };
 
 /**
@@ -55,10 +64,12 @@ unsigned refal_import(
 /**
  * Переводит исходный текст в байт-код для интерпретатора.
  * При этом заполняется таблица символов.
+ * \retval cfg->locals_limit если передано 0, корректирует значение (требуется интерпретатору)
  * \return 0 при успехе, -1 в случае отсутствия фала, иначе
  * \see `refal_translate_to_bytecode()`.
  */
 int refal_translate_file_to_bytecode(
+      struct refal_translator_config   *cfg, ///< Конфигурация.
       struct refal_vm      *vm,     ///< Память для целевого кода.
       struct refal_trie    *ids,    ///< Таблица символов.
       const char           *name,   ///< имя файла с исходным текстом.
@@ -70,6 +81,7 @@ int refal_translate_file_to_bytecode(
  * \result количество ошибок.
  */
 int refal_translate_to_bytecode(
+      struct refal_translator_config   *cfg, ///< Конфигурация.
       struct refal_vm      *vm,     ///< Память для целевого кода.
       struct refal_trie    *ids,    ///< Таблица символов.
       rtrie_index          module,  ///< Пространство имён модуля (0 - глобальное).

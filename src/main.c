@@ -61,7 +61,11 @@ int main(int argc, char **argv)
          vm.library = library;
          vm.library_size = refal_import(&ids, vm.library);
 
-         refal_translate_file_to_bytecode(&vm, &ids, argv[1], &status);
+         struct refal_translator_config tcfg = {
+               .warn_implicit_declaration = 1,
+               .notice_copy               = 1,
+         };
+         refal_translate_file_to_bytecode(&tcfg, &vm, &ids, argv[1], &status);
 
          // Границы поля зрения:
          rf_index next = vm.free;

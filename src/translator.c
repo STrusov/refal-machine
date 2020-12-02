@@ -11,6 +11,7 @@
 
 
 int refal_translate_file_to_bytecode(
+      struct refal_translator_config   *cfg,
       struct refal_vm      *vm,
       struct refal_trie    *ids,
       const char           *name,
@@ -23,7 +24,7 @@ int refal_translate_file_to_bytecode(
    if (src == MAP_FAILED) {
       critical_error(st, "исходный текст недоступен", -errno, size);
    } else {
-      r = refal_translate_to_bytecode(vm, ids, 0, src, &src[size], st);
+      r = refal_translate_to_bytecode(cfg, vm, ids, 0, src, &src[size], st);
       munmap((void*)src, size);
    }
    refal_message_source(st, os);
@@ -31,6 +32,7 @@ int refal_translate_file_to_bytecode(
 }
 
 int refal_translate_module_to_bytecode(
+      struct refal_translator_config   *cfg,
       struct refal_vm      *vm,
       struct refal_trie    *ids,
       rtrie_index          module,
@@ -67,7 +69,7 @@ int refal_translate_module_to_bytecode(
       const char *src = mmap_file(path, &size);
       if (src != MAP_FAILED) {
          const char *os = refal_message_source(st, path);
-         r = refal_translate_to_bytecode(vm, ids, module, src, &src[size], st);
+         r = refal_translate_to_bytecode(cfg, vm, ids, module, src, &src[size], st);
          munmap((void*)src, size);
          refal_message_source(st, os);
          if (r >= 0)
@@ -84,6 +86,7 @@ int refal_translate_module_to_bytecode(
 }
 
 int refal_translate_to_bytecode(
+      struct refal_translator_config   *cfg,
       struct refal_vm      *const vm,
       struct refal_trie    *const ids,
       rtrie_index          module,
@@ -169,6 +172,12 @@ int refal_translate_to_bytecode(
    // Поскольку все кроме одного вхождения e-переменной в выражении-результате
    // приходится копировать, используем массив для отслеживания их компиляций.
    rf_index local_max = REFAL_TRANSLATOR_LOCALS_DEFAULT;
+   if (cfg && cfg->locals_limit) {
+      local_max = cfg->locals_limit;
+   } else if (cfg) {
+      // TODO можно определить действительный максимум, но, наверное, не нужно.
+      cfg->locals_limit = local_max;
+   }
    struct {
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
       const char  *src;
@@ -182,16 +191,22 @@ int refal_translate_to_bytecode(
    // индексы ячеек с командой rf_execute организованы в стек.
    // 0й элемент используется при обработке идентификаторов и при отсутствии <>,
    // поэтому реальное количество скобок на 1 меньше, чем размер массива.
-   const int exec_max = REFAL_TRANSLATOR_EXECS_DEFAULT;
+   unsigned exec_max = REFAL_TRANSLATOR_EXECS_DEFAULT;
+   if (cfg && cfg->execs_limit) {
+      exec_max = cfg->execs_limit;
+   }
    rf_index cmd_exec[exec_max];
-   int ep = 0;       // адресует последний занятый элемент,
+   unsigned ep = 0;  // адресует последний занятый элемент,
    cmd_exec[ep] = 0; // изначально пустой (используется не только при закрытии >)
 
    // Структурные скобки организованы в стек по той же причине.
    // Запоминается адрес открывающей, что бы связать с парной закрывающей.
-   const int bracket_max = REFAL_TRANSLATOR_BRACKETS_DEFAULT;
+   unsigned bracket_max = REFAL_TRANSLATOR_BRACKETS_DEFAULT;
+   if (cfg && cfg->brackets_limit) {
+      bracket_max = cfg->brackets_limit;
+   }
    rf_index bracket[bracket_max];
-   int bp = 0; // адресует свободный элемент.
+   unsigned bp = 0;  // адресует свободный элемент.
 
    rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
    int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
@@ -318,8 +333,10 @@ lexem_identifier_complete:
                if (id_type != id_svar && var[id].opcode) {
                   vm->u[var[id].opcode].tag2 = 1;
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
-                  performance(st, "создаётся копия переменной", var[id].line,
-                                  var[id].pos, var[id].src, end);
+                  if (cfg && cfg->notice_copy) {
+                     performance(st, "создаётся копия переменной", var[id].line,
+                                     var[id].pos, var[id].src, end);
+                  }
 #endif
                }
                var[id].opcode = rf_alloc_value(vm, id, id_type);
@@ -1020,7 +1037,7 @@ sentence_complete:
                imports_local = 0;
             }
             namespace = module;
-            int r = refal_translate_module_to_bytecode(vm, ids, imports,
+            int r = refal_translate_module_to_bytecode(cfg, vm, ids, imports,
                                                    ident_str, ident_strlen, st);
             switch (r) {
             case -2:
@@ -1387,7 +1404,9 @@ complete:
             // TODO опциональное поведение?
             if (ex)
                continue;
-            warning(st, "неявное определение идентификатора", line_num, pos, line, end);
+            if (cfg && cfg->warn_implicit_declaration) {
+               warning(st, "неявное определение идентификатора", line_num, pos, line, end);
+            }
             ids->n[n].val.tag   = rft_enum;
             ids->n[n].val.value = ++enum_couner;
          }

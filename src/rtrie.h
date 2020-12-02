@@ -137,7 +137,7 @@ void rtrie_free(
  */
 static inline
 rtrie_index rtrie_new_node(
-      struct refal_trie *restrict rt,
+      struct refal_trie *rt,
       wchar_t           chr)
 {
    assert(rt);
@@ -161,9 +161,9 @@ rtrie_index rtrie_new_node(
  */
 static inline
 rtrie_index rtrie_insert_at(
-      struct refal_trie *restrict rt,  ///< Таблица символов.
-      rtrie_index       idx,           ///< Начальный узел поиска.
-      wchar_t           chr)           ///< Текущий символ имени.
+      struct refal_trie *rt,  ///< Таблица символов.
+      rtrie_index       idx,  ///< Начальный узел поиска.
+      wchar_t           chr)  ///< Текущий символ имени.
 {
    // Если значение совпадает с символом, значит узел найден;
    // иначе проверяем соседей.
@@ -196,8 +196,8 @@ rtrie_index rtrie_insert_at(
  */
 static inline
 rtrie_index rtrie_insert_first(
-      struct refal_trie *restrict rt,  ///< Таблица символов.
-      wchar_t           chr)           ///< Первый символ имени.
+      struct refal_trie *rt,  ///< Таблица символов.
+      wchar_t           chr)  ///< Первый символ имени.
 {
    return rtrie_insert_at(rt, 0, chr);
 }
@@ -209,9 +209,9 @@ rtrie_index rtrie_insert_first(
  */
 static inline
 rtrie_index rtrie_insert_next(
-      struct refal_trie *restrict rt,  ///< Таблица символов.
-      rtrie_index       idx,           ///< Результат предыдущего поиска.
-      wchar_t           chr)           ///< Текущий символ имени.
+      struct refal_trie *rt,  ///< Таблица символов.
+      rtrie_index       idx,  ///< Результат предыдущего поиска.
+      wchar_t           chr)  ///< Текущий символ имени.
 {
    if (rt->n[idx].next) {
       return rtrie_insert_at(rt, rt->n[idx].next, chr);
@@ -226,9 +226,9 @@ rtrie_index rtrie_insert_next(
  */
 static inline
 rtrie_index rtrie_find_at(
-      struct refal_trie *restrict rt,  ///< Таблица символов.
-      rtrie_index       idx,           ///< Начальный узел поиска.
-      wchar_t           chr)           ///< Текущий символ имени.
+      const struct refal_trie *rt,  ///< Таблица символов.
+      rtrie_index             idx,  ///< Начальный узел поиска.
+      wchar_t                 chr)  ///< Текущий символ имени.
 {
    // Если значение совпадает с символом, значит узел найден;
    // иначе проверяем соседей.
@@ -253,8 +253,8 @@ rtrie_index rtrie_find_at(
  */
 static inline
 rtrie_index rtrie_find_first(
-      struct refal_trie *restrict rt,  ///< Таблица символов.
-      wchar_t           chr)           ///< Первый символ имени.
+      const struct refal_trie *rt,  ///< Таблица символов.
+      wchar_t                 chr)  ///< Первый символ имени.
 {
    return rtrie_find_at(rt, 0, chr);
 }
@@ -265,9 +265,9 @@ rtrie_index rtrie_find_first(
  */
 static inline
 rtrie_index rtrie_find_next(
-      struct refal_trie *restrict rt,  ///< Таблица символов.
-      rtrie_index       idx,           ///< Результат предыдущего поиска.
-      wchar_t           chr)           ///< Первый символ имени.
+      const struct refal_trie *rt,  ///< Таблица символов.
+      rtrie_index             idx,  ///< Результат предыдущего поиска.
+      wchar_t                 chr)  ///< Первый символ имени.
 {
    return idx < 0 ? idx : rtrie_find_at(rt, rt->n[idx].next, chr);
 }
@@ -313,8 +313,8 @@ wchar_t decode_utf8(
  */
 static inline
 struct rtrie_val rtrie_get_value(
-      const struct refal_trie *restrict rt,
-      const char              *restrict prefix)
+      const struct refal_trie *rt,
+      const char              *prefix)
 {
    assert(rt);
    assert(prefix);

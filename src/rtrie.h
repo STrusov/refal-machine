@@ -176,15 +176,18 @@ rtrie_index rtrie_insert_at(
          if (rt->n[idx].right) {
             idx = rt->n[idx].right;
          } else {
-            rt->n[idx].right = rtrie_new_node(rt, chr);
-            return rt->n[idx].right;
+            rtrie_index right = rtrie_new_node(rt, chr);
+            // Sequence point, в одну строку UB (§6.5/2)
+            rt->n[idx].right = right;
+            return right;
          }
       } else /* if (chr < rt->n[idx].chr) */ {
          if (rt->n[idx].left) {
             idx = rt->n[idx].left;
          } else {
-            rt->n[idx].left = rtrie_new_node(rt, chr);
-            return rt->n[idx].left;
+            rtrie_index left = rtrie_new_node(rt, chr);
+            rt->n[idx].left = left;
+            return left;
          }
       }
    }
@@ -216,8 +219,10 @@ rtrie_index rtrie_insert_next(
    if (rt->n[idx].next) {
       return rtrie_insert_at(rt, rt->n[idx].next, chr);
    }
-   rt->n[idx].next = rtrie_new_node(rt, chr);
-   return rt->n[idx].next;
+   rtrie_index next = rtrie_new_node(rt, chr);
+   // Sequence point, в одну строку порядок вычислений не определён (§6.5/2)
+   rt->n[idx].next = next;
+   return next;
 }
 
 /**

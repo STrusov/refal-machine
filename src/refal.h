@@ -140,6 +140,11 @@ struct refal_vm {
    rf_cell     *u;   ///< Массив, содержащий ячейки.
    rf_index    size; ///< Размер массива.
    rf_index    free; ///< Первый свободный элемент.
+
+   /// Адрес таблицы функций в машинном коде.
+   const struct refal_import_descriptor *library;
+   /// Количество функций в машинном коде.
+   unsigned    library_size;;
 };
 
 

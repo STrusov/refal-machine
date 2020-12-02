@@ -432,14 +432,14 @@ evar_express:
                   goto recognition_impossible;
                }
 execute_machine_code:
-               if (!(function.value < refal_library_size)) {
+               if (!(function.value < vm->library_size)) {
                   inconsistence(st, "библиотечная функция не существует", function.value, ip);
                   goto error;
                }
                // TODO следует иметь ввиду, что при невозможности отождествления
                // функции возвращают `rf_index`, тип без знака. При приведении его
                // к int возможна трактовка результата как отрицательного значения.
-               const int r = refal_library_call(vm, prev, next, function.value);
+               int r = vm->library[function.value].function(vm, prev, next);
                if (r > 0) {
                   cur = r;
                   goto recognition_impossible;

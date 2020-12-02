@@ -31,15 +31,15 @@ struct refal_translator_config {
 
 /**
  * Заносит в таблицу символов информацию о функциях в машинном коде.
- * \result количество занятых узлов (TODO надо ли?).
+ * \result количество импортированных функций.
  */
 static inline
-rtrie_index refal_import(
+unsigned refal_import(
       struct refal_trie                    *ids,   ///< Таблица символов.
       const struct refal_import_descriptor *lib)   ///< Массив описателей импорта.
 {
-   const rtrie_index free = ids->free;
-   for (int ordinal = 0; lib->name; ++lib, ++ordinal) {
+   unsigned ordinal;
+   for (ordinal = 0; lib->name; ++lib, ++ordinal) {
       const char *p = lib->name;
       assert(p);
       rtrie_index idx = rtrie_insert_first(ids, *p++);
@@ -49,7 +49,7 @@ rtrie_index refal_import(
       ids->n[idx].val.tag   = rft_machine_code;
       ids->n[idx].val.value = ordinal;
    }
-   return ids->free - free;
+   return ordinal;
 }
 
 /**

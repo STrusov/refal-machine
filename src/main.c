@@ -51,7 +51,9 @@ int main(int argc, char **argv)
       rtrie_alloc(&ids, REFAL_TRIE_INITIAL_MEMORY);
       if (rtrie_check(&ids, &status)) {
 
-         refal_import(&ids, library);
+         vm.library = library;
+         vm.library_size = refal_import(&ids, vm.library);
+
          refal_translate_file_to_bytecode(&vm, &ids, argv[1], &status);
 
          // Границы поля зрения:

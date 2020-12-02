@@ -21,6 +21,7 @@
  * \defgroup library-math  Арифметические функции.
  * \defgroup library-str   Обработка символов и строк.
  * \defgroup library-rt    Системные функции.
+ *
  */
 
 #include <assert.h>
@@ -34,27 +35,9 @@
  */
 #define REFAL_LIBRARY_LEGACY_FILES 40
 
-/**\addtogroup library-aux Вспомогательные функции.
- * Не вызываются из РЕФАЛ-програм непосредственно.
- * \{
- */
-enum { refal_library_size = 25 };
-
 extern
-const struct refal_import_descriptor library[refal_library_size + 1];
+const struct refal_import_descriptor library[];
 
-static inline
-int refal_library_call(
-      struct refal_vm   *vm,
-      rf_index          prev,
-      rf_index          next,
-      rf_index          ordinal)
-{
-   assert(ordinal < refal_library_size);
-   return library[ordinal].function(vm, prev, next);
-}
-
-/**\}*/
 /**\}*/
 
 rf_function  Card;
@@ -298,7 +281,8 @@ int GetEnv(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**\}*/
 
-/**\addtogroup library-aux
+/**\addtogroup library-aux Вспомогательные функции.
+ * Не вызываются из РЕФАЛ-програм непосредственно.
  * \{
  */
 

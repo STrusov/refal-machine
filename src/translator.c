@@ -84,8 +84,8 @@ int refal_translate_module_to_bytecode(
 }
 
 int refal_translate_to_bytecode(
-      struct refal_vm      *const restrict vm,
-      struct refal_trie    *const restrict ids,
+      struct refal_vm      *const vm,
+      struct refal_trie    *const ids,
       rtrie_index          module,
       const char           *const begin,
       const char           *const end,

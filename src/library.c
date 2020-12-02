@@ -61,8 +61,7 @@ const struct refal_import_descriptor library[] = {
  * \result номер первой ячейки введённых данных.
  */
 static inline
-rf_index rf_alloc_input(
-      rf_vm *restrict vm, FILE *stream)
+rf_index rf_alloc_input(struct refal_vm *vm, FILE *stream)
 {
    rf_index i = vm->free;
    if (!stream)
@@ -85,7 +84,7 @@ eof:        rf_alloc_int(vm, 0);
    return i;
 }
 
-int Card(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Card(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s1 = vm->u[prev].next;
    if (s1 != next)
@@ -103,7 +102,7 @@ int Card(rf_vm *restrict vm, rf_index prev, rf_index next)
  */
 static inline
 int rf_output(
-      const rf_vm *restrict vm,
+      const struct refal_vm *vm,
       rf_index    prev,
       rf_index    next,
       FILE        *stream)
@@ -149,14 +148,14 @@ int rf_output(
    return 0;
 }
 
-int Print(const rf_vm *restrict vm, rf_index prev, rf_index next)
+int Print(const struct refal_vm *vm, rf_index prev, rf_index next)
 {
     int r = rf_output(vm, prev, next, stdout);
     putchar('\n'); // в оригинале выводит и при пустом подвыражении.
     return r;
 }
 
-int Prout(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Prout(struct refal_vm *vm, rf_index prev, rf_index next)
 {
     int r = Print(vm, prev, next);
     rf_free_evar(vm, prev, next);
@@ -166,7 +165,7 @@ int Prout(rf_vm *restrict vm, rf_index prev, rf_index next)
 static
 FILE *file[REFAL_LIBRARY_LEGACY_FILES];
 
-int Open(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Open(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
    if (s == next || vm->u[s].tag != rf_char)
@@ -204,7 +203,7 @@ int Open(rf_vm *restrict vm, rf_index prev, rf_index next)
    return 0;
 }
 
-int Close(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Close(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
    if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
@@ -222,7 +221,7 @@ int Close(rf_vm *restrict vm, rf_index prev, rf_index next)
    return 0;
 }
 
-int Get(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Get(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
    if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
@@ -237,7 +236,7 @@ int Get(rf_vm *restrict vm, rf_index prev, rf_index next)
    return 0;
 }
 
-int Put(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Put(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
    if (s == next || vm->u[s].tag != rf_number)
@@ -254,7 +253,7 @@ int Put(rf_vm *restrict vm, rf_index prev, rf_index next)
    return r;
 }
 
-int Putout(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Putout(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    int r = Put(vm, prev, next);
    rf_free_evar(vm, prev, next);
@@ -265,7 +264,7 @@ int Putout(rf_vm *restrict vm, rf_index prev, rf_index next)
 typedef rf_int aop(rf_int s1, rf_int s2);
 
 static inline
-int calc(rf_vm *restrict vm, rf_index prev, rf_index next, aop *op)
+int calc(struct refal_vm *vm, rf_index prev, rf_index next, aop *op)
 {
    rf_index s1 = vm->u[prev].next;
    if (s1 == next)
@@ -280,40 +279,40 @@ int calc(rf_vm *restrict vm, rf_index prev, rf_index next, aop *op)
 
 static inline rf_int plus(rf_int s1, rf_int s2) { return s1 + s2; }
 
-int Add(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Add(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    return calc(vm, prev, next, plus);
 }
 
 static inline rf_int minus(rf_int s1, rf_int s2) { return s1 - s2; }
 
-int Sub(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Sub(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    return calc(vm, prev, next, minus);
 }
 
 static inline rf_int multiplies(rf_int s1, rf_int s2) { return s1 * s2; }
 
-int Mul(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Mul(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    return calc(vm, prev, next, multiplies);
 }
 
 static inline rf_int divides(rf_int s1, rf_int s2) { return s2 ? s1/s2 : s2; }
 
-int Div(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Div(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    return calc(vm, prev, next, divides);
 }
 
 static inline rf_int modulus(rf_int s1, rf_int s2) { return s2 ? s1%s2 : s2; }
 
-int Mod(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Mod(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    return calc(vm, prev, next, modulus);
 }
 
-int Compare(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Compare(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s1 = vm->u[prev].next;
    if (s1 == next)
@@ -334,7 +333,7 @@ int Compare(rf_vm *restrict vm, rf_index prev, rf_index next)
 }
 
 
-int Type(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Type(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
    char subtype = '0';
@@ -386,7 +385,7 @@ int Type(rf_vm *restrict vm, rf_index prev, rf_index next)
    return 0;
 }
 
-int Numb(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Numb(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_int result = 0;
    for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
@@ -402,7 +401,7 @@ int Numb(rf_vm *restrict vm, rf_index prev, rf_index next)
    return 0;
 }
 
-int Symb(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Symb(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
    if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
@@ -430,7 +429,7 @@ int Symb(rf_vm *restrict vm, rf_index prev, rf_index next)
    return 0;
 }
 
-int Ord(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Ord(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
       if (vm->u[s].tag == rf_char)
@@ -439,7 +438,7 @@ int Ord(rf_vm *restrict vm, rf_index prev, rf_index next)
    return 0;
 }
 
-int Chr(rf_vm *restrict vm, rf_index prev, rf_index next)
+int Chr(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
       if (vm->u[s].tag == rf_number)
@@ -449,7 +448,7 @@ int Chr(rf_vm *restrict vm, rf_index prev, rf_index next)
 }
 
 
-int GetEnv(rf_vm *restrict vm, rf_index prev, rf_index next)
+int GetEnv(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    extern char **environ;
    rf_index name = vm->u[prev].next;

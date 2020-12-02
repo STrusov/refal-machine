@@ -45,10 +45,10 @@ const struct refal_import_descriptor library[refal_library_size + 1];
 
 static inline
 int refal_library_call(
-      rf_vm    *vm,
-      rf_index prev,
-      rf_index next,
-      rf_index ordinal)
+      struct refal_vm   *vm,
+      rf_index          prev,
+      rf_index          next,
+      rf_index          ordinal)
 {
    assert(ordinal < refal_library_size);
    return library[ordinal].function(vm, prev, next);
@@ -93,7 +93,7 @@ rf_function  GetEnv;
  *
         <Card> == s.CHAR* 0?
 */
-int Card(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Card(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Вывод подвыражения в стандартный поток вывода с переводом строки.
@@ -101,7 +101,7 @@ int Card(rf_vm *restrict vm, rf_index prev, rf_index next);
  *
         <Print e.Expr> == e.Expr
  */
-int Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
+int Print(const struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Вывод подвыражения в стандартный поток вывода с переводом строки.
@@ -109,7 +109,7 @@ int Print(const rf_vm *restrict vm, rf_index prev, rf_index next);
  *
         <Prout e.Expr> == []
  */
-int Prout(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Prout(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Открывает файл e.FileName и связывает его с файловым дескриптором s.FileNo.
@@ -127,14 +127,14 @@ int Prout(rf_vm *restrict vm, rf_index prev, rf_index next);
         s.Mode ::=
             'r' | 'w' | 'a'
  */
-int Open(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Open(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Закрывает соответствующий дескриптору s.FileNo файл.
  *
         <Close s.FileNo> == []
  */
-int Close(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Close(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Действует подобно Card, за исключением того, что получает данные из файла,
@@ -143,11 +143,11 @@ int Close(rf_vm *restrict vm, rf_index prev, rf_index next);
         <Get s.FileNo> == s.Char* 0?
         s.FileNo ::= s.NUMBER
  */
-int Get(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Get(struct refal_vm *vm, rf_index prev, rf_index next);
 
-int Put(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Put(struct refal_vm *vm, rf_index prev, rf_index next);
 
-int Putout(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Putout(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**\}*/
 
@@ -160,35 +160,35 @@ int Putout(rf_vm *restrict vm, rf_index prev, rf_index next);
  *
        <Add s.NUMBER s.NUMBER> == s.NUMBER
 */
-int Add(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Add(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Вычитает 2-ю s-переменную из 1-й в возвращает разность.
  *
        <Sub s.NUMBER s.NUMBER> == s.NUMBER
 */
-int Sub(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Sub(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Возвращает произведение операндов (2-х s-переменных).
  *
        <Mul s.NUMBER s.NUMBER> == s.NUMBER
 */
-int Mul(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Mul(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Возвращает частное от деления 1-й s-переменной на 2-ю, или 0 при ошибке деления.
  *
        <Div s.NUMBER s.NUMBER> == s.NUMBER
 */
-int Div(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Div(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Возвращает остаток от деления 1-й s-переменной на 2-ю, или 0 при ошибке деления.
  *
        <Mod s.NUMBER s.NUMBER> == s.NUMBER
 */
-int Mod(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Mod(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  *  Сравнивает два числа и возвращает '-', когда s.X меньше, чем s.Y;
@@ -198,7 +198,7 @@ int Mod(rf_vm *restrict vm, rf_index prev, rf_index next);
          == '-' | '0' | '+'
         s.X, s.Y ::= s.NUMBER
  */
-int Compare(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Compare(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**\}*/
 
@@ -221,7 +221,7 @@ int Compare(rf_vm *restrict vm, rf_index prev, rf_index next);
  *
  * TODO доработать для Unicode.
  */
-int Type(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Type(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Возвращает макро-цифру, представленную строкой в поле зрения.
@@ -230,7 +230,7 @@ int Type(rf_vm *restrict vm, rf_index prev, rf_index next);
        <Numb s.Digit* e.Skipped> == s.NUMBER
        s.Digit ::= '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 */
-int Numb(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Numb(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Является обратной к функции Numb. Возвращает строку десятичных цифр,
@@ -238,21 +238,21 @@ int Numb(rf_vm *restrict vm, rf_index prev, rf_index next);
  *
        <Symb s.NUMBER> == s.CHAR+
  */
-int Symb(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Symb(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Замещает всякое число в e.Expr литерой с соответствующим кодом.
  *
        <Chr e.Expr> == e.Expr’
  */
-int Chr(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Chr(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Замещает всякую литерой в e.Expr её кодом в UCS-4 (UTF-32).
  *
        <Ord e.Expr> == e.Expr’
  */
-int Ord(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Ord(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**\}*/
 
@@ -273,7 +273,7 @@ int Ord(rf_vm *restrict vm, rf_index prev, rf_index next);
  *
  * В случае встраивания, аргументы размещаются `rf_alloc_strv()`.
  */
-int Arg(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Arg(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Ищет в поле зрения элемент, являющийся идентификатором вычислимой функции,
@@ -283,7 +283,7 @@ int Arg(rf_vm *restrict vm, rf_index prev, rf_index next);
 
   Функция реализована непосредственно в интерпретаторе.
 */
-int Mu(rf_vm *restrict vm, rf_index prev, rf_index next);
+int Mu(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Возвращает в поле зрения значение переменной окружения с именем e.EnvName.
@@ -294,7 +294,7 @@ int Mu(rf_vm *restrict vm, rf_index prev, rf_index next);
        <GetEnv e.EnvName> == e.EnvValue
        e.EnvName, e.EnvValue ::= s.CHAR*
  */
-int GetEnv(rf_vm *restrict vm, rf_index prev, rf_index next);
+int GetEnv(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**\}*/
 

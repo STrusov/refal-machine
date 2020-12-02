@@ -136,11 +136,11 @@ typedef struct rf_cell {
  * данные, после чего связывать сформированные части списка с произвольной
  * частью подвыраждения (операция вставки).
  */
-typedef struct refal_vm {
+struct refal_vm {
    rf_cell     *u;   ///< Массив, содержащий ячейки.
    rf_index    size; ///< Размер массива.
    rf_index    free; ///< Первый свободный элемент.
-} rf_vm;
+};
 
 
 /**\addtogroup mem Управление памятью РЕФАЛ-машины.
@@ -181,8 +181,8 @@ void refal_free(void *ptr, size_t size);
  */
 static inline
 void *refal_vm_init(
-      struct refal_vm   *restrict vm,  ///< Структура для инициализации.
-      rf_index size)                   ///< Предполагаемый размер (в ячейках).
+      struct refal_vm   *vm,  ///< Структура для инициализации.
+      rf_index size)          ///< Предполагаемый размер (в ячейках).
 {
    vm->u = refal_malloc(size * sizeof(rf_cell));
    if (vm->u) {
@@ -202,7 +202,7 @@ void *refal_vm_init(
  */
 static inline
 rf_index refal_vm_alloc_1(
-      struct refal_vm   *restrict vm)
+      struct refal_vm   *vm)
 {
    assert(vm);
    assert(vm->u);
@@ -247,8 +247,8 @@ void refal_vm_free(
  */
 static inline
 void *refal_vm_check(
-      struct refal_vm      *vm,
-      struct refal_message *status)
+      const struct refal_vm   *vm,
+      struct refal_message    *status)
 {
    assert(vm);
    if (status && !vm->u) {
@@ -259,9 +259,9 @@ void *refal_vm_check(
 
 static inline
 void rf_vm_stats(
-      struct refal_vm   *restrict vm,
-      rf_index          prev,
-      rf_index          next)
+      const struct refal_vm   *vm,
+      rf_index                prev,
+      rf_index                next)
 {
 #ifndef  NDEBUG
    rf_index i = prev;
@@ -325,7 +325,7 @@ void rf_vm_stats(
  */
 static inline
 void rf_free_evar(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_index          prev,
       rf_index          next)
 {
@@ -356,7 +356,7 @@ void rf_free_evar(
  */
 static inline
 void rf_free_last(
-      struct refal_vm   *restrict vm)
+      struct refal_vm   *vm)
 {
    vm->free = vm->u[vm->free].prev;
 }
@@ -371,7 +371,7 @@ void rf_free_last(
  */
 static inline
 void rf_insert_next(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_index          prev,
       rf_index          first)
 {
@@ -391,7 +391,7 @@ void rf_insert_next(
  */
 static inline
 void rf_insert_prev(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_index          next,
       rf_index          first)
 {
@@ -409,7 +409,7 @@ void rf_insert_prev(
  */
 static inline
 void rf_splice_evar_prev(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_index          prev,
       rf_index          next,
       rf_index          pos)
@@ -441,7 +441,7 @@ void rf_splice_evar_prev(
  */
 static inline
 rf_index rf_alloc_evar_move(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_index          prev,
       rf_index          next)
 {
@@ -468,7 +468,7 @@ rf_index rf_alloc_evar_move(
  */
 static inline
 rf_index rf_alloc_value(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       uint64_t          value,
       rf_type           tag)
 {
@@ -483,7 +483,7 @@ rf_index rf_alloc_value(
  */
 static inline
 rf_index rf_alloc_command(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_type           tag)
 {
    return rf_alloc_value(vm, 0, tag);
@@ -494,7 +494,7 @@ rf_index rf_alloc_command(
  */
 static inline
 rf_index rf_alloc_atom(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       const char        *str)
 {
    rf_index i = refal_vm_alloc_1(vm);
@@ -508,7 +508,7 @@ rf_index rf_alloc_atom(
  */
 static inline
 rf_index rf_alloc_char(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       wchar_t           chr)
 {
     // Обнуляем старшие разряды, что бы работало обобщённое сравнение
@@ -521,7 +521,7 @@ rf_index rf_alloc_char(
  */
 static inline
 rf_index rf_alloc_int(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_int            num)
 {
    return rf_alloc_value(vm, num, rf_number);
@@ -537,7 +537,7 @@ rf_index rf_alloc_int(
  */
 static inline
 rf_index rf_alloc_char_decode_utf8(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       unsigned char     octet,   ///< текущий элемент последовательности UTF-8.
       unsigned          *state)  ///< состояние декодера. 0 при первом вызове.
 {
@@ -590,7 +590,7 @@ rf_index rf_alloc_char_decode_utf8(
  */
 static inline
 unsigned rf_encode_utf8(
-      const struct refal_vm   *restrict vm,
+      const struct refal_vm   *vm,
       rf_index                s,
       char                    ptr[4])
 {
@@ -624,7 +624,7 @@ unsigned rf_encode_utf8(
  */
 static inline
 rf_index rf_alloc_string(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       const char        *str)
 {
    rf_index r = vm->free;
@@ -641,7 +641,7 @@ rf_index rf_alloc_string(
  */
 static inline
 void rf_link_brackets(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_index opening,
       rf_index closing)
 {
@@ -657,7 +657,7 @@ void rf_link_brackets(
  */
 static inline
 rf_index rf_alloc_strv(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       int               strc,
       const char *const *strv)
 {
@@ -676,7 +676,7 @@ rf_index rf_alloc_strv(
  */
 static inline
 int rf_is_evar_empty(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_index          prev,
       rf_index          next)
 {
@@ -688,7 +688,7 @@ int rf_is_evar_empty(
  */
 static inline
 int rf_svar_equal(
-      struct refal_vm   *restrict vm,
+      struct refal_vm   *vm,
       rf_index          s1,
       rf_index          s2)
 {
@@ -713,7 +713,7 @@ int rf_svar_equal(
  *       - > 0 — неподходящее поле зрения (отождествление невозможно);
  *       - < 0 — ошибка среды исполнения (при вызове функций ОС).
  */
-typedef int rf_cfunction(const rf_vm *restrict vm, rf_index prev, rf_index next);
+typedef int rf_cfunction(const struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**\ingroup library
  *
@@ -726,7 +726,7 @@ typedef int rf_cfunction(const rf_vm *restrict vm, rf_index prev, rf_index next)
  *       - > 0 — неподходящее поле зрения (отождествление невозможно);
  *       - < 0 — ошибка среды исполнения (при вызове функций ОС).
  */
-typedef int rf_function(rf_vm *restrict vm, rf_index prev, rf_index next);
+typedef int rf_function(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**
  * Связывает имя функции (текстовое) с её реализацией.

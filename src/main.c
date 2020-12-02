@@ -12,6 +12,11 @@
 #define REFAL_INITIAL_MEMORY      (128*1024/sizeof(rf_cell))
 #define REFAL_TRIE_INITIAL_MEMORY (128*1024/sizeof(struct rtrie_node))
 
+#define REFAL_INTERPRETER_CALL_STACK_LIMIT   (8*1024*1024)
+#define REFAL_INTERPRETER_CALL_STACK         (32*1024)
+#define REFAL_INTERPRETER_VAR_STACK          (64*1024)
+#define REFAL_INTERPRETER_BRACKET_STACK      (4*1024)
+
 void *refal_malloc(size_t size)
 {
    void *p = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
@@ -119,8 +124,14 @@ int main(int argc, char **argv)
             if (pass_args) {
                rf_alloc_strv(&vm, argc - 1, (const char**)&argv[1]);
             }
+            struct refal_interpreter_config cfg = {
+               .call_stack_size     = REFAL_INTERPRETER_CALL_STACK,
+               .call_stack_max      = REFAL_INTERPRETER_CALL_STACK_LIMIT,
+               .var_stack_size      = REFAL_INTERPRETER_VAR_STACK,
+               .brackets_stack_size = REFAL_INTERPRETER_BRACKET_STACK,
+            };
             next = vm.free;
-            r = refal_interpret_bytecode(&vm, prev, next, entry.value, &status);
+            r = refal_interpret_bytecode(&cfg, &vm, prev, next, entry.value, &status);
             // В случае ошибки среды, она выведена интерпретатором.
             if (r > 0) {
                puts("Отождествление невозможно.");

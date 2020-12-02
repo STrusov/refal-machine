@@ -17,6 +17,31 @@ void inconsistence(
    refal_message(msg, "нарушена программа", detail, err, num2, NULL, NULL);
 }
 
+static inline
+void runtime_error(
+      struct refal_message *msg,
+      const char *detail,
+      intmax_t    err,
+      intmax_t    num2)
+{
+   refal_message(msg, "ошибка выполнения", detail, err, num2, NULL, NULL);
+}
+
+
+static inline
+void *realloc_stack(void **mem, unsigned *size)
+{
+   void *p = NULL;
+   unsigned new_size = *size * 2;
+   // Значение индекса (элемента в стеке) кратно меньше размера в байтах,
+   // потому переполнение проверяется только для последнего.
+   if (new_size > *size) {
+      p = refal_realloc(*mem, *size, new_size);
+      *mem = p;
+      *size = new_size;
+   }
+   return p;
+}
 
 enum interpreter_state {
    is_pattern,       ///< Левая часть предложения (до знака =).
@@ -32,6 +57,7 @@ enum interpreter_state {
    - rf_complete признак завершения функции.
  */
 int refal_interpret_bytecode(
+      struct refal_interpreter_config  *cfg,
       struct refal_vm      *vm,
       rf_index             prev,
       rf_index             next,
@@ -41,17 +67,17 @@ int refal_interpret_bytecode(
    refal_message_source(st, "интерпретатор");
    size_t step = 0;
 
-   unsigned stack_size = 100;
    struct {
       rf_index ip;
       unsigned local;
       rf_index prev;
       rf_index next;
       rf_index result;
-   } stack[stack_size];
+   } *stack;
+   stack = refal_malloc(cfg->call_stack_size);
+   unsigned stack_size = cfg->call_stack_size / sizeof(*stack);
    unsigned sp = 0;
 
-   unsigned vars = 5 * stack_size;
    struct {
       // s-переменная или первый элемент e- или t- переменной.
       rf_index s;
@@ -61,7 +87,10 @@ int refal_interpret_bytecode(
       // При исполнении rf_equal происходит корректировка: значение адресует
       // последний элемент переменной, иначе аннулируется (диапазон пуст).
       rf_index next;
-   } var_stack[vars], *var = var_stack;
+   } *var_stack, *var;
+   var_stack = refal_malloc(cfg->var_stack_size);
+   var = var_stack;
+   unsigned vars = cfg->var_stack_size / sizeof(*var_stack);
    // Переменные в блоке нумеруются увеличивающимися монотонно значениями
    // начиная с 0. Используем счётчик как индикатор инициализации переменных.
    unsigned local = 0;
@@ -69,8 +98,8 @@ int refal_interpret_bytecode(
    // В стеке хранится индекс ячейки открывающей структурной скобки,
    // используемый для связывания с парной закрывающей (при копировании
    // e-переменных и формировании результата командами из поля программы).
-   unsigned bracket_max = 5 * stack_size;
-   rf_index bracket[bracket_max];
+   rf_index *bracket = refal_malloc(cfg->brackets_stack_size);
+   unsigned bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
    unsigned bp = 0;
 
    // Здесь хранятся индексы e-переменных в порядке их появления в образце.
@@ -176,7 +205,10 @@ next_sentence:
             goto next;
          case is_expression:
             if (bp == bracket_max) {
-               goto error_bracket_stack_overflow;
+               if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
+                  goto error_bracket_stack_overflow;
+               }
+               bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
             }
             bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
             goto next;
@@ -217,7 +249,12 @@ next_sentence:
             if (v >= local) {
                assert(local == v);  // TODO убрать, заменив условие выше.
                if (&var[local] == &var_stack[vars]) {
-                  goto error_var_stack_overflow;
+                  ptrdiff_t nvar = var - var_stack;
+                  if (!realloc_stack((void**)&var_stack, &cfg->var_stack_size)) {
+                     goto error_var_stack_overflow;
+                  }
+                  var = var_stack + nvar;
+                  vars = cfg->var_stack_size / sizeof(*var_stack);
                }
                var[v].s = cur;
                // Коррекция границ (в rf_equal) для s-переменных не требуется.
@@ -276,7 +313,12 @@ next_sentence:
                assert(local == vm->u[ip].link);   // TODO убрать, заменив условие выше.
                evar[ep].idx = vm->u[ip].link;
                if (&var[local] == &var_stack[vars]) {
-                  goto error_var_stack_overflow;
+                  ptrdiff_t nvar = var - var_stack;
+                  if (!realloc_stack((void**)&var_stack, &cfg->var_stack_size)) {
+                     goto error_var_stack_overflow;
+                  }
+                  var = var_stack + nvar;
+                  vars = cfg->var_stack_size / sizeof(*var_stack);
                }
                var[local].s    = cur;
                var[local].next = cur;
@@ -314,7 +356,10 @@ evar_express:
                   switch (t) {
                   case rf_opening_bracket:
                      if (bp == bracket_max) {
-                        goto error_bracket_stack_overflow;
+                        if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
+                           goto error_bracket_stack_overflow;
+                        }
+                        bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
                      }
                      bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
                      break;
@@ -456,8 +501,12 @@ execute_machine_code:
             case rft_byte_code:
 execute_byte_code:
                if (!(sp < stack_size)) {
-                  inconsistence(st, "стек вызовов исчерпан", sp, ip);
-                  goto error;
+                  if (cfg->call_stack_size * 2 > cfg->call_stack_max
+                   || !realloc_stack((void**)&stack, &cfg->call_stack_size)) {
+                     runtime_error(st, "стек вызовов исчерпан", sp, ip);
+                     goto error;
+                  }
+                  stack_size = cfg->call_stack_size / sizeof(*stack);
                }
                stack[sp-1].ip = ip;
                stack[sp-1].local = local;
@@ -511,11 +560,11 @@ error_undefined_variable:
    goto error;
 
 error_var_stack_overflow:
-   inconsistence(st, "стек переменных исчерпан", &var[local] - var_stack, vars);
+   runtime_error(st, "стек переменных исчерпан", &var[local] - var_stack, vars);
    goto error;
 
 error_bracket_stack_overflow:
-   inconsistence(st, "переполнен стек структурных скобок", bp, ip);
+   runtime_error(st, "переполнен стек структурных скобок", bp, ip);
    goto error;
 
 error_parenthesis_unpaired:

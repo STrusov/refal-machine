@@ -20,6 +20,9 @@ struct refal_interpreter_config {
    unsigned call_stack_max;      ///< Максимальный размер стека вызовов.
    unsigned var_stack_size;      ///< Начальный размер стека переменных.
    unsigned brackets_stack_size; ///< Начальный размер стека структурных скобок.
+
+   /// Допустимое количество переменных в предложении (определяется транслятором).
+   unsigned locals;
 };
 
 /**

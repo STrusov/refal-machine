@@ -113,7 +113,7 @@ int refal_interpret_bytecode(
    // и образец проверяется повторно. Если же увеличение размера правой
    // переменной не приводит к сопоставлению, расширяем предыдущую, начав
    // формирование последующих заново. И так далее, рекурсивно до начала стека.
-   unsigned evar_max = REFAL_TRANSLATOR_LOCALS_DEFAULT;
+   unsigned evar_max = cfg->locals ? cfg->locals : REFAL_TRANSLATOR_LOCALS_DEFAULT;
    struct {
       rf_index ip;   // откат образца при расширении evar
       rf_index idx;  // откат поля зрения на переменную с данным индексом.

@@ -133,6 +133,7 @@ int main(int argc, char **argv)
                .call_stack_max      = REFAL_INTERPRETER_CALL_STACK_LIMIT,
                .var_stack_size      = REFAL_INTERPRETER_VAR_STACK,
                .brackets_stack_size = REFAL_INTERPRETER_BRACKET_STACK,
+               .locals              = tcfg.locals_limit,
             };
             next = vm.free;
             r = refal_interpret_bytecode(&cfg, &vm, prev, next, entry.value, &status);

@@ -128,6 +128,11 @@ int rf_output(
                  ? RF_COLOR_SYMBOL" %s"RF_ESC_RESET
                  : RF_COLOR_SYMBOL"%s"RF_ESC_RESET,
                  vm->u[i].atom);
+      case rf_identifier:
+         fprintf(stream, prevt == rf_identifier
+                 ? RF_COLOR_SYMBOL" #%x"RF_ESC_RESET
+                 : RF_COLOR_SYMBOL"#%x"RF_ESC_RESET,
+                 vm->u[i].link);
          break;
       case rf_opening_bracket:
          fprintf(stream, RF_COLOR_BRACKET"("RF_ESC_RESET);

@@ -234,6 +234,10 @@ int refal_translate_to_bytecode(
 
    unsigned line_num = 0;     // номер текущей строки
 
+   // В первой строке могут быть символы #!, тогда игнорируем её.
+   if (src != end && *src == '#')
+      lexer = lex_comment_line;
+
 next_line:
    ++line_num;
    const char *line = src;    // начало текущей строки

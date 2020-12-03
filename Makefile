@@ -36,5 +36,5 @@ clean:
 test:
 	ls  $(PROJECT_ROOT)tests/*.ref | while read filename ; do \
 	  echo $${filename}; \
-	  ./$(TARGET) "$${filename}" | diff - "$${filename}.эталон"; \
+	  ./$(TARGET) +n "$${filename}" | diff - "$${filename}.эталон"; \
 	done

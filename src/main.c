@@ -43,7 +43,51 @@ int main(int argc, char **argv)
          .source  = "Интерпретатор РЕФАЛ",
    };
 
-   if (argc < 2) {
+   // По умолчанию предупреждения включены, замечания выключены.
+   struct refal_translator_config tcfg = {
+         .warn_implicit_declaration = 1,
+         .notice_copy               = 0,
+   };
+
+   // 0-й параметр пропускаем (содержит имя интерпретатора).
+   // Начинающиеся с + и - параметры считаем ключами интерпретатору.
+   // Первый отличающийся параметр — именем программы для исполнения.
+   --argc;
+   ++argv;
+   for (int i = 1; 0 < argc; ++i, --argc, ++argv) {
+      const char *end = argv[0];
+      unsigned flag = 0;
+      switch (argv[0][0]) {
+      case '-':
+         flag = 0;
+         break;
+      case '+':
+         flag = 1;
+         break;
+      default:
+         goto arguments;
+      }
+      switch (argv[0][1]) {
+      case 'n':
+         if (argv[0][2])
+            goto option_unrecognized;
+         tcfg.notice_copy = flag;
+         break;
+      case 'w':
+         if (argv[0][2])
+            goto option_unrecognized;
+         tcfg.warn_implicit_declaration = flag;
+         break;
+      default:
+option_unrecognized:
+         while (*end)
+            ++end;
+         syntax_error(&status, "ключ не распознан", i, 2, argv[0], end);
+         break;
+      }
+   }
+arguments:
+   if (argc < 1) {
       critical_error(&status, "укажите имя файла с исходным текстом", argc, 0);
       return EXIT_FAILURE;
    }
@@ -61,11 +105,7 @@ int main(int argc, char **argv)
          vm.library = library;
          vm.library_size = refal_import(&ids, vm.library);
 
-         struct refal_translator_config tcfg = {
-               .warn_implicit_declaration = 1,
-               .notice_copy               = 1,
-         };
-         refal_translate_file_to_bytecode(&tcfg, &vm, &ids, argv[1], &status);
+         refal_translate_file_to_bytecode(&tcfg, &vm, &ids, *argv, &status);
 
          // Границы поля зрения:
          rf_index next = vm.free;
@@ -126,7 +166,7 @@ int main(int argc, char **argv)
          } else {
             // Имя интерпретатора не передаём среди аргументов.
             if (pass_args) {
-               rf_alloc_strv(&vm, argc - 1, (const char**)&argv[1]);
+               rf_alloc_strv(&vm, argc, (const char**)argv);
             }
             struct refal_interpreter_config cfg = {
                .call_stack_size     = REFAL_INTERPRETER_CALL_STACK,

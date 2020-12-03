@@ -63,6 +63,7 @@ rf_function  Chr;
 rf_function  Ord;
 
 rf_function  GetEnv;
+rf_cfunction Exit;
 
 /**\addtogroup library-io
  * \{
@@ -278,6 +279,14 @@ int Mu(struct refal_vm *vm, rf_index prev, rf_index next);
        e.EnvName, e.EnvValue ::= s.CHAR*
  */
 int GetEnv(struct refal_vm *vm, rf_index prev, rf_index next);
+
+/**
+ * Завершает исполнение процесса вызовом `exit()`, возвращая числовое
+ * значение s.RetCode.
+ *
+       <Exit s.RetCode>
+ */
+int Exit(const struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**\}*/
 

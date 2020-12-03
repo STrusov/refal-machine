@@ -35,6 +35,7 @@ const struct refal_import_descriptor library[] = {
    { "Ord",       { &Ord                } },
    { "Chr",       { &Chr                } },
    { "GetEnv",    { &GetEnv             } },
+   { "Exit",      { .cfunction = &Exit  } },
    { NULL,        { NULL                } }
 };
 
@@ -478,4 +479,14 @@ next_var:
 exit:
    rf_free_evar(vm, prev, next);
    return 0;
+}
+
+int Exit(const struct refal_vm *vm, rf_index prev, rf_index next)
+{
+   rf_index s = vm->u[prev].next;
+   if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
+      return s;
+
+   rf_int status = vm->u[s].num;
+   exit(status);
 }

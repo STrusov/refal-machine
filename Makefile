@@ -1,4 +1,4 @@
-TARGET = refint
+TARGET = refal
 
 SOURCES_ROOT = $(PROJECT_ROOT)src/
 HEADERS := $(notdir $(wildcard $(SOURCES_ROOT)*.h))

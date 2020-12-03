@@ -64,6 +64,7 @@ rf_function  Ord;
 
 rf_function  GetEnv;
 rf_cfunction Exit;
+rf_function  System;
 
 /**\addtogroup library-io
  * \{
@@ -287,6 +288,18 @@ int GetEnv(struct refal_vm *vm, rf_index prev, rf_index next);
        <Exit s.RetCode>
  */
 int Exit(const struct refal_vm *vm, rf_index prev, rf_index next);
+
+/**
+ * Выполняет команду e.Command при помощи командного процессора системы.
+ *
+ * Если e.Command пуста, определяет наличие командного процессора и возвращает
+ * 0 в случае отсутствия.
+ *
+       <System e.Command> == e.RetCode
+       e.Command ::= s.CHAR*
+       e.RetCode ::= '-'? s.NUMBER
+ */
+int System(struct refal_vm *vm, rf_index prev, rf_index next);
 
 /**\}*/
 

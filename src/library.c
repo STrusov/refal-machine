@@ -36,6 +36,7 @@ const struct refal_import_descriptor library[] = {
    { "Chr",       { &Chr                } },
    { "GetEnv",    { &GetEnv             } },
    { "Exit",      { .cfunction = &Exit  } },
+   { "System",    { &System             } },
    { NULL,        { NULL                } }
 };
 
@@ -489,4 +490,22 @@ int Exit(const struct refal_vm *vm, rf_index prev, rf_index next)
 
    rf_int status = vm->u[s].num;
    exit(status);
+}
+
+int System(struct refal_vm *vm, rf_index prev, rf_index next)
+{
+   // TODO PATH_MAX имеет отдалённое отношение к system().
+   char path[PATH_MAX + 4];
+   unsigned size = 0;
+   for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
+      if (size >= PATH_MAX || vm->u[s].tag != rf_char)
+         return s;
+      size += rf_encode_utf8(vm, s, &path[size]);
+   }
+   path[size] = '\0';
+   rf_int res = system(size ? path : NULL);
+
+   rf_free_evar(vm, prev, next);
+   rf_alloc_int(vm, res);
+   return 0;
 }

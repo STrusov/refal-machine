@@ -1247,6 +1247,16 @@ symbol:
             // Сохраняем их в таблице символов, отделив от идентификатора
             // текущей функции спецсимволом.
             switch (chr) {
+            case L'…':
+            case '.':
+               id_type = id_evar;
+               goto lexem_identifier_local_pat;
+            case '?':
+               id_type = id_svar;
+               goto lexem_identifier_local_pat;
+            case '!':
+               id_type = id_tvar;
+               goto lexem_identifier_local_pat;
             case 'e':
                id_type = id_evar;
                goto lexem_identifier_local_pat_check;
@@ -1258,6 +1268,7 @@ symbol:
 lexem_identifier_local_pat_check:
                if (src != end && *src == '.') {
                   ++src; ++pos;
+lexem_identifier_local_pat:
                   node = rtrie_insert_next(ids, ident, idc);
                   node = rtrie_insert_next(ids, node, chr);
                   goto next_char;
@@ -1268,6 +1279,16 @@ lexem_identifier_local_pat_check:
          case ss_expression:
             // Возможно использование переменных.
             switch (chr) {
+            case L'…':
+            case '.':
+               id_type = id_evar;
+               goto lexem_identifier_local_exp;
+            case '?':
+               id_type = id_svar;
+               goto lexem_identifier_local_exp;
+            case '!':
+               id_type = id_tvar;
+               goto lexem_identifier_local_exp;
             case 'e':
                id_type = id_evar;
                goto lexem_identifier_local_exp_check;
@@ -1279,6 +1300,7 @@ lexem_identifier_local_pat_check:
 lexem_identifier_local_exp_check:
                if (src != end && *src == '.') {
                   ++src; ++pos;
+lexem_identifier_local_exp:
                   node = rtrie_find_next(ids, ident, idc);
                   node = rtrie_find_next(ids, node, chr);
                   if (node < 0) {

@@ -9,6 +9,9 @@
 #include "interpreter.h"
 #include "translator.h"
 
+#define REFAL_NAME "РЕФАЛ-машина"
+#define REFAL_VERSION "версия 0.1.0 (альфа)"
+
 #define REFAL_INITIAL_MEMORY      (128*1024/sizeof(rf_cell))
 #define REFAL_TRIE_INITIAL_MEMORY (128*1024/sizeof(struct rtrie_node))
 
@@ -40,7 +43,7 @@ int main(int argc, char **argv)
 
    struct refal_message status = {
          .handler = refal_message_print,
-         .source  = "Интерпретатор РЕФАЛ",
+         .source  = REFAL_NAME,
    };
 
    // По умолчанию предупреждения включены, замечания выключены.
@@ -78,6 +81,11 @@ int main(int argc, char **argv)
             goto option_unrecognized;
          tcfg.warn_implicit_declaration = flag;
          break;
+      case 'v':
+         if (argv[0][2])
+            goto option_unrecognized;
+         puts(REFAL_NAME " " REFAL_VERSION);
+         return EXIT_SUCCESS;
       default:
 option_unrecognized:
          while (*end)

@@ -1,0 +1,1048 @@
+diff --git a/src/LibraryEx.ref b/src/LibraryEx.ref
+index af2b5d6..5e9ab96 100644
+--- a/src/LibraryEx.ref
++++ b/src/LibraryEx.ref
+@@ -1,11 +1,17 @@
+ *===============================================================================
+ * Расширения библиотеки и функции, реализуемые средствами самого Рефала-05
++* С изменениями для совместимости с РЕФАЛ-машиной.
+ *===============================================================================
+ 
+ 
+ * Общеупотребительные функции-имена
+-*$EENUM Success, Fails
++Success; Fails;
+ 
++* Определим пока здесь.
++True; False;
++
++* Импорт из классической библиотеки.
++:Mu Open Get Close Putout Add Sub;
+ 
+ /**
+   <Apply t.Closure e.Arg> == e.Res
+@@ -15,7 +21,7 @@
+     | (t.Closure e.Bounded)
+   e.Arg, e.Res, e.Bounded ::= e.AnyExpr
+ */
+-$ENTRY Apply {
++Apply {
+   s.Fn e.Argument = <Mu s.Fn e.Argument>;
+ 
+   (t.Closure e.Bounded) e.Argument =
+@@ -28,7 +34,7 @@ $ENTRY Apply {
+ 
+   <Apply t.Closure t.Item> == e.ItemRes
+ */
+-$ENTRY Map {
++Map {
+   t.Fn t.Next e.Tail = <Apply t.Fn t.Next> <Map t.Fn e.Tail>;
+ 
+   t.Fn = ;
+@@ -41,7 +47,7 @@ $ENTRY Map {
+   <Apply t.Closure t.Accum t.Item> == t.Accum′
+   t.Accum′ ::= t.Accum
+ */
+-$ENTRY Reduce {
++Reduce {
+   t.Fn t.Acc t.Next e.Tail =
+     <Reduce
+       t.Fn <Apply t.Fn t.Acc t.Next> e.Tail
+@@ -57,7 +63,7 @@ $ENTRY Reduce {
+   <Apply t.Closure t.Accum t.Item> == t.Accum′ e.ItemRes
+   t.Accum′ ::= t.Accum
+ */
+-$ENTRY MapAccum {
++MapAccum {
+   t.Fn t.Acc e.Tail =
+     <DoMapAccum t.Fn t.Acc () e.Tail>;
+ }
+@@ -84,7 +90,7 @@ MapAccum-AddScanned {
+ /**
+   <DelAccumulator t.Accum e.AnyExpr> == e.AnyExpr
+ */
+-$ENTRY DelAccumulator {
++DelAccumulator {
+   t.Acc e.Tail = e.Tail;
+ }
+ 
+@@ -97,7 +103,7 @@ LOAD-SAVE-HANDLE { = 39; }
+   e.Lines ::= (e.Line)*
+   e.Line ::= s.CHAR*
+ */
+-$ENTRY LoadFile {
++LoadFile {
+   e.FileName =
+     <Open 'r' <LOAD-SAVE-HANDLE> e.FileName>
+     <DoLoadFile <Get <LOAD-SAVE-HANDLE>>>
+@@ -116,7 +122,7 @@ DoLoadFile {
+ /**
+   <SaveFile (e.FileName) e.Lines> == empty
+ */
+-$ENTRY SaveFile {
++SaveFile {
+   (e.FileName) e.Lines =
+     <Open 'w' <LOAD-SAVE-HANDLE> e.FileName>
+     <Map SaveFile-WriteBracketLine e.Lines>
+@@ -132,38 +138,19 @@ SaveFile-WriteBracketLine {
+   <Inc s.NUMBER> == s.NUMBER
+   <Dec s.NUMBER> == s.NUMBER
+ */
+-$ENTRY Inc {
++Inc {
+   s.Num = <Add s.Num 1>;
+ }
+ 
+-$ENTRY Dec {
++Dec {
+   s.Num = <Sub s.Num 1>;
+ }
+ 
+ 
+-/**
+-  <ArgList> == (e.Arg)+
+-  e.Arg ::= s.CHAR*
+-*/
+-$ENTRY ArgList {
+-  = <DoArgList 0>;
+-}
+-
+-DoArgList {
+-  s.Next = <SwDoArgList <Inc s.Next> <Arg s.Next>>;
+-}
+-
+-SwDoArgList {
+-  s.Next = ;
+-
+-  s.Next e.Arg = (e.Arg) <DoArgList s.Next>;
+-}
+-
+-
+ /**
+   <Trim s.CHAR*> == s.CHAR*
+ */
+-$ENTRY Trim {
++Trim {
+   ' ' e.Line = <Trim e.Line>;
+   '\t' e.Line = <Trim e.Line>;
+   '\r' e.Line = <Trim e.Line>;
+@@ -178,3 +165,17 @@ Trim-R {
+   e.Line '\n' = <Trim-R e.Line>;
+   e.Line = e.Line;
+ }
++
++EXIST-FILE-HANDLE { = 38; }
++
++ExistFile {
++  e.FileName =
++    <Open 'r' <EXIST-FILE-HANDLE> e.FileName>
++    <ExistData <Get <EXIST-FILE-HANDLE>>>
++    <Close <EXIST-FILE-HANDLE>>;
++}
++
++ExistData {
++  0     = False;
++  e.Any = True;
++}
+diff --git a/src/R05-AST.ref b/src/R05-AST.ref
+index 8deb4e2..e8feed0 100644
+--- a/src/R05-AST.ref
++++ b/src/R05-AST.ref
+@@ -1,3 +1,5 @@
++: Mu Compare Div Mod Ord Symb;
++
+ /**
+   Любой элемент дерева, который описан как
+     t.X ::= (Func e.Info)
+@@ -17,7 +19,7 @@
+ /**
+   <R05-TextFromTree e.Tree> == s.CHAR*
+ */
+-$ENTRY R05-TextFromTree {
++R05-TextFromTree {
+   (Extern e.Name1) (Extern e.Name2) e.Tree =
+     <Extern e.Name1> <R05-TextFromTree (Extern e.Name2) e.Tree>;
+ 
+@@ -27,11 +29,11 @@ $ENTRY R05-TextFromTree {
+   /* пусто */ = /* пусто */;
+ }
+ 
+-$ENTRY Extern {
++Extern {
+   e.Name = '$EXTERN ' e.Name ';\n';
+ }
+ 
+-$ENTRY Function {
++Function {
+   Entry (e.Name) Sentences /* пусто */ = '$EENUM ' e.Name ';\n';
+   Local (e.Name) Sentences /* пусто */ = '$ENUM ' e.Name ';\n';
+ 
+@@ -42,8 +44,8 @@ $ENTRY Function {
+   s.Scope ::= Entry | Local
+ */
+ 
+-$ENTRY Entry { = '$ENTRY ' }
+-$ENTRY Local { = /* пусто */ }
++Entry { = '$ENTRY ' }
++Local { = /* пусто */ }
+ 
+ /**
+   e.Body ::= Sentences t.Sentence* | Native e.Native
+@@ -52,7 +54,7 @@ $ENTRY Local { = /* пусто */ }
+   e.SourceName ::= s.CHAR+
+ */
+ 
+-$ENTRY Sentences {
++Sentences {
+   /* пусто */ = /* пусто */;
+   t.Sentence = <TextFromSentence t.Sentence>;
+ 
+@@ -72,7 +74,7 @@ TextFromSentence {
+     '  ' <TextFromExpr e.Pattern> ' =\n    ' <TextFromExpr e.Result> ';\n';
+ }
+ 
+-$ENTRY Native {
++Native {
+   (e.SourceName s.LineNo) e.Lines =
+     '* file: "' e.SourceName '", line: ' <Symb s.LineNo> '\n'
+     '%%\n'
+@@ -100,31 +102,31 @@ FlatLines {
+   e.Index ::= s.CHAR+
+ */
+ 
+-$ENTRY Symbol {
++Symbol {
+   s.Type e.Value = <Mu s.Type e.Value>;
+ }
+ 
+-$ENTRY Char {
+-  s.Char = '\'' <EscapeChar s.Char> '\'';
++Char {
++  s.Char = "'" <EscapeChar s.Char> "'";
+ }
+ 
+-$ENTRY Number {
++Number {
+   s.Number = <Symb s.Number>;
+ }
+ 
+-$ENTRY Name {
++Name {
+   t.SrcPos e.Name = e.Name;
+ }
+ 
+-$ENTRY Variable {
++Variable {
+   s.Mode e.Index = s.Mode '.' e.Index;
+ }
+ 
+-$ENTRY Brackets {
++Brackets {
+   e.Inner = '(' <TextFromExpr e.Inner> ')';
+ }
+ 
+-$ENTRY CallBrackets {
++CallBrackets {
+   e.Inner = '<' <TextFromExpr e.Inner> '>';
+ }
+ 
+@@ -132,13 +134,13 @@ $ENTRY CallBrackets {
+ /**
+   <TextFromExpr e.Expression> == s.CHAR*
+ */
+-$ENTRY TextFromExpr {
++TextFromExpr {
+   /* пусто */ = /* пусто */;
+ 
+   t.Term = <TextFromTerm t.Term>;
+ 
+   (Symbol Char s.Char) e.Tail =
+-    '\'' <TextFromExpr-Char (Symbol Char s.Char) e.Tail>;
++    "'" <TextFromExpr-Char (Symbol Char s.Char) e.Tail>;
+ 
+   t.Term e.Expr = <TextFromTerm t.Term> ' ' <TextFromExpr e.Expr>;
+ }
+@@ -147,9 +149,9 @@ TextFromExpr-Char {
+   (Symbol Char s.Char) e.Tail =
+     <EscapeChar s.Char> <TextFromExpr-Char e.Tail>;
+ 
+-  /* пусто */ = '\'';
++  /* пусто */ = "'";
+ 
+-  e.Other = '\' ' <TextFromExpr e.Other>;
++  e.Other = "' " <TextFromExpr e.Other>;
+ }
+ 
+ TextFromTerm {
+@@ -157,13 +159,13 @@ TextFromTerm {
+ }
+ 
+ 
+-$ENTRY EscapeChar {
+-  '\n' = '\\n';
+-  '\t' = '\\t';
+-  '\r' = '\\r';
+-  '\'' = '\\\'';
+-  '\"' = '\\\"';
+-  '\\' = '\\\\';
++EscapeChar {
++  '\n' = '\' 'n';
++  '\t' = '\' 't';
++  '\r' = '\' 'r';
++  "'" = "\'";
++  '"' = '\"';
++  '\' = '\\';
+ 
+   s.Other = <EscapeChar-Aux s.Other <Ord s.Other>>;
+ }
+@@ -179,7 +181,7 @@ EscapeChar-SwCompare {
+   s.Other '-' '-' s.Code = s.Other;
+ 
+   s.Other s.Compare1 s.Compare2 s.Code =
+-    '\\x' <CharFromHex <Div s.Code 16>> <CharFromHex <Mod s.Code 16>>;
++    '\x' <CharFromHex <Div s.Code 16>> <CharFromHex <Mod s.Code 16>>;
+ }
+ 
+ CharFromHex {
+diff --git a/src/R05-CompilerUtils.ref b/src/R05-CompilerUtils.ref
+index 0bcd09c..514de7f 100644
+--- a/src/R05-CompilerUtils.ref
++++ b/src/R05-CompilerUtils.ref
+@@ -1,20 +1,20 @@
+-*$FROM LibraryEx
+-$EXTERN Trim, Map;
++LibraryEx: Trim Map ExistFile;
+ 
+-*$FROM Library
+-$EXTERN True, False;
++LibraryEx: True False;
+ 
++Source; Output; NotFound;
+ 
+-*$EENUM Source, Output, NotFound
++Current;
+ 
+-*$ENUM Current
++: System;
++: GetEnv;
+ 
+ /**
+   <R05-LoadPath> == e.Folders
+ 
+   e.Folders ::= (e.Folder)*
+ */
+-$ENTRY R05-LoadPath {
++R05-LoadPath {
+   = <ParsePath <GetEnv 'R05PATH'>>
+ }
+ 
+@@ -41,7 +41,7 @@ ParseFolder-CheckEmpty {
+     (Output e.Output)
+     (NotFound e.FileName)
+ */
+-$ENTRY R05-FindFiles-Default {
++R05-FindFiles-Default {
+   e.Files = <R05-FindFiles (<R05-LoadPath>) e.Files>;
+ }
+ 
+@@ -49,12 +49,12 @@ $ENTRY R05-FindFiles-Default {
+   <R05-FindFiles (e.Folders) e.Files>
+     == t.FoundFile*
+ */
+-$ENTRY R05-FindFiles {
++R05-FindFiles {
+   (e.Folders) e.Files =
+     <Map (findfile_AnalyzeFile-ByFolders Current e.Folders) e.Files>;
+ }
+ 
+-$ENTRY findfile_AnalyzeFile-ByFolders {
++findfile_AnalyzeFile-ByFolders {
+   e.Folders (e.FileName) =
+     <AnalyzeFile-CheckNotFound
+       (e.FileName)
+@@ -62,7 +62,7 @@ $ENTRY findfile_AnalyzeFile-ByFolders {
+     >;
+ }
+ 
+-$ENTRY findfile_AnalyzeInFolder {
++findfile_AnalyzeInFolder {
+   e.FileName Current = <AnalyzeFile e.FileName>;
+ 
+   e.FileName (e.Folder) = <AnalyzeFile e.Folder '/' e.FileName>;
+@@ -128,7 +128,7 @@ AnalyzeBoth-CheckExist {
+ 
+   e.CSources ::= (s.CHAR* '.c')*
+ */
+-$ENTRY R05-CCompile {
++R05-CCompile {
+   e.CSources = <CCompile-SwSetEnv (<GetEnv 'R05CCOMP'>) e.CSources>;
+ }
+ 
+@@ -143,10 +143,10 @@ CCompile-SwSetEnv {
+     >;
+ }
+ 
+-$ENTRY compilerutils_IncludeFlag {
++compilerutils_IncludeFlag {
+   (e.PathEntry) = ' -I"' e.PathEntry '"';
+ }
+ 
+-$ENTRY compilerutils_QuoteFile {
++compilerutils_QuoteFile {
+   (e.FileName) = ' "' e.FileName '"';
+ }
+diff --git a/src/R05-Generator.ref b/src/R05-Generator.ref
+index 47293b6..d66d803 100644
+--- a/src/R05-Generator.ref
++++ b/src/R05-Generator.ref
+@@ -1,15 +1,14 @@
+-*$FROM R05-AST
+-$EXTERN Extern, Entry, Function, Native, Local, Sentences, Variable, Symbol,
+-  Brackets, Char, Number, Name, TextFromExpr, CallBrackets;
++R05-AST: Extern Entry Function Native Local Sentences Variable Symbol
++  Brackets Char Number Name TextFromExpr CallBrackets;
+ 
+-*$FROM LibraryEx
+-$EXTERN SaveFile, MapAccum, Map, Dec, DelAccumulator, Inc;
++LibraryEx: SaveFile MapAccum Map Dec DelAccumulator Inc;
+ 
++: Mu Compare Div Mod Ord Symb;
+ 
+ /**
+   <R05-Generate-ToFile (e.OutputFile) e.Tree> == пусто
+ */
+-$ENTRY R05-Generate-ToFile {
++R05-Generate-ToFile {
+   (e.OutputFile) e.Tree =
+     <SaveFile (e.OutputFile) <Generate (e.OutputFile) e.Tree>>;
+ }
+@@ -17,7 +16,7 @@ $ENTRY R05-Generate-ToFile {
+ /**
+   <R05-Generate-ToLines e.Tree> == (s.CHAR*)*
+ */
+-$ENTRY R05-Generate-ToLines {
++R05-Generate-ToLines {
+   e.Tree = <Generate ('<user output>') e.Tree>;
+ }
+ 
+@@ -33,7 +32,7 @@ R05-Generate-Aux {
+   (e.OutputFile) (e.Declarations) e.Definitions =
+     <GenPostprocess
+       (e.OutputFile)
+-      ('/* Automatically generated file. Don\'t edit! */')
++      ("/* Automatically generated file. Don't edit! */")
+       ('#include "refal05rts.h"')
+       ()
+       ()
+@@ -45,7 +44,7 @@ R05-Generate-Aux {
+     >;
+ }
+ 
+-$ENTRY generator_GenTreeItem {
++generator_GenTreeItem {
+   (e.Declarations) (Extern e.Name) =
+     (e.Declarations <GenDeclaration Entry e.Name>)
+     /* пусто */;
+@@ -99,7 +98,7 @@ GenFunctionBody {
+   Native e.Native = <GenNative e.Native>;
+ }
+ 
+-*$ENUM ReturnRecognitionImpossible
++ReturnRecognitionImpossible;
+ 
+ AddFailCommand {
+   /*
+@@ -113,7 +112,7 @@ AddFailCommand {
+   e.Sentences = e.Sentences ReturnRecognitionImpossible;
+ }
+ 
+-$ENTRY generator_GenSentence {
++generator_GenSentence {
+   ((e.Pattern) (e.Result)) =
+     ()
+     ('  do {')
+@@ -150,15 +149,15 @@ RangeVarsPtr {
+ 
+ SafeComment {
+   e.Comment-B '/*' e.Comment-E =
+-    <SafeComment e.Comment-B '/\' \'*' e.Comment-E>;
++    <SafeComment e.Comment-B "/' '*" e.Comment-E>;
+ 
+   e.Comment-B '*/' e.Comment-E =
+-    <SafeComment e.Comment-B '*\' \'/' e.Comment-E>;
++    <SafeComment e.Comment-B "*' '/" e.Comment-E>;
+ 
+   e.Comment = e.Comment;
+ }
+ 
+-$ENTRY generator_GenCommand {
++generator_GenCommand {
+   (e.Indent)
+   (CmdOpenedE-Start s.BracketNumber 'e' e.Index) =
+     (e.Indent '  ')
+@@ -237,7 +236,7 @@ MatchArgs {
+ }
+ 
+ SymbolTextRep {
+-  Char s.Char = '\'' <EscapeChar s.Char> '\'';
++  Char s.Char = "'" <EscapeChar s.Char> "'";
+   Number s.Number = <Symb s.Number> 'UL';
+   Name t.SrcPos e.Name = '&r05f_' e.Name;
+ }
+@@ -339,12 +338,12 @@ EscapeString {
+ }
+ 
+ EscapeChar {
+-  '\n' = '\\n';
+-  '\t' = '\\t';
+-  '\r' = '\\r';
+-  '\'' = '\\\'';
+-  '\"' = '\\\"';
+-  '\\' = '\\\\';
++  '\n' = '\' 'n';
++  '\t' = '\' 't';
++  '\r' = '\' 'r';
++  "'" = "\'";
++  '"' = '\"';
++  '\' = '\\';
+ 
+   s.Other = <EscapeChar-Aux s.Other <Ord s.Other>>;
+ }
+@@ -360,7 +359,7 @@ EscapeChar-SwCompare {
+   s.Other '-' '-' s.Code = s.Other;
+ 
+   s.Other s.Compare1 s.Compare2 s.Code =
+-    '\\'
++    '\'
+     <Symb <Div s.Code 64>>
+     <Symb <Mod <Div s.Code 8> 8>>
+     <Symb <Mod s.Code 8>>;
+@@ -386,7 +385,7 @@ EVar-E { s.Usings 'e' e.Index = 'e' e.Index '_e_' <Symb s.Usings> }
+ Elem { s.Number = 'n[' <Symb s.Number> ']' }
+ ElemPtr { s.Number = 'n+' <Symb s.Number> }
+ 
+-*$ENUM BeginNative, EndNative
++BeginNative; EndNative;
+ 
+ GenNative {
+   (e.SrcName s.Line) e.Code = (BeginNative e.SrcName s.Line) e.Code (EndNative);
+@@ -405,7 +404,7 @@ GenPostprocess {
+   (e.OutputName) e.Lines = e.Lines;
+ }
+ 
+-$ENTRY generator_EnumerateLines {
++generator_EnumerateLines {
+   (e.OutputName) s.LineNo (BeginNative e.SrcName s.NativeLineNo) =
+     <Inc s.LineNo>
+     <LineDirective s.NativeLineNo e.SrcName>;
+@@ -449,7 +448,7 @@ CompileSentence-Aux {
+ *===============================================================================
+ 
+ * Направление распознавания
+-*$ENUM AlgLeft, AlgRight
++AlgLeft; AlgRight;
+ 
+ /*
+ Команды распознавания
+@@ -485,9 +484,9 @@ CompileSentence-Aux {
+   Комментарий, вносимый в исходный код:
+     (CmdComment e.Text)
+ */
+-*$ENUM Repeated
++Repeated;
+ 
+-*$ENUM CmdOpenedE
++CmdOpenedE;
+ 
+ GenPattern {
+   e.Pattern =
+@@ -658,7 +657,7 @@ GenResult {
+   построение результата (в обратном порядке)
+ */
+ 
+-*$ENUM TkString, TkCloseBracket, TkCloseCall
++TkString; TkCloseBracket; TkCloseCall;
+ 
+ DoGenResult {
+   /* Оптимизация для распределения последовательности char’ов */
+@@ -872,7 +871,7 @@ ComposeSentenceCommands-Aux {
+     >;
+ }
+ 
+-$ENTRY generator_MakeDeclaration {
++generator_MakeDeclaration {
+   (s.Usings s.Mode e.Index) =
+     (CmdDeclareVar s.Usings s.Mode e.Index)
+     <MakeDeclaration-Aux s.Usings s.Mode e.Index>;
+diff --git a/src/R05-Lexer.ref b/src/R05-Lexer.ref
+index 31dc132..10f75ae 100644
+--- a/src/R05-Lexer.ref
++++ b/src/R05-Lexer.ref
+@@ -1,6 +1,6 @@
+-*$FROM LibraryEx
+-$EXTERN LoadFile, Inc, Success, Fails;
++LibraryEx: LoadFile Inc Success Fails;
+ 
++: Mu Compare Add Div Mul Mod  Numb Chr Ord Symb Type;
+ 
+ /**
+   <R05-LexScan-File e.SourceName>
+@@ -36,7 +36,7 @@ $EXTERN LoadFile, Inc, Success, Fails;
+   s.LineNo ::= s.NUMBER
+   s.Mode ::= 's' | 't' | 'e'
+ */
+-$ENTRY R05-LexScan-File {
++R05-LexScan-File {
+   e.FileName = <ScanString (e.FileName) <LoadText e.FileName>>;
+ }
+ 
+@@ -53,6 +53,7 @@ FlatLines {
+ 
+ SkipBOM {
+   /* Игнорируем метку порядка байт для UTF-8 */
++* TODO экранирование \x пока не поддерживается
+   '\xEF\xBB\xBF' e.Content = e.Content;
+ 
+   e.Content = e.Content;
+@@ -63,7 +64,7 @@ SkipBOM {
+ 
+   e.String ::= s.CHAR*
+ */
+-$ENTRY R05-LexScan-String {
++R05-LexScan-String {
+   e.String = <ScanString ('<user input>') e.String>;
+ }
+ 
+@@ -80,15 +81,15 @@ PrepareTkNative {
+   (e.FileName) e.Tokens = e.Tokens;
+ }
+ 
+-$ENTRY TkChar { s.Char = '\'' <EscapeChar s.Char> '\'' }
++TkChar { s.Char = "'" <EscapeChar s.Char> "'" }
+ 
+ EscapeChar {
+-  '\n' = '\\n';
+-  '\t' = '\\t';
+-  '\r' = '\\r';
+-  '\'' = '\\\'';
+-  '\"' = '\\\"';
+-  '\\' = '\\\\';
++  '\n' = '\' 'n';
++  '\t' = '\' 't';
++  '\r' = '\' 'r';
++  "'" = "\'";
++  '"' = '\"';
++  '\' = '\\';
+ 
+   s.Other = <EscapeChar-Aux s.Other <Ord s.Other>>;
+ }
+@@ -104,7 +105,7 @@ EscapeChar-SwCompare {
+   s.Other '-' '-' s.Code = s.Other;
+ 
+   s.Other s.Compare1 s.Compare2 s.Code =
+-    '\\x' <CharFromHex <Div s.Code 16>> <CharFromHex <Mod s.Code 16>>;
++    '\x' <CharFromHex <Div s.Code 16>> <CharFromHex <Mod s.Code 16>>;
+ }
+ 
+ CharFromHex {
+@@ -115,22 +116,22 @@ CharFromHex-Aux {
+   s.Value e.Hex-B (s.Digit s.Value) e.Hex-E = s.Digit;
+ }
+ 
+-$ENTRY TkClose {
++TkClose {
+   Bracket = ')';
+   CallBracket = '>';
+ }
+ 
+-$ENTRY TkCloseBlock { = '}' }
+-$ENTRY TkComma { = ',' }
+-$ENTRY TkEEnum { = '$EENUM' }
+-$ENTRY TkEOF { = '/* end of file */' }
+-$ENTRY TkEntry { = '$ENTRY' }
+-$ENTRY TkEnum { = '$ENUM' }
+-$ENTRY TkError { e.Message = '[LEXER ERROR: ' e.Message ']' }
+-$ENTRY TkExtern { = '$EXTERN' }
+-$ENTRY TkName { e.Name = e.Name }
++TkCloseBlock { = '}' }
++TkComma { = ',' }
++TkEEnum { = '$EENUM' }
++TkEOF { = '/* end of file */' }
++TkEntry { = '$ENTRY' }
++TkEnum { = '$ENUM' }
++TkError { e.Message = '[LEXER ERROR: ' e.Message ']' }
++TkExtern { = '$EXTERN' }
++TkName { e.Name = e.Name }
+ 
+-$ENTRY TkNative {
++TkNative {
+   (e.SourceName s.LineNo) e.Code =
+     '* file: "' e.SourceName '", line: ' <Symb s.LineNo> '\n'
+     '%%\n'
+@@ -138,20 +139,20 @@ $ENTRY TkNative {
+     '%%\n';
+ }
+ 
+-$ENTRY TkNumber { s.Number = <Symb s.Number> }
++TkNumber { s.Number = <Symb s.Number> }
+ 
+-$ENTRY TkOpen {
++TkOpen {
+   Bracket = '(';
+   CallBracket = '<';
+ }
+ 
+-$ENTRY TkOpenBlock { = '{' }
+-$ENTRY TkReplace { = '=' }
+-$ENTRY TkSemicolon { = ';' }
+-$ENTRY TkUnexpected { e.Unexpected = e.Unexpected }
+-$ENTRY TkVariable { s.Mode e.Index = s.Mode '.' e.Index }
++TkOpenBlock { = '{' }
++TkReplace { = '=' }
++TkSemicolon { = ';' }
++TkUnexpected { e.Unexpected = e.Unexpected }
++TkVariable { s.Mode e.Index = s.Mode '.' e.Index }
+ 
+-*$EENUM Bracket, CallBracket
++Bracket; CallBracket;
+ 
+ Inc2 { s.Num = <Add 2 s.Num>; }
+ 
+@@ -174,7 +175,7 @@ Scan {
+   s.Row s.Col '$' e.Tail =
+     <ScanDirective s.Row <Inc s.Col> () <Type e.Tail>>;
+ 
+-  s.Row s.Col '\'' e.Tail = <ScanChars s.Row <Inc s.Col> e.Tail>;
++  s.Row s.Col "'" e.Tail = <ScanChars s.Row <Inc s.Col> e.Tail>;
+ 
+   s.Row s.Col 'e.' e.Tail = <ScanVariable s.Row <Inc2 s.Col> 'e' () <Type e.Tail>>;
+   s.Row s.Col 's.' e.Tail = <ScanVariable s.Row <Inc2 s.Col> 's' () <Type e.Tail>>;
+@@ -283,13 +284,13 @@ MakeDirective-SwValid {
+ }
+ 
+ ScanChars {
+-  s.Row s.Col '\'' e.Tail = <Scan s.Row <Inc s.Col> e.Tail>;
++  s.Row s.Col "'" e.Tail = <Scan s.Row <Inc s.Col> e.Tail>;
+ 
+   s.Row s.Col '\n' e.Tail =
+     (TkError (s.Row s.Col) 'unclosed quote')
+     <Scan s.Row s.Col '\n' e.Tail>;
+ 
+-  s.Row s.Col '\\' e.Tail =
++  s.Row s.Col '\' e.Tail =
+     <ScanChars-Escape s.Row <Inc s.Col> e.Tail>;
+ 
+   s.Row s.Col s.Other e.Tail =
+@@ -322,7 +323,7 @@ ScanChars-Escape-Hex {
+ 
+ ScanChars-Escape-Hex-SwHex {
+   s.Row s.Col (e.Digits) Fails s.NoDigit e.Tail =
+-    (TkError (s.Row s.Col) 'bad hex escape sequence "\\x..."')
++    (TkError (s.Row s.Col) 'bad hex escape sequence "\x..."')
+     <ScanChars s.Row s.Col s.NoDigit e.Tail>;
+ 
+   s.Row s.Col (e.Digits) s.Digit e.Tail =
+@@ -333,8 +334,8 @@ CheckValidEscape {
+   'n' = Success '\n';
+   't' = Success '\t';
+   'r' = Success '\r';
+-  '\\' = Success '\\';
+-  '\'' = Success '\'';
++  '\' = Success '\';
++  "'" = Success "'";
+   '"' = Success '"';
+   '<' = Success '<';
+   '>' = Success '>';
+@@ -349,7 +350,7 @@ ScanChars-Escape-SwValid {
+     (TkChar (s.Row s.Col) s.Value) <ScanChars s.Row <Inc s.Col> e.Tail>;
+ 
+   s.Row s.Col Fails s.Other e.Tail =
+-    (TkError (s.Row s.Col) 'bad escape sequence "\\' s.Other '"')
++    (TkError (s.Row s.Col) 'bad escape sequence "\' s.Other '"')
+     <ScanChars s.Row s.Col s.Other e.Tail>;
+ }
+ 
+@@ -453,7 +454,7 @@ ScanNumber {
+   <StrFromToken s.TokType e.Info> ::= e.HumanReadableRep
+   e.HumanReadableRep ::= s.CHAR*
+ */
+-$ENTRY StrFromToken {
++StrFromToken {
+   TkNative (e.SrcFile s.Line) e.Code =
+     '"%%...%%" at ' <Symb s.Line> ', "' e.SrcFile '"';
+ 
+@@ -481,7 +482,7 @@ HexDigits {
+ /**
+   <R05-LexDump e.Tokens> == s.CHAR*
+ */
+-$ENTRY R05-LexDump {
++R05-LexDump {
+   (s.Tok (s.Row s.Col) e.Info) e.Tokens =
+     <DoLexDump s.Row (<Mu s.Tok e.Info>) e.Tokens>;
+ 
+@@ -502,7 +503,7 @@ DoLexDump {
+ }
+ 
+ BufAppend {
+-  (e.Buffer '\'') '\'' e.CharRep = e.Buffer e.CharRep;
++  (e.Buffer "'") "'" e.CharRep = e.Buffer e.CharRep;
+ 
+   (e.Buffer '<') e.TokenRep = e.Buffer '<' e.TokenRep;
+   (e.Buffer '(') e.TokenRep = e.Buffer '(' e.TokenRep;
+diff --git a/src/R05-Parser.ref b/src/R05-Parser.ref
+index 9f35fcc..6ecb021 100644
+--- a/src/R05-Parser.ref
++++ b/src/R05-Parser.ref
+@@ -1,15 +1,14 @@
+-*$FROM R05-Lexer
+-$EXTERN R05-LexScan-File, R05-LexScan-String, TkEOF, TkExtern, TkEnum, TkEEnum,
+-  TkEntry, TkName, TkSemicolon, TkNative, TkComma, TkOpenBlock, TkCloseBlock,
+-  TkChar, TkNumber, TkVariable, TkOpen, Bracket, CallBracket, TkClose,
+-  TkReplace, TkError, TkUnexpected, StrFromToken;
++R05-Lexer: R05-LexScan-File R05-LexScan-String TkEOF TkExtern TkEnum TkEEnum
++  TkEntry TkName TkSemicolon TkNative TkComma TkOpenBlock TkCloseBlock
++  TkChar TkNumber TkVariable TkOpen Bracket CallBracket TkClose
++  TkReplace TkError TkUnexpected StrFromToken;
+ 
+-*$FROM LibraryEx
+-$EXTERN Success, Fails, Map, Reduce;
++LibraryEx: Success Fails Map Reduce;
+ 
+-*$FROM R05-AST
+-$EXTERN Extern, Local, Entry, Native, Function, Sentences, Symbol, Char, Number,
+-  Name, Variable, Brackets, CallBrackets;
++:Compare;
++
++R05-AST: Extern Local Entry Native Function Sentences Symbol Char Number
++  Name Variable Brackets CallBrackets;
+ 
+ 
+ /**
+@@ -19,7 +18,7 @@ $EXTERN Extern, Local, Entry, Native, Function, Sentences, Symbol, Char, Number,
+ 
+   e.Errors ::= ((s.Row s.Col) e.Message)*
+ */
+-$ENTRY R05-Parse-File {
++R05-Parse-File {
+   e.SourceFile = <R05-Parse-Tokens <R05-LexScan-File e.SourceFile>>;
+ }
+ 
+@@ -28,7 +27,7 @@ $ENTRY R05-Parse-File {
+     == Success e.Tree
+     == Fails e.Errors
+ */
+-$ENTRY R05-Parse-String {
++R05-Parse-String {
+   e.String = <R05-Parse-Tokens <R05-LexScan-String e.String>>;
+ }
+ 
+@@ -37,7 +36,7 @@ $ENTRY R05-Parse-String {
+     == Success e.Tree
+     == Fails e.Errors
+ */
+-$ENTRY R05-Parse-Tokens {
++R05-Parse-Tokens {
+   e.Tokens =
+     <R05-Parse-Aux
+       <SemanticCheck
+@@ -94,7 +93,7 @@ CompareError {
+ }
+ 
+ 
+-*$ENUM Program, Element
++Program; Element;
+ 
+ /*
+   Program ::= Program Element | Program ';' | ε.
+@@ -131,7 +130,7 @@ ParseProgram {
+ }
+ 
+ 
+-*$ENUM List
++List;
+ 
+ /*
+   Element ::= List ';' | Function | NATIVE-CODE.
+@@ -199,13 +198,13 @@ ParseElement {
+     e.Tokens <EL-AddUnexpected t.ErrorList t.Unexpected 'directive or name'>;
+ }
+ 
+-$ENTRY parser_MakeListFunction {
++parser_MakeListFunction {
+   s.ScopeClass (t.SrcPos e.Name) =
+     (Function t.SrcPos s.ScopeClass (e.Name) Sentences /* пусто */);
+ }
+ 
+ 
+-*$ENUM ListKeyWord
++ListKeyWord;
+ 
+ /*
+   List ::= List ',' NAME | ListKeyWord NAME.
+@@ -274,7 +273,7 @@ ParseListKeyWord {
+ }
+ 
+ 
+-*$ENUM Scope, Body
++Scope; Body;
+ 
+ /*
+   Function ::= Scope NAME '{' Body '}'.
+@@ -365,7 +364,7 @@ ParseBody {
+ }
+ 
+ 
+-*$ENUM Sentence
++Sentence;
+ 
+ /*
+   Sentences ::= Sentence | Sentences Sentence.
+@@ -410,7 +409,7 @@ ParseSentences {
+ }
+ 
+ 
+-*$ENUM Pattern, Result
++Pattern; Result;
+ 
+ /*
+   Sentence ::= Pattern '=' Result ';' | Pattern '=' Result / '}'.
+@@ -472,7 +471,7 @@ ParseSentence {
+ }
+ 
+ 
+-*$ENUM PatternTerm, NoTerm, TopLevel, Nested
++PatternTerm; NoTerm; TopLevel; Nested;
+ 
+ /*
+   Pattern ::= Pattern PatternTerm | ε.
+@@ -632,7 +631,7 @@ ParsePatternTerm {
+ }
+ 
+ 
+-*$ENUM ResultTerm
++ResultTerm;
+ 
+ /*
+   Result = Result ResultTerm | ε.
+@@ -805,10 +804,39 @@ LoadBuiltins {
+   = <Map parser_BuiltinDeclaration <ListOfBuiltin>>;
+ }
+ 
+-$ENTRY parser_BuiltinDeclaration {
+-  (s.Number s.Name s.Type) = <Normalize <Explode s.Name>>;
++parser_BuiltinDeclaration {
++  (s.Number e.Name s.Type) = <Normalize e.Name>;
++}
++
++ListOfBuiltin {
++  = (1 'Mu' special)
++    (2 'Add' regular)
++    (3 'Arg' regular)
++    (5 'Card' regular)
++    (6 'Chr' regular)
++    (10 'Div' regular)
++    (12 'Explode' regular)
++    (14 'Get' regular)
++    (19 'Mod' regular)
++    (20 'Mul' regular)
++    (21 'Numb' regular)
++    (22 'Open' regular)
++    (23 'Ord' regular)
++    (25 'Prout' regular)
++    (27 'Putout' regular)
++    (30 'Sub' regular)
++    (31 'Symb' regular)
++    (33 'Type' regular)
++    (51 'GetEnv' regular)
++    (52 'System' regular)
++    (53 'Exit' regular)
++    (54 'Close' regular)
++    (55 'ExistFile' regular)
++    (61 'Compare' regular)
++    (67 'ListOfBuiltin' regular)
+ }
+ 
++
+ Normalize {
+   /* пусто */ = /* пропускаем */;
+   e.Name '$' = /* пропускаем */;
+@@ -818,7 +846,7 @@ Normalize {
+   e.Name = (Function NO-POS Extern (e.Name) Sentences /* пусто */);
+ }
+ 
+-*$ENUM NO-POS
++NO-POS;
+ 
+ CheckRepeatedDefinitions {
+   t.ErrorList (e.References)
+@@ -904,13 +932,13 @@ RemoveReference {
+   (e.Name) e.References = e.References;
+ }
+ 
+-$ENTRY parser_AddUnresolved {
++parser_AddUnresolved {
+   t.ErrorList (t.SrcPos e.Name) =
+     <EL-AddErrorAt t.ErrorList t.SrcPos 'Function ' e.Name ' is not defined'>;
+ }
+ 
+ 
+-*$ENUM ErrorList
++ErrorList;
+ 
+ EL-Create {
+   = (ErrorList);
+diff --git a/src/refal05c.ref b/src/refal05c.ref
+index e322e47..6346f34 100644
+--- a/src/refal05c.ref
++++ b/src/refal05c.ref
+@@ -1,19 +1,10 @@
+-*$FROM LibraryEx
+-$EXTERN ArgList, LoadFile, Map, Success, Fails;
++LibraryEx: LoadFile Map Success Fails;
+ 
+-*$FROM R05-CompilerUtils
+-$EXTERN R05-FindFiles-Default, NotFound, Output, Source, R05-CCompile;
++R05-CompilerUtils: R05-FindFiles-Default NotFound Output Source R05-CCompile;
+ 
+-*$FROM R05-Parser
+-$EXTERN R05-Parse-File;
++R05-Parser: R05-Parse-File;
+ 
+-*$FROM R05-Generator
+-$EXTERN R05-Generate-ToFile;
+-
+-
+-$ENTRY Go {
+-  = <Main <ArgList>>;
+-}
++R05-Generator: R05-Generate-ToFile;
+ 
+ Main {
+   (e.ProgName) ('@' e.Config) =
+@@ -33,7 +24,7 @@ FindFiles-SwFound {
+     >;
+ }
+ 
+-$ENTRY refal05c_PrintNotFound {
++refal05c_PrintNotFound {
+   (NotFound e.FileName) =
+     <Prout 'COMMAND LINE ERROR: file ' e.FileName ' not found'>;
+ 
+@@ -42,7 +33,7 @@ $ENTRY refal05c_PrintNotFound {
+   (Source (e.Source) e.Output) = ;
+ }
+ 
+-$ENTRY refal05c_ProcessEachSource {
++refal05c_ProcessEachSource {
+   (Output e.OutputName) =
+     <Prout '+Linking ' e.OutputName> (e.OutputName);
+ 
+@@ -63,7 +54,7 @@ CompileSource-SwSuccessedParse {
+     Fails;
+ }
+ 
+-$ENTRY refal05c_WriteError {
++refal05c_WriteError {
+   e.FileName (t.SrcPos e.Message) =
+     <Prout e.FileName ':' <StrFromSrcPos t.SrcPos> ':ERROR: ' e.Message>;
+ }

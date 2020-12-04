@@ -1,0 +1,27 @@
+diff --git a/examples/lambda.ref b/examples/lambda.ref
+index b74a248..9b603d1 100644
+--- a/examples/lambda.ref
++++ b/examples/lambda.ref
+@@ -1,4 +1,4 @@
+-$ENTRY Go {
++Go {
+   /* пусто */ =
+     <Eval
+       (
+@@ -58,6 +58,8 @@ $ENTRY Go {
+ }
+ 
+ *$ENUM L, A, V, let, letrec, in, Fix
++* Не обязательно, но иначе будет предупреждение.
++L; A; V; let; letrec; in; Fix;
+ /*
+   t.Expr ::=
+       (let t.Expr in t.Expr)
+@@ -69,6 +71,7 @@ $ENTRY Go {
+ */
+ 
+ *$ENUM vClosure, vS, vNum, vFix, vPutNum, vGetNum
++vClosure; vS; vNum; vFix; vPutNum; vGetNum;
+ /*
+   t.Value ::=
+       (vClosure t.Expr e.Stack)

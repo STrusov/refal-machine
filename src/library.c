@@ -158,7 +158,7 @@ int rf_output(
 int Print(const struct refal_vm *vm, rf_index prev, rf_index next)
 {
     int r = rf_output(vm, prev, next, stdout);
-    putchar('\n'); // в оригинале выводит и при пустом подвыражении.
+    fputc('\n', stdout); // в оригинале выводит и при пустом подвыражении.
     return r;
 }
 
@@ -508,7 +508,13 @@ int System(struct refal_vm *vm, rf_index prev, rf_index next)
       size += rf_encode_utf8(vm, s, &path[size]);
    }
    path[size] = '\0';
-   rf_int res = system(size ? path : NULL);
+   rf_int res;
+   if (size) {
+      fflush(stdout);
+      res = system(path);
+   } else {
+      res = system(NULL);
+   }
 
    rf_free_evar(vm, prev, next);
    rf_alloc_int(vm, res);

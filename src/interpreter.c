@@ -429,6 +429,14 @@ evar_express:
          case is_pattern:
             goto error_execution_bracket;
          case is_expression:
+            if (!(sp < stack_size)) {
+               if (cfg->call_stack_size * 2 > cfg->call_stack_max
+                || !realloc_stack((void**)&stack, &cfg->call_stack_size)) {
+                  runtime_error(st, "стек вызовов исчерпан", sp, ip);
+                  goto error;
+               }
+               stack_size = cfg->call_stack_size / sizeof(*stack);
+            }
             stack[sp].prev   = prev;
             stack[sp].next   = next;
             stack[sp].result = result;
@@ -506,14 +514,6 @@ execute_machine_code:
                goto next;
             case rft_byte_code:
 execute_byte_code:
-               if (!(sp < stack_size)) {
-                  if (cfg->call_stack_size * 2 > cfg->call_stack_max
-                   || !realloc_stack((void**)&stack, &cfg->call_stack_size)) {
-                     runtime_error(st, "стек вызовов исчерпан", sp, ip);
-                     goto error;
-                  }
-                  stack_size = cfg->call_stack_size / sizeof(*stack);
-               }
                stack[sp-1].ip = ip;
                stack[sp-1].local = local;
                var += local;

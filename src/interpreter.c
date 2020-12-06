@@ -131,7 +131,13 @@ execute:
 sentence:
    // При возможности расширяем e-переменные в текущем предложении.
    // Иначе переходим к следующему образцу.
-   if (ep >= 0) {
+   if (ep < 0) {
+next_sentence:
+      cur = vm->u[prev].next;
+      ep = -1;
+      local = 0;
+      ip = next_sentence;
+   } else {
       // Если при расширении правой переменной безуспешно дошли до конца образца,
       // откатываем на предыдущую e-переменную.
       while (var[evar[ep].idx].next == next) {
@@ -163,11 +169,6 @@ prev_evar:
       var[local].next = cur;
       ip = evar[ep].ip;
       ++local;
-   } else {
-next_sentence:
-      ep = -1;
-      local = 0;
-      ip = next_sentence;
    }
    goto pattern;
 
@@ -300,7 +301,6 @@ evar_compare:
    // Начало предложения. Далее следует выражение-образец (возможно, пустое).
    case rf_sentence:
       next_sentence = vm->u[ip].data;
-      cur = vm->u[prev].next;
       goto pattern_next_instruction;
 
    // Начало общего выражения.

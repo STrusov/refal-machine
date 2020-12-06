@@ -135,14 +135,20 @@ sentence:
       // Если при расширении правой переменной безуспешно дошли до конца образца,
       // откатываем на предыдущую e-переменную.
       while (var[evar[ep].idx].next == next) {
+prev_evar:
          if (--ep < 0)
             goto next_sentence;
       }
       local = evar[ep].idx;
       cur = var[local].next;
       // Если переменную требуется расширить и первый соответствующий её символ
-      // в образце — структурная скобка, пропускаем до закрывающей.
-      if (vm->u[cur].tag == rf_opening_bracket) {
+      // в поле зрения:
+      // — открывающая структурная скобка, пропускаем до закрывающей;
+      // — закрывающая структурная скобка, откатываем к предыдущей переменной.
+      switch (vm->u[cur].tag) {
+      case rf_closing_bracket:
+         goto prev_evar;
+      case rf_opening_bracket:
          cur = vm->u[cur].link;
          // TODO накладно проверять, попадает ли индекс в диапазон до next.
          // Задача транслятора это гарантировать. Для случая, когда байт-код
@@ -150,6 +156,8 @@ sentence:
          if (!(cur < vm->size)) {
             goto error_link_out_of_range;
          }
+      default:
+         break;
       }
       cur = vm->u[cur].next;
       var[local].next = cur;

@@ -76,12 +76,8 @@ int refal_interpret_bytecode(
    struct {
       // s-переменная или первый элемент e- или t- переменной.
       rf_index s;
-      // При сопоставлении — для простоты — элемент после e- t- переменной.
-      // Однако, такой элемент может быть начальным для другой переменной,
-      // что сделает недействительным её границы после перемещения данной.
-      // При исполнении rf_equal происходит корректировка: значение адресует
-      // последний элемент переменной, иначе аннулируется (диапазон пуст).
-      rf_index next;
+      // Последний элемент e- t- переменной, либо 0 (диапазон пуст).
+      rf_index last;
    } *var_stack, *var;
    var_stack = refal_malloc(cfg->var_stack_size);
    var = var_stack;
@@ -142,15 +138,19 @@ next_sentence:
       ip = next_sentence;
       bp = fn_bp;
    } else {
-      // Если при расширении правой переменной безуспешно дошли до конца образца,
+      // Расширяем e-переменную.
+      // Если при этом безуспешно дошли до конца образца,
       // откатываем на предыдущую e-переменную.
-      while (var[evar[ep].idx].next == next) {
+      while (1) {
+         local = evar[ep].idx;
+         cur = var[local].last;
+         cur = cur ? vm->u[cur].next : var[local].s;
+         if (cur != next)
+            break;
 prev_evar:
          if (--ep < 0)
             goto next_sentence;
       }
-      local = evar[ep].idx;
-      cur = var[local].next;
       // Если переменную требуется расширить и первый соответствующий её символ
       // в поле зрения:
       // — открывающая структурная скобка, пропускаем до закрывающей;
@@ -169,8 +169,8 @@ prev_evar:
       default:
          break;
       }
+      var[local].last = cur;
       cur = vm->u[cur].next;
-      var[local].next = cur;
       ip = evar[ep].ip;
       bp = evar[ep].bp;
       if (bp) {
@@ -256,9 +256,7 @@ pattern_match:
             vars = cfg->var_stack_size / sizeof(*var_stack);
          }
          var[v].s = cur;
-         // Коррекция границ (в rf_equal) для s-переменных не требуется.
-         // Тип переменной в тот момент определяется по 0 в данном поле.
-         var[v].next = 0;
+         var[v].last = 0;
          if (t == rf_opening_bracket) {
             if (tag == rf_svar)
                goto sentence;
@@ -268,7 +266,7 @@ pattern_match:
                goto error_link_out_of_range;
             }
             assert(vm->u[cur].tag == rf_closing_bracket);
-            var[v].next = vm->u[cur].next;
+            var[v].last = cur;
          }
          ++local;
       } else if (t == rf_opening_bracket && tag == rf_tvar) {
@@ -306,12 +304,14 @@ pattern_match:
             vars = cfg->var_stack_size / sizeof(*var_stack);
          }
          var[v].s = cur;
+         var[v].last = 0;
          ip  = vm->u[ip].next;
          tag = vm->u[ip].tag;
          evar[ep].ip = ip;
          evar[ep].bp = bp;
          evar[ep].ob = bp ? bracket[bp - 1] : 0;
-         // Устанавливаем правую границу, когда она сразу известна.
+         // Устанавливаем правую границу, когда она сразу известна
+         // и диапазон не пуст.
          switch (tag) {
          case rf_closing_bracket:
             if (!bp) {
@@ -321,19 +321,21 @@ pattern_match:
             if (!(cur < vm->size)) {
                goto error_link_out_of_range;
             }
-            var[v].next = cur;
+            if (var[v].s != cur)
+               var[v].last = vm->u[cur].prev;
             goto pattern_continue;
          case rf_equal:
-            var[v].next = next;
+            if (cur != next)
+               var[v].last = vm->u[next].prev;
             goto equal;
          default:
-            var[v].next = cur;
             goto pattern_match;
          }
-      } else {
+      } else if (var[v].last) {
+         // t-переменная всегда не пуста.
 evar_compare:
          // Размер закрытой переменной равен таковому для первого вхождения.
-         for (rf_index s = var[v].s; s != var[v].next; s = vm->u[s].next) {
+         for (rf_index s = var[v].s; ; s = vm->u[s].next) {
             rf_type t = vm->u[s].tag;
             if (t != vm->u[cur].tag)
                goto sentence;
@@ -341,9 +343,11 @@ evar_compare:
              && vm->u[s].data != vm->u[cur].data)
                goto sentence;
             cur = vm->u[cur].next;
+            if (s == var[v].last)
+               break;
          }
-         goto pattern_next_instruction;
       }
+      goto pattern_next_instruction;
 
    // Начало предложения. Далее следует выражение-образец (возможно, пустое).
    case rf_sentence:
@@ -358,17 +362,6 @@ evar_compare:
 equal:
       if (fn_bp != bp) {
          goto error_parenthesis_unpaired;
-      }
-      // Что бы безопасно перемещать переменные, скорректируем границы.
-      for (unsigned i = local; i--; ) {
-         // Для s-переменных поле исходно 0.
-         rf_index et_end = var[i].next;
-         if (et_end) {
-            if (et_end == var[i].s)
-               var[i].next = 0;
-            else
-               var[i].next = vm->u[et_end].prev;
-         }
       }
       result = vm->free;
       // Для `rf_insert_next()` отделяем свободное пространство от поля зрения.
@@ -440,7 +433,7 @@ express:
          goto error_undefined_variable;
       }
       // e-переменная возможно пуста, что не относится к t-переменным.
-      if (var[v].next) {
+      if (var[v].last) {
 evar_express:
          // Копируем все вхождения кроме последнего (которое переносим).
          // Транслятор отметил копии ненулевым tag2.
@@ -465,11 +458,11 @@ evar_express:
                default:
                   rf_alloc_value(vm, vm->u[s].data, t);
                }
-               if (s == var[v].next)
+               if (s == var[v].last)
                   break;
             }
          } else {
-            rf_alloc_evar_move(vm, vm->u[var[v].s].prev, vm->u[var[v].next].next);
+            rf_alloc_evar_move(vm, vm->u[var[v].s].prev, vm->u[var[v].last].next);
          }
       }
       goto express;

@@ -376,7 +376,8 @@ equal:
 recognition_impossible:
       // TODO Ошибки в байт-коде нет. Реализовать вывод текущего состояния.
       // TODO Раскрутка стека с размещением в поле зрения признака исключения?
-      rf_splice_evar_prev(vm, prev, next, stack[0].next);
+      if (next != stack[0].next)
+         rf_splice_evar_prev(vm, prev, next, stack[0].next);
       return cur;
 
    } // switch (tag)
@@ -556,9 +557,22 @@ execute_machine_code:
          goto express;
       case rft_byte_code:
 execute_byte_code:
-         stack[sp-1].ip = ip;
-         stack[sp-1].local = local;
-         var += local;
+         // При хвостовых вызовах исключаем парное сохранение+восстановление
+         // контекста функции. Нет смысла тратить ограниченный стек.
+         if (vm->u[vm->u[ip].next].tag == rf_complete) {
+            assert(sp);
+            --sp;
+            next = stack[sp].next;
+            rf_free_evar(vm, stack[sp].prev, next);
+            rf_splice_evar_prev(vm, result, vm->free, next);
+            rf_free_last(vm);
+            if (prev == result)
+               prev = stack[sp].prev;
+         } else {
+            stack[sp-1].ip = ip;
+            stack[sp-1].local = local;
+            var += local;
+         }
          next_sentence = function.value;
          goto execute;
       }

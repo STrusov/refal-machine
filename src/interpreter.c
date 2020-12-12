@@ -368,8 +368,8 @@ equal:
       rf_alloc_value(vm, 0, rf_undefined);
       goto express;
 
+   case rf_open_function:
    case rf_execute:
-   case rf_execute_close:
       goto error_execution_bracket;
 
    case rf_complete:
@@ -476,7 +476,7 @@ evar_express:
       goto error;
 
    // Открыты вычислительные скобки.
-   case rf_execute:
+   case rf_open_function:
       if (!(sp < stack_size)) {
          if (cfg->call_stack_size * 2 > cfg->call_stack_max
           || !realloc_stack((void**)&stack, &cfg->call_stack_size)) {
@@ -492,7 +492,8 @@ evar_express:
       prev = vm->u[vm->free].prev;
       goto express;
 
-   case rf_execute_close:
+   // Закрывающая вычислительная скобка приводит к исполнению функции.
+   case rf_execute:
       next = vm->free;
       struct rtrie_val function = rtrie_val_from_raw(vm->u[ip].data);
       switch (function.tag) {

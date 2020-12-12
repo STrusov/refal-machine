@@ -405,7 +405,7 @@ lexem_identifier_undefined:
                // проверке в закрывающей скобке отличить неопределённые
                // идентификаторы от отсутствия таковых.
                if (cmd_exec[ep] && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
-                  rf_alloc_value(vm, cmd_exec[ep], rf_execute);
+                  rf_alloc_value(vm, cmd_exec[ep], rf_open_function);
                   struct rtrie_val f = { .tag = rft_undefined, .value = 1 };
                   vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(f);
                }
@@ -733,7 +733,7 @@ lexem_identifier_undefined:
                warning(st, redundant_module_id, im_line, im_pos, im_str, end);
                imports = 0;
             }
-            cmd_exec[ep] = rf_alloc_command(vm, rf_execute);
+            cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
             lexer = lex_whitespace;
             goto next_char;
          }
@@ -776,7 +776,7 @@ lexem_identifier_undefined:
             // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
             // Если функция не определена, но между скобок содержатся
             // идентификаторы (.value == 1) задаём открывающей скобке ссылку на эту.
-            rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute_close);
+            rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute);
             struct rtrie_val f = rtrie_val_from_raw(vm->u[cmd_exec[ep]].data);
             if (f.tag == rft_undefined) {
                if (!f.value) {
@@ -1407,7 +1407,7 @@ complete:
          undef = vm->u[undef].link;
 
          rf_index exec_open = 0;
-         if (vm->u[s].tag == rf_execute) {
+         if (vm->u[s].tag == rf_open_function) {
             exec_open = vm->u[s].link;
             s = vm->u[s].next;
          } else if (ex) {

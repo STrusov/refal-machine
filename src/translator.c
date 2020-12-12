@@ -923,24 +923,31 @@ sentence_complete:
                warning(st, redundant_module_id, im_line, im_pos, im_str, end);
                imports = 0;
             }
+            rf_index sentence_complete;
             // В функциях с блоком сохраняем в маркере текущего предложения
             // ссылку на данные следующего и размещаем новый маркер.
             if (function_block && cmd_sentence) {
-               rf_index new_sentence = rf_alloc_command(vm, rf_sentence);
-               vm->u[cmd_sentence].data = new_sentence;
-               cmd_sentence = new_sentence;
+               sentence_complete = rf_alloc_command(vm, rf_sentence);
+               vm->u[cmd_sentence].data = sentence_complete;
+               cmd_sentence = sentence_complete;
                semantic = ss_pattern;
                local = 0;
                ++idc;
             } else if (cmd_sentence) {
-               vm->u[cmd_sentence].data = rf_alloc_command(vm, rf_complete);
+               sentence_complete = rf_alloc_command(vm, rf_complete);
+               vm->u[cmd_sentence].data = sentence_complete;
                semantic = ss_source;
             } else {
                // См. переход сюда из case '}' где подразумевается данный опкод.
                // Может показаться, что достаточно проверять function_block на 0,
                // но планируется поддержка вложенных блоков.
-               rf_alloc_command(vm, rf_complete);
+               sentence_complete = rf_alloc_command(vm, rf_complete);
                semantic = ss_source;
+            }
+            // При хвостовых вызовах нет смысла в парном сохранении и
+            // восстановление контекста функции. Обозначим такие интерпретатору.
+            if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
+               vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
             }
             goto next_char;
          }

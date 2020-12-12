@@ -558,9 +558,8 @@ execute_machine_code:
          goto express;
       case rft_byte_code:
 execute_byte_code:
-         // При хвостовых вызовах исключаем парное сохранение+восстановление
-         // контекста функции. Нет смысла тратить ограниченный стек.
-         if (vm->u[vm->u[ip].next].tag == rf_complete) {
+         // Для хвостовых вызовов транслятор установил признак.
+         if (vm->u[ip].tag2 /* == rf_complete */) {
             assert(sp);
             --sp;
             next = stack[sp].next;

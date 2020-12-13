@@ -288,6 +288,12 @@ lexem_identifier_complete:
             semantic = ss_identifier;
             ident_strlen = str - ident_str;
             ident = node;
+            // Функции определяются во множестве мест, вынесено сюда.
+            // Производить определение функций здесь возможно, но придётся
+            // распознавать ситуацию с импортом модуля, идентификатор которого
+            // может встречаться на верхнем уровне многократно.
+            local = 0;
+            cmd_sentence = 0;
             goto next_char;
          case ss_import:
             if (import_node < 0) {
@@ -544,15 +550,15 @@ lexem_identifier_undefined:
          case ss_import:
             goto error_incorrect_import;
          case ss_identifier:
-            assert(function_block == 0);
-            if (ids->n[node].val.tag != rft_undefined) {
-               // TODO надо бы отобразить прежнее определение
-               syntax_error(st, "повторное определение функции", line_num, pos, line, end);
-               goto error;
-            }
-            cmd_sentence = 0;
-            ids->n[node].val.value = rf_alloc_command(vm, rf_equal);
-            ids->n[node].val.tag   = rft_byte_code;
+#define DEFINE_SIMPLE_FUNCTION                           \
+            assert(function_block == 0);                 \
+            if (ids->n[ident].val.tag != rft_undefined)  \
+               goto error_identifier_already_defined;    \
+            ids->n[ident].val.value = vm->free;          \
+            ids->n[ident].val.tag   = rft_byte_code;
+
+            DEFINE_SIMPLE_FUNCTION;
+            rf_alloc_command(vm, rf_equal);
             lexer = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
@@ -566,6 +572,7 @@ lexem_identifier_undefined:
                imports = 0;
             }
             if (ids->n[ident].val.tag == rft_enum) {
+               assert(cmd_sentence);
                ids->n[ident].val.tag   = rft_byte_code;
                ids->n[ident].val.value = cmd_sentence;
             }
@@ -621,7 +628,6 @@ lexem_identifier_undefined:
             ids->n[node].val.tag   = rft_enum;
             lexer = lex_whitespace;
             semantic = ss_pattern;
-            local = 0;
             ++idc;
             ++function_block;
             goto next_char;
@@ -816,7 +822,8 @@ lexem_identifier_undefined:
          case ss_import:
             goto error_incorrect_import;
          case ss_identifier:
-            goto error_incorrect_function_definition;
+            DEFINE_SIMPLE_FUNCTION;
+            semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
             if (!(bp < bracket_max)) {
@@ -1108,8 +1115,8 @@ sentence_complete:
          case ss_import:
             goto error_incorrect_import;
          case ss_identifier:
-            syntax_error(st, "строка неуместна (пропущено = или { в определении функции?)", line_num, pos, line, end);
-            goto error;
+            DEFINE_SIMPLE_FUNCTION;
+            semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
             lexer = chr == '"' ? lex_string_dquoted : lex_string_quoted;
@@ -1152,11 +1159,13 @@ sentence_complete:
       case lex_whitespace:
          switch (semantic) {
          case ss_source:
-         case ss_identifier:
             syntax_error(st, "числа допустимы только в выражениях", line_num, pos, line, end);
             goto error;
          case ss_import:
             goto error_incorrect_import;
+         case ss_identifier:
+            DEFINE_SIMPLE_FUNCTION;
+            semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
             lexer = lex_number;
@@ -1248,7 +1257,8 @@ symbol:
             ident_pos = pos;
             goto next_char;
          case ss_identifier:
-            goto error_identifier_odd;
+            DEFINE_SIMPLE_FUNCTION;
+            semantic = ss_pattern;
          case ss_pattern:
             // Возможно объявление и использование переменных.
             // Сохраняем их в таблице символов, отделив от идентификатора

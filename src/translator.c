@@ -550,10 +550,9 @@ lexem_identifier_undefined:
                syntax_error(st, "повторное определение функции", line_num, pos, line, end);
                goto error;
             }
-            cmd_sentence = rf_alloc_command(vm, rf_sentence);
-            ids->n[node].val.value = cmd_sentence;
+            cmd_sentence = 0;
+            ids->n[node].val.value = rf_alloc_command(vm, rf_equal);
             ids->n[node].val.tag   = rft_byte_code;
-            rf_alloc_command(vm, rf_equal);
             lexer = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
@@ -934,6 +933,7 @@ sentence_complete:
                local = 0;
                ++idc;
             } else if (cmd_sentence) {
+               assert(0);
                sentence_complete = rf_alloc_command(vm, rf_complete);
                vm->u[cmd_sentence].data = sentence_complete;
                semantic = ss_source;

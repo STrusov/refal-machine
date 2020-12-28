@@ -236,7 +236,6 @@ pattern_match:
 
    case rf_svar:
    case rf_tvar:
-      v = vm->u[ip].link;
       if (cur == next) {
          goto sentence;
       }
@@ -248,6 +247,7 @@ pattern_match:
       }
       // При первом вхождении присваиваем переменной значение образца.
       // При повторных сопоставляем.
+      v = vm->u[ip].link;
       if (v >= local) {
          assert(local == v);  // TODO убрать, заменив условие выше.
          if (&var[local] == &var_stack[vars]) {
@@ -282,13 +282,13 @@ pattern_match:
       goto pattern_continue;
 
    case rf_evar:
-      v = vm->u[ip].link;
       // e-переменная изначально принимает минимальный (0й размер).
       // Если дальнейшая часть образца не совпадает, размер увеличивается.
       // При первом вхождении присваиваем переменной текущую позицию в
       // образце (как границу next) и запоминаем индекс переменной для
       // возможного расширения диапазона (если дальше образец расходится).
       // При повторных — сопоставляем.
+      v = vm->u[ip].link;
       if (v >= local) {
          if (++ep == evar_max) {
             // TODO аналогичная проверка выполняется и при трансляции.
@@ -420,7 +420,7 @@ express:
    case rf_svar:
    case rf_tvar:
       v = vm->u[ip].link;
-      if (vm->u[ip].link > local) {
+      if (v > local) {
          goto error_undefined_variable;
       }
       const rf_index sval = var[v].s;
@@ -433,7 +433,7 @@ express:
 
    case rf_evar:
       v = vm->u[ip].link;
-      if (vm->u[ip].link >= local) {
+      if (v >= local) {
          goto error_undefined_variable;
       }
       // e-переменная возможно пуста, что не относится к t-переменным.

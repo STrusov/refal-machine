@@ -10,7 +10,7 @@
 #include "translator.h"
 
 #define REFAL_NAME "РЕФАЛ-машина"
-#define REFAL_VERSION "версия 0.1.2 (альфа)"
+#define REFAL_VERSION "версия 0.1.3 (альфа)"
 
 #define REFAL_INITIAL_MEMORY      (128*1024/sizeof(rf_cell))
 #define REFAL_TRIE_INITIAL_MEMORY (128*1024/sizeof(struct rtrie_node))

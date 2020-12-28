@@ -18,7 +18,8 @@ Data = 0 1 2 3 4 5 6 7 8 9;
 Printer = Prout;
 
 go =  <Mu <Data> Prout>
-      <Mu <Data> <Printer>>
+   *             2 явных вызова Mu бессмыслены, но допустимы.
+      <Mu <Data> Mu <Printer>>
       <Mu (Data) Вывод>
       <Mu Prout <Data>>
       <Mu <Data> Вывод>

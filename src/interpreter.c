@@ -509,8 +509,9 @@ evar_express:
          // Функции Mu соответствует индекс 0.
          // Ищем в поле зрения вычислимую функцию и вызываем её.
          if (!function.value) {
+            rf_index next_id;
             for (rf_index id = vm->u[prev].next; id != next; id = vm->u[id].next)
-               switch (vm->u[id].tag) {
+Mu_argument:   switch (vm->u[id].tag) {
                case rf_identifier:
                   function = rtrie_val_from_raw(vm->u[id].data);
                   switch (function.tag) {
@@ -522,7 +523,12 @@ evar_express:
                      rf_free_evar(vm, vm->u[id].prev, vm->u[id].next);
                      goto execute_byte_code;
                   case rft_machine_code:
-                     rf_free_evar(vm, vm->u[id].prev, vm->u[id].next);
+                     next_id = vm->u[id].next;
+                     rf_free_evar(vm, vm->u[id].prev, next_id);
+                     if (!function.value) {
+                        id = next_id;
+                        goto Mu_argument;
+                     }
                      goto execute_machine_code;
                   }
                case rf_opening_bracket:

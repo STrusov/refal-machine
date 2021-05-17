@@ -24,10 +24,14 @@
  *
  */
 
-#include <assert.h>
+#pragma once
+
 #include "refal.h"
 
-#pragma once
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /**
  * Максимальное количество файловых дескрипторов,

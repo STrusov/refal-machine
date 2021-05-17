@@ -32,19 +32,14 @@
 
 #pragma once
 
+#include "message.h"
+
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <wchar.h>
-
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
-#include "message.h"
 
 /**\addtogroup internal Внутреннее устройство РЕФАЛ-машины.
  * \{

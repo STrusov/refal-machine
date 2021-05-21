@@ -1437,6 +1437,8 @@ complete:
          line = vm->u[s].atom;
          s = vm->u[s].next;
 
+         // В результате трансляции rf_complete в данной позиции невозможен,
+         // потому выбран в качестве маркера на предыдущей итерации.
          if (vm->u[opcode].tag == rf_complete) {
             assert(!ex);
             rf_free_evar(vm, vm->u[opcode].prev, s);

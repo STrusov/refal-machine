@@ -1,4 +1,5 @@
 TARGET = refal
+INSTALLDIR = /bin
 
 SOURCES_ROOT = $(PROJECT_ROOT)src/
 HEADERS := $(notdir $(wildcard $(SOURCES_ROOT)*.h))
@@ -38,3 +39,9 @@ test:
 	  echo $${filename}; \
 	  ./$(TARGET) +n "$${filename}" | diff - "$${filename}.эталон"; \
 	done
+
+install:	$(TARGET)
+	install --strip $(TARGET) $(INSTALLDIR)
+
+uninstall:
+	rm --force $(INSTALLDIR)/$(TARGET)

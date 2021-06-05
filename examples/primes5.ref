@@ -1,0 +1,34 @@
+* Refal5-PZ & Refal-05 compatible
+
+$EXTERN Add, Sub;
+
+* syntactic sugar
+*$ENUM From, To;
+
+$ENTRY Go {
+  = <Prout <Naturals <Sieve <Series From 2 To 10000>>>>;
+}
+
+Sieve {
+  0      e.Tail = 0      <Sieve e.Tail>;
+  s.Mesh e.Tail = s.Mesh <Sieve <Aliquots s.Mesh s.Mesh (e.Tail)>>;
+   = ;
+}
+
+Aliquots {
+  s.Mesh 1     (s.Cur e.In) e.Out = <Aliquots s.Mesh s.Mesh        (e.In) e.Out 0>;
+  s.Mesh s.Cnt (s.Cur e.In) e.Out = <Aliquots s.Mesh <Sub s.Cnt 1> (e.In) e.Out s.Cur>;
+  e.Stuff () e.Result = e.Result;
+}
+
+Series {
+  From s.End To s.End e.Series = e.Series s.End;
+  From s.Min To s.Max e.Series = <Series From <Add 1 s.Min> To s.Max e.Series s.Min>;
+}
+
+Naturals {
+  0         e.Tail = <Naturals e.Tail>;
+  s.Natural e.Tail = s.Natural <Naturals e.Tail>;
+  = ;
+}
+

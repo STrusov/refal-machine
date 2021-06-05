@@ -471,9 +471,6 @@ evar_express:
       }
       goto express;
 
-   case rf_sentence:
-      goto complete;
-
    case rf_equal:
       inconsistence(st, "повторное присваивание", ip, step);
       goto error;
@@ -586,8 +583,9 @@ execute_byte_code:
          goto execute;
       }
 
+   case rf_sentence:
    case rf_complete:
-complete:   rf_free_evar(vm, prev, next);
+      rf_free_evar(vm, prev, next);
       assert(result);
       rf_splice_evar_prev(vm, result, vm->free, next);
       rf_free_last(vm);

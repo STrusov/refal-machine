@@ -378,51 +378,6 @@ void rf_free_last(
    vm->free = vm->u[vm->free].prev;
 }
 
-/* * Эта и следующая функции унаследованы от А-Рефала и не применяются.
- *   TODO удалить либо исправить.
- *
- * Перемещает в поле зрения между prev и prev.next ячейки свободной части списка
- * начиная с first по [vm->free].prev включительно:
-
-        rf_index two_ints = rf_alloc_int(vm, 0); // возвращает исходное vm->free
-        rf_alloc_int(vm, 1);
-        rf_insert_next(vm, prev_position, two_ints);
- */
-static inline
-void rf_insert_next(
-      struct refal_vm   *vm,
-      rf_index          prev,
-      rf_index          first)
-{
-   assert(first != prev);
-   assert(first != vm->free);
-   const rf_index last = vm->u[vm->free].prev;
-   const rf_index next = vm->u[prev].next;
-   vm->u[last].next = next;
-   vm->u[next].prev = last;
-   vm->u[prev].next = first;
-   vm->u[first].prev = prev;
-}
-
-/* *
- * Перемещает в поле зрения между next.prev и next ячейки свободной части списка
- * начиная с first по [vm->free].prev включительно.
- */
-static inline
-void rf_insert_prev(
-      struct refal_vm   *vm,
-      rf_index          next,
-      rf_index          first)
-{
-   assert(first != next);
-   const rf_index last = vm->u[vm->free].prev;
-   const rf_index prev = vm->u[next].prev;
-   vm->u[last].next = next;
-   vm->u[next].prev = last;
-   vm->u[prev].next = first;
-   vm->u[first].prev = prev;
-}
-
 /**
  * Перемещает диапазон в новое место.
  */

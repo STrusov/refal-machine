@@ -140,7 +140,7 @@ struct refal_vm {
    /// Адрес таблицы функций в машинном коде.
    const struct refal_import_descriptor *library;
    /// Количество функций в машинном коде.
-   unsigned    library_size;;
+   unsigned    library_size;
 };
 
 

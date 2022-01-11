@@ -338,10 +338,10 @@ struct rtrie_val rtrie_get_value(
          }
       } else if (chr > rt->n[idx].chr) {
          if (!(idx = rt->n[idx].right))
-            return (struct rtrie_val) { };
+            return (struct rtrie_val) { rft_undefined };
       } else /* if (chr < rt->n[idx].chr) */ {
          if (!(idx = rt->n[idx].left))
-            return (struct rtrie_val) { };
+            return (struct rtrie_val) { rft_undefined };
       }
    }
 }

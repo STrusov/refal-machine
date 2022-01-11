@@ -42,8 +42,8 @@ int refal_translate_module_to_bytecode(
 {
    int r = -1;
    // Ищем в каталоге с исходным текстом файлы модуля.
-   const static char ext1[] = ".реф";
-   const static char ext2[] = ".ref";
+   static const char ext1[] = ".реф";
+   static const char ext2[] = ".ref";
    if (name_length + sizeof ext1 >= NAME_MAX) {
       return -2;
    }

@@ -34,7 +34,7 @@ $(OBJECTS):%.o:	$(SOURCES_ROOT)%.c $(addprefix $(SOURCES_ROOT),$(HEADERS))
 clean:
 	$(RM) $(TARGET) $(OBJECTS)
 
-test:
+test:	$(TARGET)
 	ls  $(PROJECT_ROOT)tests/*.ref | while read filename ; do \
 	  echo $${filename}; \
 	  ./$(TARGET) +n "$${filename}" | diff - "$${filename}.эталон"; \

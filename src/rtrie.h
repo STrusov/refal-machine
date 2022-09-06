@@ -95,9 +95,8 @@ void *rtrie_alloc(
       rtrie_index size)       ///< Предполагаемый размер (в узлах).
 {
    rt->n = refal_malloc(size * sizeof(struct rtrie_node));
-   if (rt->n) {
-      rt->size = size;
-   };
+   rt->size = rt->n ? size : 0;
+   rt->free = 0;
    return rt->n;
 }
 

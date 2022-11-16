@@ -309,7 +309,7 @@ lexem_identifier_complete:
          case ss_import:
             if (import_node < 0) {
                syntax_error(st, "идентификатор не определён в модуле "
-                                "(возможно, взаимно-рекурсовный импорт)",
+                                "(возможно, взаимно-рекурсивный импорт)",
                                 line_num, pos, line, end);
                goto error;
             }

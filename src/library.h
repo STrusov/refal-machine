@@ -324,7 +324,7 @@ void *mmap_file(
       size_t      *size)   ///< Указатель для сохранения результата.
 {
    void *addr = MAP_FAILED;
-   const int fd = open(name, O_RDONLY);
+   const int fd = open(name, O_RDONLY, 0);
    if (fd >= 0) {
       struct stat sb;
       if (fstat(fd, &sb) >= 0) {

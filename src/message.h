@@ -25,13 +25,13 @@ typedef void refal_message_handler(
 struct refal_message {
    refal_message_handler   *handler;   ///< Обработчик
    void                    *context;   ///< Контекст обработчика (канал вывода).
-   const char *source;  ///< Источник ошибки (имя файла с исходным текстом).
-   const char *type;    ///< Тип сообщения (ошибка, предупреждение).
-   const char *detail;  ///< Подробное описание.
-   intmax_t    line;    ///< Номер строки либо иная характеристика (errno).
-   intmax_t    position;///< Позиция в строке либо иная характеристика.
-   const char *begin;   ///< Начало участка ошибочного текста.
-   const char *end;     ///< Адрес за границей участка текста (обращение недопустимо).
+   const char     *source; ///< Источник ошибки (имя файла с исходным текстом).
+   const char     *type;   ///< Тип сообщения (ошибка, предупреждение).
+   const char     *detail; ///< Подробное описание.
+   intmax_t       line;    ///< Номер строки либо иная характеристика (errno).
+   intmax_t       position;///< Позиция в строке либо иная характеристика.
+   const wchar_t  *begin;  ///< Начало участка ошибочного текста.
+   const wchar_t  *end;    ///< Адрес за границей участка текста (обращение недопустимо).
 };
 
 /**
@@ -47,12 +47,12 @@ refal_message_handler refal_message_print;
 static inline
 void refal_message(
       struct refal_message *msg,
-      const char *type,
-      const char *detail,
-      intmax_t    line,
-      intmax_t    position,
-      const char *begin,
-      const char *end)
+      const char     *type,
+      const char     *detail,
+      intmax_t       line,
+      intmax_t       position,
+      const wchar_t  *begin,
+      const wchar_t  *end)
 {
    if (msg) {
       msg->type   = type;
@@ -97,11 +97,11 @@ void critical_error(
 static inline
 void syntax_error(
       struct refal_message *msg,
-      const char *detail,
-      intmax_t    line,
-      intmax_t    position,
-      const char *begin,
-      const char *end)
+      const char     *detail,
+      intmax_t       line,
+      intmax_t       position,
+      const wchar_t  *begin,
+      const wchar_t  *end)
 {
    refal_message(msg, "ошибка", detail, line, position, begin, end);
 }
@@ -109,11 +109,11 @@ void syntax_error(
 static inline
 void warning(
       struct refal_message *msg,
-      const char *detail,
-      intmax_t    line,
-      intmax_t    position,
-      const char *begin,
-      const char *end)
+      const char     *detail,
+      intmax_t       line,
+      intmax_t       position,
+      const wchar_t  *begin,
+      const wchar_t  *end)
 {
    refal_message(msg, "предупреждение", detail, line, position, begin, end);
 }
@@ -121,11 +121,11 @@ void warning(
 static inline
 void performance(
       struct refal_message *msg,
-      const char *detail,
-      intmax_t    line,
-      intmax_t    position,
-      const char *begin,
-      const char *end)
+      const char     *detail,
+      intmax_t       line,
+      intmax_t       position,
+      const wchar_t  *begin,
+      const wchar_t  *end)
 {
    refal_message(msg, "замечание", detail, line, position, begin, end);
 }

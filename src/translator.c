@@ -19,13 +19,12 @@ int refal_translate_file_to_bytecode(
 {
    int r = -1;
    const char *os = refal_message_source(st, name);
-   size_t size = 0;
-   const char *src = mmap_file(name, &size);
-   if (src == MAP_FAILED) {
-      critical_error(st, "исходный текст недоступен", -errno, size);
+   FILE * src = fopen(name, "r");
+   if (!src) {
+      critical_error(st, "исходный текст недоступен", -errno, 0);
    } else {
-      r = refal_translate_to_bytecode(cfg, vm, ids, 0, src, &src[size], st);
-      munmap((void*)src, size);
+      r = refal_translate_istream_to_bytecode(cfg, vm, ids, 0, src, st);
+      fclose(src);
    }
    refal_message_source(st, os);
    return r;
@@ -65,12 +64,11 @@ int refal_translate_module_to_bytecode(
    const char *const ext[2] = { ext2, ext1 };
    for (int i = 1; i >= 0; --i) {
       strcpy(&path[pl + name_length], ext[i]);
-      size_t size = 0;
-      const char *src = mmap_file(path, &size);
+      FILE * src = fopen(name, "r");
       if (src != MAP_FAILED) {
          const char *os = refal_message_source(st, path);
-         r = refal_translate_to_bytecode(cfg, vm, ids, module, src, &src[size], st);
-         munmap((void*)src, size);
+         r = refal_translate_istream_to_bytecode(cfg, vm, ids, module, src, st);
+         fclose(src);
          refal_message_source(st, os);
          if (r >= 0)
             break;
@@ -85,16 +83,98 @@ int refal_translate_module_to_bytecode(
    return r;
 }
 
-int refal_translate_to_bytecode(
+/**
+ * Индекс для адресации ячеек массива, где хранятся строки.
+ */
+typedef size_t wstr_index;
+
+struct wstr {
+   wchar_t     *s;
+   wstr_index  size;
+   wstr_index  free;
+};
+
+/**
+ * Резервирует память для хранения строк.
+ * \result Ненулевое значение в случае успеха.
+ */
+static inline
+void *wstr_alloc(
+      struct wstr *ws, ///< Структура для инициализации.
+      wstr_index  size)     ///< Предполагаемый размер (в символах).
+{
+   ws->s = refal_malloc(size * sizeof(*ws->s));
+   ws->size = ws->s ? size : 0;
+   ws->free = 0;
+   return ws->s;
+}
+
+/**
+ * Проверяет состояние структуры.
+ *
+ * \result Ненулевой результат, если память распределена.
+ */
+static inline
+void *wstr_check(
+      struct wstr          *ws,
+      struct refal_message *status)
+{
+   assert(ws);
+   if (status && !ws->s) {
+      critical_error(status, "недостаточно памяти для строк", -errno, ws->size);
+   }
+   return ws->s;
+}
+
+/**
+ * Освобождает занятую память.
+ */
+static inline
+void wstr_free(struct wstr *ws)
+{
+   refal_free(ws->s, ws->size);
+   ws->s = 0;
+   ws->size = 0;
+   ws->free = 0;
+}
+
+/**
+ * Добавляет символ в хвост массива, при необходимости увеличивая размер буфера.
+ */
+static inline
+wstr_index wstr_append(struct wstr *ws, wchar_t c)
+{
+   wstr_index new_chr = ws->free++;
+   if (new_chr == ws->size) {
+      size_t size = ws->size * sizeof(sizeof(*ws->s));
+      ws->s = refal_realloc(ws->s, size, 2 * size);
+      ws->size *= 2;
+   }
+   if (ws->s)
+      ws->s[new_chr] = c;
+   else
+      new_chr = -1;
+   return new_chr;
+}
+
+
+int refal_translate_istream_to_bytecode(
       struct refal_translator_config   *cfg,
       struct refal_vm      *const vm,
       struct refal_trie    *const ids,
       rtrie_index          module,
-      const char           *const begin,
-      const char           *const end,
+      FILE                 *src,
       struct refal_message *st)
 {
-   const char *restrict src = begin;
+   // Сообщение об ошибке при завершении.
+   const char *error = NULL;
+
+   // Здесь храним обрабатываемый исходный текст для сообщений об ошибках.
+   // Поскольку определение идентификаторов возможно после их использование,
+   // и после первого прохода производится дополнительный, сохраняется
+   // весь входной поток целиком.
+   struct wstr buf;
+   wstr_alloc(&buf, 1024);
 
    // При сканировании лексем "число" здесь накапливается результат.
    rf_int number = 0;
@@ -114,7 +194,7 @@ int refal_translate_to_bytecode(
    rtrie_index namespace = module;
 
    // Начало и длина имени идентификатора. Для импорта модулей.
-   const char *ident_str = NULL;
+   wstr_index  ident_str = 0;
    size_t      ident_strlen = 0;
    // Номер первого символа идентификатора в строке. Так же и для вывода ошибки.
    unsigned    ident_pos = 0;
@@ -130,7 +210,7 @@ int refal_translate_to_bytecode(
 
    // Для вывода предупреждений об идентификаторах модулей.
    const char *redundant_module_id = "идентификатор модуля без функции не имеет смысла";
-   const char *im_str = 0;
+   wstr_index im_str = 0; //TODO Несколько импортов в одной строке?
    unsigned   im_line = 0;
    unsigned   im_pos  = 0;
 
@@ -180,7 +260,7 @@ int refal_translate_to_bytecode(
    }
    struct {
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
-      const char  *src;
+      wstr_index  src;
       unsigned    line;
       unsigned    pos;
 #endif
@@ -246,22 +326,45 @@ int refal_translate_to_bytecode(
    unsigned line_num = 0;     // номер текущей строки
 
    // В первой строке могут быть символы #!, тогда игнорируем её.
-   if (src != end && *src == '#')
+   wint_t wc = fgetwc(src);
+   if (wc == '#')
       lexer = lex_comment_line;
+   else
+      ungetwc(wc, src);
 
 next_line:
    ++line_num;
-   const char *line = src;    // начало текущей строки
-   unsigned pos = 0;          // номер символа в строке
+
+   // При выводе сообщений об ошибках требуется строка целиком.
+   // Исключаем второй символ возможных '\r' '\n' для совместимости.
+   // Для простоты разбора (и что бы не проверять возможный выход за буфер
+   // при чтении следующего символа) гарантируем перенос строки в конце.
+   wstr_index line = buf.free;
+   while (1) {
+      if ((wc = fgetwc(src)) == WEOF) {
+         if (line == buf.free)
+            goto complete;
+         wc = '\n';
+      }
+      wstr_append(&buf, wc);
+      if (!wstr_check(&buf, st))
+         goto cleanup;
+      if (wc == '\n')
+         break;
+      if (wc == '\r') {
+         wc = fgetwc(src);
+         if (wc != '\n' && wc != WEOF)
+            ungetwc(wc, src);
+         break;
+      }
+   }
+   unsigned pos = 0;             // номер символа в строке исходника
 
 next_char:
-   if (src == end)
-      goto complete;
-   assert(src < end);
+   const wstr_index str = buf.free;  //TODO для импорта
+   wchar_t chr = buf.s[line + pos++];
 
-   const char *const str = src;
-   wchar_t chr = *(const unsigned char*)src++;
-   ++pos;
+current_char:
    switch (chr) {
 
    ///\page    Синтаксис
@@ -290,6 +393,8 @@ next_char:
          lexer = lex_whitespace;
          goto next_char;
       case lex_identifier:
+         // Ветка определяет идентификатор, а обработку текущего символа
+         // производит последующим переходом на current_char.
 lexem_identifier_complete:
          lexer = lex_whitespace;
          switch (semantic) {
@@ -297,7 +402,7 @@ lexem_identifier_complete:
             assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
          case ss_source:
             semantic = ss_identifier;
-            ident_strlen = str - ident_str;
+            ident_strlen = str - ident_str;  //TODO для импорта
             ident = node;
             // Функции определяются во множестве мест, вынесено сюда.
             // Производить определение функций здесь возможно, но придётся
@@ -305,20 +410,18 @@ lexem_identifier_complete:
             // может встречаться на верхнем уровне многократно.
             local = 0;
             cmd_sentence = 0;
-            goto next_char;
+            goto current_char;
          case ss_import:
             if (import_node < 0) {
-               syntax_error(st, "идентификатор не определён в модуле "
-                                "(возможно, взаимно-рекурсивный импорт)",
-                                line_num, pos, line, end);
-               goto error;
+               error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
+               goto cleanup;
             }
             if (ids->n[node].val.tag != rft_undefined) {
-               syntax_error(st, "импортируемый идентификатор уже определён", line_num, pos, line, end);
-               goto error;
+               error = "импортируемый идентификатор уже определён";
+               goto cleanup;
             }
             ids->n[node].val = ids->n[import_node].val;
-            goto next_char;
+            goto current_char;
          case ss_pattern:
             assert(!cmd_exec[ep]);
             switch (id_type) {
@@ -326,8 +429,8 @@ lexem_identifier_complete:
             case id_tvar:
             case id_evar:
                if (local == local_max) {
-                  syntax_error(st, "превышен лимит переменных", line_num, pos, line, end);
-                  goto error;
+                  error = "превышен лимит переменных";
+                  goto cleanup;
                }
                if (ids->n[node].val.tag == rft_undefined) {
                   var[local].opcode = 0;
@@ -335,7 +438,7 @@ lexem_identifier_complete:
                   ids->n[node].val.value = local++;
                }
                rf_alloc_value(vm, ids->n[node].val.value, id_type);
-               goto next_char;
+               goto current_char;
             case id_global:
                goto lexem_identifier_complete_global;
             }
@@ -356,7 +459,7 @@ lexem_identifier_complete:
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                   if (cfg && cfg->notice_copy) {
                      performance(st, "создаётся копия переменной", var[id].line,
-                                     var[id].pos, var[id].src, end);
+                                     var[id].pos, &buf.s[var[id].src], &buf.s[buf.free]);
                   }
 #endif
                }
@@ -364,9 +467,9 @@ lexem_identifier_complete:
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                var[id].src  = line;
                var[id].line = line_num;
-               var[id].pos  = pos;  // TODO указывает на последующий пробел.
+               var[id].pos  = pos - (chr != ' ');  //TODO заменить условие на 1.
 #endif
-               goto next_char;
+               goto current_char;
             case id_global:
                break;
             }
@@ -428,18 +531,15 @@ lexem_identifier_undefined:
                }
                // На случай ошибки.
                rf_alloc_value(vm, line_num, rf_undefined);
-               rf_alloc_value(vm, pos, rf_undefined);
-               rf_alloc_atom(vm, line);
+               rf_alloc_value(vm, pos - (chr != ' '), rf_undefined); //TODO заменить условие на 1.
+               rf_alloc_value(vm, line, rf_undefined);
             }
-            goto next_char;
-         }
+            goto current_char;
+         } // case lex_identifier: switch (semantic)
       }
 
    // Конец строки.
-   case '\r':
-      if (src != end && *src == '\n') {
-         ++src;
-      }
+   case '\r':  // возможный последующий '\n' не сохраняется в буфере.
    case '\n':
       switch (lexer) {
       case lex_number:
@@ -452,10 +552,9 @@ lexem_identifier_undefined:
          goto next_line;
       case lex_string_quoted:
       case lex_string_dquoted:
-         syntax_error(st, "отсутствует закрывающая кавычка", line_num, pos, line, end);
-         goto error;
+         error = "отсутствует закрывающая кавычка";
+         goto cleanup;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       }
 
@@ -478,10 +577,11 @@ lexem_identifier_undefined:
          lexer = lex_comment_line;
          goto next_char;
       case lex_comment_c:
-         if (src != end && *src == '/') {
-            ++src;
+         if (buf.s[line + pos] == '/') {
+            ++pos;
             lexer = lex_whitespace;
          }
+         goto next_char;
       case lex_comment_line:
          goto next_char;
       case lex_string_quoted:
@@ -507,16 +607,17 @@ lexem_identifier_undefined:
       switch (lexer) {
       case lex_leadingspace:
       case lex_whitespace:
-         if (src != end) {
-            if (*src == '/') {
-               ++src;
-               lexer = lex_comment_line;
-               goto next_char;
-            } else if (*src == '*') {
-               ++src;
-               lexer = lex_comment_c;
-               goto next_char;
-            }
+         switch(buf.s[line + pos]) {
+         case '/':
+            ++pos;
+            lexer = lex_comment_line;
+            goto next_char;
+         case '*':
+            ++pos;
+            lexer = lex_comment_c;
+            goto next_char;
+         default:
+            goto symbol;
          }
       case lex_number:
       case lex_identifier:
@@ -549,7 +650,6 @@ lexem_identifier_undefined:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_number:
          rf_alloc_int(vm, number);
@@ -575,11 +675,11 @@ lexem_identifier_undefined:
             goto next_char;
          case ss_pattern:
             if (bp) {
-               syntax_error(st, "не закрыта структурная скобка", line_num, pos, line, end);
-               goto error;
+               error = "не закрыта структурная скобка";
+               goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line, im_pos, im_str, end);
+               warning(st, redundant_module_id, im_line, im_pos, &buf.s[im_str], &buf.s[buf.free]);
                imports = 0;
             }
             if (ids->n[ident].val.tag == rft_enum) {
@@ -593,8 +693,8 @@ lexem_identifier_undefined:
             semantic = ss_expression;
             goto next_char;
          case ss_expression:
-            syntax_error(st, "недопустимый оператор в выражении (пропущена ; ?)", line_num, pos, line, end);
-            goto error;
+            error = "недопустимый оператор в выражении (пропущена ; ?)";
+            goto cleanup;
          }
       }
 
@@ -617,7 +717,6 @@ lexem_identifier_undefined:
          // TODO Вложенные блоки пока не поддержаны.
          goto error_incorrect_function_definition;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_leadingspace:
       case lex_whitespace:
@@ -643,11 +742,11 @@ lexem_identifier_undefined:
             ++function_block;
             goto next_char;
          case ss_pattern:
-            syntax_error(st, "блок недопустим в выражении (пропущено = ?)", line_num, pos, line, end);
-            goto error;
+            error = "блок недопустим в выражении (пропущено = ?)";
+            goto cleanup;
          case ss_expression:
-            syntax_error(st, "вложенные блоки {} пока не поддерживаются", line_num, pos, line, end);
-            goto error;
+            error = "вложенные блоки {} пока не поддерживаются";
+            goto cleanup;
          }
       }
 
@@ -660,7 +759,6 @@ lexem_identifier_undefined:
       case lex_string_quoted:
          goto lexem_string;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_number:
          rf_alloc_int(vm, number);
@@ -688,8 +786,8 @@ lexem_identifier_undefined:
             assert(function_block > 0);
             --function_block;
             if (!rf_is_evar_empty(vm, cmd_sentence, vm->free)) {
-               syntax_error(st, "образец без общего выражения (пропущено = ?)", line_num, pos, line, end);
-               goto error;
+               error = "образец без общего выражения (пропущено = ?)";
+               goto cleanup;
             }
             vm->u[cmd_sentence].tag = rf_complete;
             semantic = ss_source;
@@ -725,7 +823,6 @@ lexem_identifier_undefined:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_number:
          rf_alloc_int(vm, number);
@@ -742,11 +839,11 @@ lexem_identifier_undefined:
             goto error_executor_in_pattern;
          case ss_expression:
             if (!(++ep < exec_max)) {
-               syntax_error(st, "превышен лимит вложенности вычислительных скобок", line_num, pos, line, end);
-               goto error;
+               error = "превышен лимит вложенности вычислительных скобок";
+               goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line, im_pos, im_str, end);
+               warning(st, redundant_module_id, im_line, im_pos, &buf.s[im_str], &buf.s[buf.free]);
                imports = 0;
             }
             cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
@@ -764,7 +861,6 @@ lexem_identifier_undefined:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_number:
          rf_alloc_int(vm, number);
@@ -781,11 +877,11 @@ lexem_identifier_undefined:
             goto error_executor_in_pattern;
          case ss_expression:
             if (!ep) {
-               syntax_error(st, "непарная вычислительная скобка", line_num, pos, line, end);
-               goto error;
+               error = "непарная вычислительная скобка";
+               goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line, im_pos, im_str, end);
+               warning(st, redundant_module_id, im_line, im_pos, &buf.s[im_str], &buf.s[buf.free]);
                imports = 0;
             }
             assert(ep > 0);
@@ -796,8 +892,8 @@ lexem_identifier_undefined:
             struct rtrie_val f = rtrie_val_from_raw(vm->u[cmd_exec[ep]].data);
             if (f.tag == rft_undefined) {
                if (!f.value) {
-                  syntax_error(st, "активное выражение должно содержать имя вычислимой функции", line_num, pos, line, end);
-                  goto error;
+                  error = "активное выражение должно содержать имя вычислимой функции";
+                  goto cleanup;
                }
                vm->u[cmd_exec[ep]].data = ec;
             }
@@ -821,7 +917,6 @@ lexem_identifier_undefined:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_number:
          rf_alloc_int(vm, number);
@@ -838,8 +933,8 @@ lexem_identifier_undefined:
          case ss_pattern:
          case ss_expression:
             if (!(bp < bracket_max)) {
-               syntax_error(st, "превышен лимит вложенности структурных скобок", line_num, pos, line, end);
-               goto error;
+               error = "превышен лимит вложенности структурных скобок";
+               goto cleanup;
             }
             bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
             lexer = lex_whitespace;
@@ -856,7 +951,6 @@ lexem_identifier_undefined:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_number:
          rf_alloc_int(vm, number);
@@ -872,8 +966,8 @@ lexem_identifier_undefined:
          case ss_pattern:
          case ss_expression:
             if (!bp) {
-               syntax_error(st, "непарная структурная скобка", line_num, pos, line, end);
-               goto error;
+               error = "непарная структурная скобка";
+               goto cleanup;
             }
             rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
             lexer = lex_whitespace;
@@ -897,9 +991,8 @@ lexem_identifier_undefined:
          goto next_char;
       case lex_string_dquoted:
       case lex_string_quoted:
-            goto lexem_string;
+         goto lexem_string;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_number:
          rf_alloc_int(vm, number);
@@ -924,20 +1017,20 @@ lexem_identifier_undefined:
             semantic = ss_source;
             goto next_char;
          case ss_pattern:
-            syntax_error(st, "образец без общего выражения (пропущено = ?)", line_num, pos, line, end);
-            goto error;
+            error = "образец без общего выражения (пропущено = ?)";
+            goto cleanup;
          case ss_expression:
 sentence_complete:
             if (ep) {
-               syntax_error(st, "не закрыта вычислительная скобка", line_num, pos, line, end);
-               goto error;
+               error = "не закрыта вычислительная скобка";
+               goto cleanup;
             }
             if (bp) {
-               syntax_error(st, "не закрыта структурная скобка", line_num, pos, line, end);
-               goto error;
+               error = "не закрыта структурная скобка";
+               goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line, im_pos, im_str, end);
+               warning(st, redundant_module_id, im_line, im_pos, &buf.s[im_str], &buf.s[buf.free]);
                imports = 0;
             }
             rf_index sentence_complete;
@@ -992,12 +1085,11 @@ sentence_complete:
          goto next_char;
       case lex_string_dquoted:
       case lex_string_quoted:
-            goto lexem_string;
+         goto lexem_string;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);
+         rf_alloc_int(vm, number);  //TODO 123: ?
          lexer = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
@@ -1035,6 +1127,8 @@ sentence_complete:
             ids->n[node].val.tag   = rft_enum;
             ids->n[node].val.value = 0;
             lexer = lex_whitespace;
+            assert(!"module");
+#if 0 //TODO
             // Имя модуля внесено в текущее пространство имён, что гарантирует
             // отсутствие иного одноимённого идентификатора и даёт возможность
             // квалифицированного (именем модуля) поиска идентификаторов.
@@ -1079,10 +1173,11 @@ sentence_complete:
                semantic = ss_import;
                goto next_char;
             }
+#endif
          case ss_pattern:
          case ss_expression:
-            syntax_error(st, "условия не поддерживаются", line_num, pos, line, end);
-            goto error;
+            error = "условия не поддерживаются";
+            goto cleanup;
          }
       }
 
@@ -1139,18 +1234,16 @@ sentence_complete:
           || (lexer == lex_string_quoted && chr == '"'))
             goto lexem_string;
          // Кавычка внутри строки кодируется сдвоенной, иначе завершает строку.
-         if (src != end && *src == (lexer == lex_string_quoted ? '\'':'"')) {
-            ++src;
+         if (buf.s[line + pos] == chr) {
+            ++pos;
             goto lexem_string;
-         } else {
-            lexer = lex_whitespace;
-            goto next_char;
          }
+         lexer = lex_whitespace;
+         goto next_char;
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
       case lex_identifier:
-         --src; --pos;
          goto lexem_identifier_complete;
       }
 
@@ -1170,8 +1263,8 @@ sentence_complete:
       case lex_whitespace:
          switch (semantic) {
          case ss_source:
-            syntax_error(st, "числа допустимы только в выражениях", line_num, pos, line, end);
-            goto error;
+            error = "числа допустимы только в выражениях";
+            goto cleanup;
          case ss_import:
             goto error_incorrect_import;
          case ss_identifier:
@@ -1186,7 +1279,7 @@ sentence_complete:
       case lex_number:
          number = number * 10 + (chr - '0');
          if (number < (chr - '0')) {
-            warning(st, "целочисленное переполнение", line_num, pos, line, end);
+            warning(st, "целочисленное переполнение", line_num, pos, &buf.s[line], &buf.s[buf.free]);
          }
          goto next_char;
       case lex_string_quoted:
@@ -1212,48 +1305,13 @@ sentence_complete:
 
    // Оставшиеся символы считаются допустимыми для идентификаторов.
    default:
-      // Декодируем UTF-8
-      switch (chr) {
-      // ASCII
-      case 0x00 ... 0x7f:
-         goto symbol;
-      // 2 байта на символ.
-      // TODO 0xc0 0xc1 кодируют символы из диапазона ASCII
-      case 0xc0 ... 0xdf:
-         chr = 0x1f & chr;
-utf8_0:  if (src == end)
-            goto error_utf8_incomplete;
-         // TODO нет проверки на диапазон байта продолжения.
-         chr = (chr << 6) | (0x3f & *(const unsigned char*)src++);
-         goto symbol;
-      // 3 байта на символ.
-      case 0xe0 ... 0xef:
-         chr = (0xf & chr);
-utf8_1:  if (src == end)
-            goto error_utf8_incomplete;
-         chr = (chr << 6) | (0x3f & *(const unsigned char*)src++);
-         goto utf8_0;
-      // 4 байта на символ.
-      case 0xf0 ... 0xf4:
-         chr = (0x3 & chr);
-         if (src == end)
-            goto error_utf8_incomplete;
-         chr = (chr << 6) | (0x3f & *(const unsigned char*)src++);
-         goto utf8_1;
-      // байты продолжения — не должны идти первыми
-      case 0x80 ... 0xbf:
-      case 0xf5 ... 0xff:
-      default:
-         syntax_error(st, "недействительный символ UTF-8", line_num, pos, line, end);
-         goto error;
-      }
 symbol:
       switch (lexer) {
       case lex_number:
          // TODO символ после цифры?
          // Может быть частью шестнадцатеричного числа, что пока не поддержано.
          rf_alloc_int(vm, number);
-         warning(st, "идентификаторы следует отделять от цифр пробелом", line_num, pos, line, end);
+         warning(st, "идентификаторы следует отделять от цифр пробелом", line_num, pos, &buf.s[line], &buf.s[buf.free]);
       case lex_leadingspace:
       case lex_whitespace:
          lexer = lex_identifier;
@@ -1294,8 +1352,8 @@ symbol:
             case 's':
                id_type = id_svar;
 lexem_identifier_local_pat_check:
-               if (src != end && *src == '.') {
-                  ++src; ++pos;
+               if (buf.s[line + pos] == '.') {
+                  ++pos;
 lexem_identifier_local_pat:
                   node = rtrie_insert_next(ids, ident, idc);
                   node = rtrie_insert_next(ids, node, chr);
@@ -1326,8 +1384,8 @@ lexem_identifier_local_pat:
             case 's':
                id_type = id_svar;
 lexem_identifier_local_exp_check:
-               if (src != end && *src == '.') {
-                  ++src; ++pos;
+               if (buf.s[line + pos] == '.') {
+                 ++pos;
 lexem_identifier_local_exp:
                   node = rtrie_find_next(ids, ident, idc);
                   node = rtrie_find_next(ids, node, chr);
@@ -1383,19 +1441,19 @@ lexem_identifier:
       case lex_string_quoted:
       case lex_string_dquoted:
 lexem_string:
-         if (chr == '\\' && src != end) {
-            switch (*src) {
+         if (chr == '\\') {
+            switch (buf.s[line + pos]) {
             case 't':
+               ++pos;
                chr = '\t';
-               ++src;
                break;
             case 'n':
+               ++pos;
                chr = '\n';
-               ++src;
                break;
             case 'r':
+               ++pos;
                chr = '\r';
-               ++src;
                break;
             default:
                break;
@@ -1413,10 +1471,10 @@ lexem_string:
 complete:
    if (semantic != ss_source) {
       if (function_block)
-         syntax_error(st, "не завершено определение функции (пропущена } ?)", line_num, pos, line, end);
+         error = "не завершено определение функции (пропущена } ?)";
       else
-         syntax_error(st, "не завершено определение функции (пропущена ; ?)", line_num, pos, line, end);
-      goto error;
+         error = "не завершено определение функции (пропущена ; ?)";
+      goto cleanup;
    }
 
    // Ищем, не появилось ли определение идентификаторов.
@@ -1445,7 +1503,7 @@ complete:
          s = vm->u[s].next;
          pos  = vm->u[s].num;
          s = vm->u[s].next;
-         line = vm->u[s].atom;
+         line = vm->u[s].num;
          s = vm->u[s].next;
 
          // В результате трансляции rf_complete в данной позиции невозможен,
@@ -1461,7 +1519,7 @@ complete:
             if (ex)
                continue;
             if (cfg && cfg->warn_implicit_declaration) {
-               warning(st, "неявное определение идентификатора", line_num, pos, line, end);
+               warning(st, "неявное определение идентификатора", line_num, pos, &buf.s[line], &buf.s[buf.free]);
             }
             ids->n[n].val.tag   = rft_enum;
             ids->n[n].val.value = ++enum_couner;
@@ -1482,7 +1540,7 @@ complete:
                } else if (last_exec != exec_close) {
                   last_exec = exec_close;
                   syntax_error(st, "активное выражение должно содержать "
-                               "вычислимую функцию", line_num, pos, line, end);
+                               "вычислимую функцию", line_num, pos, &buf.s[line], &buf.s[buf.free]);
                }
             } else if (ex) {
                continue;
@@ -1493,45 +1551,48 @@ complete:
          rf_free_evar(vm, opcode, s);
       }
    }
+
+cleanup:
+   wstr_free(&buf);
+
+   //TODO error = "неполный символ UTF-8"; "недействительный символ UTF-8";
+
+   if (error) {
+      syntax_error(st, error, line_num, pos, &buf.s[line], &buf.s[buf.free]);
+      return 1;
+   }
    return 0;
 
-error:
-   return 1;
-
 error_no_identifier_in_module:
-   syntax_error(st, "идентификатор не определён в модуле", line_num, pos, line, end);
-   goto error;
+   error = "идентификатор не определён в модуле";
+   goto cleanup;
 
 error_identifier_already_defined:
    // TODO надо бы отобразить прежнее определение
-   syntax_error(st, "повторное определение функции", line_num, pos, line, end);
-   goto error;
+   error = "повторное определение функции";
+   goto cleanup;
 
 error_incorrect_import:
-   syntax_error(st, "некорректное описание импорта (пропущено ; ?)", line_num, pos, line, end);
-   goto error;
+   error = "некорректное описание импорта (пропущено ; ?)";
+   goto cleanup;
 
 error_incorrect_function_definition:
-   syntax_error(st, "некорректное определение функции (пропущено = или { ?)", line_num, pos, line, end);
-   goto error;
+   error = "некорректное определение функции (пропущено = или { ?)";
+   goto cleanup;
 
 error_identifier_missing:
-   syntax_error(st, "пропущено имя функции", line_num, pos, line, end);
-   goto error;
+   error = "пропущено имя функции";
+   goto cleanup;
 
 error_identifier_odd:
-   syntax_error(st, "лишний идентификатор (пропущено = или { в определении функции?)", line_num, pos, line, end);
-   goto error;
+   error = "лишний идентификатор (пропущено = или { в определении функции?)";
+   goto cleanup;
 
 error_identifier_undefined:
-   syntax_error(st, "идентификатор не определён", line_num, pos, line, end);
-   goto error;
+   error = "идентификатор не определён";
+   goto cleanup;
 
 error_executor_in_pattern:
-   syntax_error(st, "вычислительные скобки в образце не поддерживаются", line_num, pos, line, end);
-   goto error;
-
-error_utf8_incomplete:
-   syntax_error(st, "неполный символ UTF-8", line_num, pos, line, end);
-   goto error;
+   error = "вычислительные скобки в образце не поддерживаются";
+   goto cleanup;
 }

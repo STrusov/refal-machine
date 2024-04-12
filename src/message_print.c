@@ -4,6 +4,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <wchar.h>
 #include "message.h"
 
 /**\ingroup messages
@@ -25,10 +26,10 @@ void refal_message_print(struct refal_message *msg)
       fprintf(ostream, "%s:%lu:%lu: %s: %s:\n",
                         source, msg->line, msg->position, msg->type, msg->detail);
       fprintf(ostream, "%5u |", (unsigned)msg->line);
-      for (const char *t = msg->begin; t != msg->end; ) {
+      for (const wchar_t *t = msg->begin; t != msg->end; ++t) {
          if (*t == '\n' || *t == '\r')
             break;
-         putc(*t++, ostream);
+         fprintf(ostream, "%lc", *t);
       }
       fprintf(ostream, "\n      |%*c\n", (int)msg->position, '^');
    }

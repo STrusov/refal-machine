@@ -5,6 +5,8 @@
 #define _GNU_SOURCE
 #include <sys/mman.h>
 
+#include <locale.h>
+
 #include "library.h"
 #include "interpreter.h"
 #include "translator.h"
@@ -51,6 +53,8 @@ int main(int argc, char **argv)
          .warn_implicit_declaration = 1,
          .notice_copy               = 0,
    };
+
+   setlocale(LC_ALL, "");
 
    // 0-й параметр пропускаем (содержит имя интерпретатора).
    // Начинающиеся с + и - параметры считаем ключами интерпретатору.

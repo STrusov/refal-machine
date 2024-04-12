@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <stdio.h>
 #include "rtrie.h"
 #include "refal.h"
 
@@ -80,13 +81,12 @@ int refal_translate_file_to_bytecode(
  * Переводит исходный текст в пригодный для интерпретации код.
  * \result количество ошибок.
  */
-int refal_translate_to_bytecode(
+int refal_translate_istream_to_bytecode(
       struct refal_translator_config   *cfg, ///< Конфигурация.
       struct refal_vm      *vm,     ///< Память для целевого кода.
       struct refal_trie    *ids,    ///< Таблица символов.
       rtrie_index          module,  ///< Пространство имён модуля (0 - глобальное).
-      const char           *begin,  ///< Адрес начала исходного текста
-      const char           *end,    ///< Адрес за последним символом исходного текста.
+      FILE                 *src,    ///< Поток ввода.
       struct refal_message *st
       );
 

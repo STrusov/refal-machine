@@ -90,13 +90,13 @@ int main(int argc, char **argv)
 option_unrecognized:
          while (*end)
             ++end;
-         syntax_error(&status, "ключ не распознан", i, 2, argv[0], end);
+         fprintf(stderr, "%s: ключ №%i не распознан: %s\n", status.source, i, *argv);
          break;
       }
    }
 arguments:
    if (argc < 1) {
-      critical_error(&status, "укажите имя файла с исходным текстом", argc, 0);
+      fprintf(stderr, "%s: укажите имя файла с исходным текстом.\n", status.source);
       return EXIT_FAILURE;
    }
 

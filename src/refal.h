@@ -61,7 +61,7 @@ typedef enum rf_type {
    rf_undefined,        ///< Пустая ячейка (может хранить данные транслятора).
    rf_char,             ///< Символ (одна буква в кодировке UTF-8).
    rf_number,           ///< Целое число.
-   rf_atom,             ///< Идентификатор (рассматривается целиком).
+   rf_atom,             ///< Имя идентификатора в текстовом виде.
    rf_opening_bracket,  ///< Открывающая скобка.
    rf_closing_bracket,  ///< Закрывающая скобка.
    // Команды интерпретатора.
@@ -69,7 +69,7 @@ typedef enum rf_type {
    rf_equal,            ///< Разделяет выражение-образец от общего выражения.
    rf_open_function,    ///< Открывающая вычислительная скобка <
    rf_execute,          ///< Закрывающая вычислительная скобка >
-   rf_identifier,       ///< Идентификатор (функция) // TODO rf_atom
+   rf_identifier,       ///< Идентификатор (функция).
    rf_svar,             ///< s-переменная (односимвольная).
    rf_tvar,             ///< t-переменная (s- либо выражение в скобках).
    rf_evar,             ///< e-переменная (произвольное количество элементов.
@@ -91,6 +91,20 @@ enum { rf_index_max = (1 << 28) - 1 };
 typedef long rf_int;
 
 /**
+ * Индекс для адресации ячеек массива, где хранятся строки.
+ */
+typedef size_t wstr_index;
+
+/**
+ * Подобие std::wstring.
+ */
+struct wstr {
+   wchar_t     *s;
+   wstr_index  size;
+   wstr_index  free;
+};
+
+/**
  * Ячейка памяти РЕФАЛ-машины.
  *
  * С целью уменьшить число операций копирования, ячейки логически объединены
@@ -110,7 +124,7 @@ typedef struct rf_cell {
       uint64_t    data;    ///< Используется для сравнения.
       rf_int      num;     ///< Число.
       wchar_t     chr;     ///< Символ (буква).
-      const char *atom;    ///< Идентификатор, UTF-8.
+      wstr_index  atom;    ///< Индекс первого символа имени идентификатора (хранятся отдельно).
       rf_index    link;    ///< Узел в графе.
    };
    rf_type     tag :4;     ///< Тип содержимого.
@@ -136,6 +150,8 @@ struct refal_vm {
    rf_cell     *u;   ///< Массив, содержащий ячейки.
    rf_index    size; ///< Размер массива.
    rf_index    free; ///< Первый свободный элемент.
+
+   struct wstr id;   ///<  Хранилище имён идентификаторов. Разделены L'\0'.
 
    /// Адрес таблицы функций в машинном коде.
    const struct refal_import_descriptor *library;
@@ -174,6 +190,72 @@ void *refal_realloc(void *ptr, size_t old_size, size_t new_size);
  */
 void refal_free(void *ptr, size_t size);
 /** \}*/
+
+/**\addtogroup wstring Хранилище имён идентификаторов.
+ * \{
+ *
+ * Резервирует память для хранения строк.
+ * \result Ненулевое значение в случае успеха.
+ */
+static inline
+void *wstr_alloc(
+      struct wstr *ws,  ///< Структура для инициализации.
+      wstr_index  size) ///< Предполагаемый размер (в символах).
+{
+   ws->s = refal_malloc(size * sizeof(*ws->s));
+   ws->size = ws->s ? size : 0;
+   ws->free = 0;
+   return ws->s;
+}
+
+/**
+ * Проверяет состояние хранилища строк.
+ *
+ * \result Ненулевой результат, если память распределена.
+ */
+static inline
+void *wstr_check(
+      struct wstr          *ws,
+      struct refal_message *status)
+{
+   assert(ws);
+   if (status && !ws->s) {
+      critical_error(status, "недостаточно памяти для строк", -errno, ws->size);
+   }
+   return ws->s;
+}
+
+/**
+ * Освобождает занятую строками память.
+ */
+static inline
+void wstr_free(struct wstr *ws)
+{
+   refal_free(ws->s, ws->size);
+   ws->s = 0;
+   ws->size = 0;
+   ws->free = 0;
+}
+
+/**
+ * Добавляет символ в хвост массива, при необходимости увеличивая размер буфера.
+ */
+static inline
+wstr_index wstr_append(struct wstr *ws, wchar_t c)
+{
+   wstr_index new_chr = ws->free++;
+   if (new_chr == ws->size) {
+      size_t size = ws->size * sizeof(sizeof(*ws->s));
+      ws->s = refal_realloc(ws->s, size, 2 * size);
+      ws->size *= 2;
+   }
+   if (ws->s)
+      ws->s[new_chr] = c;
+   else
+      new_chr = -1;
+   return new_chr;
+}
+/**\} addtogroup wstring   */
 
 /**
  * Резервирует память для хранения поля зрения РЕФАЛ программы.
@@ -469,10 +551,10 @@ rf_index rf_alloc_command(
 static inline
 rf_index rf_alloc_atom(
       struct refal_vm   *vm,
-      const char        *str)
+      wstr_index        wstr_element)
 {
    rf_index i = refal_vm_alloc_1(vm);
-   vm->u[i].atom = str;
+   vm->u[i].atom = wstr_element;
    vm->u[i].tag  = rf_atom;
    return i;
 }
@@ -674,7 +756,7 @@ int rf_svar_equal(
        && vm->u[s1].tag  == vm->u[s2].tag;
 }
 
-/**\}*/
+/**\} addtogroup auxiliary */
 
 /**\ingroup library
  *

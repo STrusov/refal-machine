@@ -125,9 +125,9 @@ int rf_output(
          break;
       case rf_atom:
          fprintf(stream, prevt == rf_atom
-                 ? RF_COLOR_SYMBOL" %s"RF_ESC_RESET
-                 : RF_COLOR_SYMBOL"%s"RF_ESC_RESET,
-                 vm->u[i].atom);
+                 ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
+                 : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
+                 &vm->id.s[vm->u[i].atom]);
          break;
       case rf_identifier:
          fprintf(stream, prevt == rf_identifier

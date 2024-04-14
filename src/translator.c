@@ -35,52 +35,49 @@ int refal_translate_module_to_bytecode(
       struct refal_vm      *vm,
       struct refal_trie    *ids,
       rtrie_index          module,
-      const char           *name,
+      const wchar_t        *name,
       size_t               name_length,
       struct refal_message *st)
 {
-   int r = -1;
+   int too_long = 1;
    // Ищем в каталоге с исходным текстом файлы модуля.
    static const char ext1[] = ".реф";
    static const char ext2[] = ".ref";
-   if (name_length + sizeof ext1 >= NAME_MAX) {
-      return -2;
-   }
    unsigned pl = 0;
    if (st && st->source) {
-      for (unsigned i = 0; st->source[i]; ++i) {
-         if (i == PATH_MAX - NAME_MAX) {
-            pl = 0;
-            break;
+      for (unsigned i = 0; i != PATH_MAX && st->source[i]; ++i)
          // TODO разделитель может быть другой.
-         } else if (st->source[i] == '/')
+         if (st->source[i] == '/')
             pl = i + 1;
-      }
    }
    char path[PATH_MAX];
    if (pl)
       strncpy(path, st->source, pl);
-   strncpy(&path[pl], name, name_length);
-   const char *const ext[2] = { ext2, ext1 };
-   for (int i = 1; i >= 0; --i) {
-      strcpy(&path[pl + name_length], ext[i]);
-      FILE * src = fopen(name, "r");
-      if (src != MAP_FAILED) {
+   //TODO заменить на wcstombs(), когда появится таблица идентификаторов.
+   for (size_t i = 0; pl < PATH_MAX - MB_LEN_MAX && i != name_length; ++i) {
+      // Считаем, что недействительные символы отсеяны при чтении файла.
+      pl += wctomb(&path[pl], name[i]);
+   }
+   if (pl < PATH_MAX - sizeof(ext1)) {
+      too_long = 0;
+      const char *const ext[2] = { ext2, ext1 };
+      for (int i = 1; i >= 0; --i) {
+         strcpy(&path[pl], ext[i]);
+         FILE *f = fopen(path, "r");
+         if (!f)
+            continue;
          const char *os = refal_message_source(st, path);
-         r = refal_translate_istream_to_bytecode(cfg, vm, ids, module, src, st);
-         fclose(src);
+         int r = refal_translate_istream_to_bytecode(cfg, vm, ids, module, f, st);
          refal_message_source(st, os);
-         if (r >= 0)
-            break;
+         fclose(f);
+         return r;
       }
    }
-   if (r == -1) {
-      strcpy(&path[pl + name_length], ext1);
-      const char *os = refal_message_source(st, path);
-      critical_error(st, "исходный текст модуля недоступен", -errno, 0);
-      refal_message_source(st, os);
-   }
-   return r;
+   strcpy(&path[pl], ext1);
+   const char *os = refal_message_source(st, path);
+   critical_error(st, too_long ? "слишком длинное имя модуля" : "недействительное имя модуля", -errno, 0);
+   refal_message_source(st, os);
+   return -1;
 }
 
 /**
@@ -194,10 +191,9 @@ int refal_translate_istream_to_bytecode(
    rtrie_index namespace = module;
 
    // Начало и длина имени идентификатора. Для импорта модулей.
-   wstr_index  ident_str = 0;
-   size_t      ident_strlen = 0;
-   // Номер первого символа идентификатора в строке. Так же и для вывода ошибки.
+   wstr_index  ident_line = 0;
    unsigned    ident_pos = 0;
+   size_t      ident_strlen = 0;
 
    // Пространство имён текущего импортируемого модуля.
    // Кроме того, идентификатор модуля может встречаться и в выражениях,
@@ -210,9 +206,9 @@ int refal_translate_istream_to_bytecode(
 
    // Для вывода предупреждений об идентификаторах модулей.
    const char *redundant_module_id = "идентификатор модуля без функции не имеет смысла";
-   wstr_index im_str = 0; //TODO Несколько импортов в одной строке?
-   unsigned   im_line = 0;
+   wstr_index im_line = 0;
    unsigned   im_pos  = 0;
+   unsigned   im_line_num = 0;
 
    // При импорте идентификаторов параллельно с определением в текущей
    // области видимости происходит поиск в пространстве имён модуля.
@@ -360,8 +356,7 @@ next_line:
    }
    unsigned pos = 0;             // номер символа в строке исходника
 
-next_char:
-   const wstr_index str = buf.free;  //TODO для импорта
+next_char: ;
    wchar_t chr = buf.s[line + pos++];
 
 current_char:
@@ -402,7 +397,7 @@ lexem_identifier_complete:
             assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
          case ss_source:
             semantic = ss_identifier;
-            ident_strlen = str - ident_str;  //TODO для импорта
+            ident_strlen = pos - 1 - ident_pos;
             ident = node;
             // Функции определяются во множестве мест, вынесено сюда.
             // Производить определение функций здесь возможно, но придётся
@@ -499,9 +494,9 @@ lexem_identifier_complete_global:
                else if (ids->n[node].val.tag == rft_enum && !ids->n[node].val.value) {
                   assert(!imports);
                   imports = rtrie_find_next(ids, node, ' ');
-                  im_str  = line;
-                  im_line = line_num;
-                  im_pos  = pos;
+                  im_line = line;
+                  im_pos  = pos - 1;
+                  im_line_num = line_num;
                   assert(imports > 0);
                } else {
                   rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
@@ -679,7 +674,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line, im_pos, &buf.s[im_str], &buf.s[buf.free]);
+               warning(st, redundant_module_id, im_line_num, im_pos, &buf.s[im_line], &buf.s[buf.free]);
                imports = 0;
             }
             if (ids->n[ident].val.tag == rft_enum) {
@@ -843,7 +838,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line, im_pos, &buf.s[im_str], &buf.s[buf.free]);
+               warning(st, redundant_module_id, im_line_num, im_pos, &buf.s[im_line], &buf.s[buf.free]);
                imports = 0;
             }
             cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
@@ -881,7 +876,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line, im_pos, &buf.s[im_str], &buf.s[buf.free]);
+               warning(st, redundant_module_id, im_line_num, im_pos, &buf.s[im_line], &buf.s[buf.free]);
                imports = 0;
             }
             assert(ep > 0);
@@ -1030,7 +1025,7 @@ sentence_complete:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line, im_pos, &buf.s[im_str], &buf.s[buf.free]);
+               warning(st, redundant_module_id, im_line_num, im_pos, &buf.s[im_line], &buf.s[buf.free]);
                imports = 0;
             }
             rf_index sentence_complete;
@@ -1127,8 +1122,6 @@ sentence_complete:
             ids->n[node].val.tag   = rft_enum;
             ids->n[node].val.value = 0;
             lexer = lex_whitespace;
-            assert(!"module");
-#if 01 //TODO
             // Имя модуля внесено в текущее пространство имён, что гарантирует
             // отсутствие иного одноимённого идентификатора и даёт возможность
             // квалифицированного (именем модуля) поиска идентификаторов.
@@ -1149,7 +1142,7 @@ sentence_complete:
                namespace = 0;
                imports_local = imports;
                imports = 0;
-               src = ident_str; //TODO если двоеточие на следующей строке???
+               line = ident_line;
                pos = ident_pos;
                semantic = ss_source;
                goto next_char;
@@ -1161,19 +1154,14 @@ sentence_complete:
             }
             namespace = module;
             int r = refal_translate_module_to_bytecode(cfg, vm, ids, imports,
-                                                   ident_str, ident_strlen, st);
-            switch (r) {
-            case -2:
-               error = "слишком длинное имя модуля";
+                              &buf.s[ident_line + ident_pos], ident_strlen, st);
+            if (r < 0) {
+               error = "исходный текст модуля недоступен";
                goto cleanup;
-            case -1:
-               error = "недействительное имя модуля";
-               goto cleanup;
-            default:
+            } else { //TODO пока ошибки трансляции модуля не учитываются
                semantic = ss_import;
                goto next_char;
             }
-#endif
          case ss_pattern:
          case ss_expression:
             error = "условия не поддерживаются";
@@ -1322,8 +1310,8 @@ symbol:
             import_node = rtrie_find_at(ids, imports, chr);
          case ss_source:
             node = rtrie_insert_at(ids, namespace, chr);
-            ident_str = str;
-            ident_pos = pos;
+            ident_line = line;
+            ident_pos = pos - 1;
             goto next_char;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;

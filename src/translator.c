@@ -1104,23 +1104,23 @@ sentence_complete:
          // Идентификатор внешнего модуля.
          case ss_identifier:
             switch (ids->n[node].val.tag) {
-            case rft_enum:
-               // Если идентификатор определён со значением 0, значит трансляция
-               // модуля уже выполнена. Импортируем идентификаторы.
-               if (!ids->n[node].val.value) {
-                  imports = rtrie_find_next(ids, node, ' ');
-                  assert(!(imports < 0));
-                  semantic = ss_import;
-                  namespace = module;
-                  if (imports_local) {
-                     ids->n[imports_local] = ids->n[imports];
-                     imports_local = 0;
-                  }
-                  goto next_char;
-               }
             case rft_machine_code:
             case rft_byte_code:
                goto error_identifier_already_defined;
+            case rft_enum:
+               if (ids->n[node].val.value)
+                  goto error_identifier_already_defined;
+               // Если идентификатор определён со значением 0, значит трансляция
+               // модуля уже выполнена. Импортируем идентификаторы.
+               imports = rtrie_find_next(ids, node, ' ');
+               assert(!(imports < 0));
+               semantic = ss_import;
+               namespace = module;
+               if (imports_local) {
+                  ids->n[imports_local] = ids->n[imports];
+                  imports_local = 0;
+               }
+               goto next_char;
             case rft_undefined:
                break;
             }
@@ -1128,7 +1128,7 @@ sentence_complete:
             ids->n[node].val.value = 0;
             lexer = lex_whitespace;
             assert(!"module");
-#if 0 //TODO
+#if 01 //TODO
             // Имя модуля внесено в текущее пространство имён, что гарантирует
             // отсутствие иного одноимённого идентификатора и даёт возможность
             // квалифицированного (именем модуля) поиска идентификаторов.
@@ -1149,7 +1149,7 @@ sentence_complete:
                namespace = 0;
                imports_local = imports;
                imports = 0;
-               src = ident_str;
+               src = ident_str; //TODO если двоеточие на следующей строке???
                pos = ident_pos;
                semantic = ss_source;
                goto next_char;
@@ -1164,11 +1164,11 @@ sentence_complete:
                                                    ident_str, ident_strlen, st);
             switch (r) {
             case -2:
-               syntax_error(st, "слишком длинное имя модуля", line_num, pos, line, end);
-               goto error;
+               error = "слишком длинное имя модуля";
+               goto cleanup;
             case -1:
-               syntax_error(st, "недействительное имя модуля", line_num, pos, line, end);
-               goto error;
+               error = "недействительное имя модуля";
+               goto cleanup;
             default:
                semantic = ss_import;
                goto next_char;
@@ -1569,7 +1569,7 @@ error_no_identifier_in_module:
 
 error_identifier_already_defined:
    // TODO надо бы отобразить прежнее определение
-   error = "повторное определение функции";
+   error = "повторное определение идентификатора";
    goto cleanup;
 
 error_incorrect_import:

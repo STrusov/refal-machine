@@ -60,6 +60,7 @@ int refal_interpret_bytecode(
       struct refal_message *st)
 {
    refal_message_source(st, "интерпретатор");
+   int r = 0;
    size_t step = 0;
 
    struct {
@@ -169,6 +170,7 @@ prev_evar:
          if (!(cur < vm->size)) {
             goto error_link_out_of_range;
          }
+         break;
       default:
          break;
       }
@@ -381,7 +383,8 @@ recognition_impossible:
       // TODO Раскрутка стека с размещением в поле зрения признака исключения?
       if (next != stack[0].next)
          rf_splice_evar_prev(vm, prev, next, stack[0].next);
-      return cur;
+      r = cur;
+      goto cleanup;
 
    } // switch (tag)
 
@@ -548,13 +551,13 @@ execute_machine_code:
          // и prev ячеек, где количество значащих разрядов ограничено
          // из-за наличия тега. При имеющейся реализации приведение к int
          // должно всегда попадать в диапазон положительных значений.
-         int r = vm->library[function.value].function(vm, prev, next);
+         r = vm->library[function.value].function(vm, prev, next);
          if (r > 0) {
             cur = r;
             goto recognition_impossible;
          } else if (r < 0) {
             inconsistence(st, "ошибка среды выполнения", -errno, ip);
-            return r;
+            goto cleanup;
          }
          // TODO убрать лишние (не изменяются при вызове).
          --sp;
@@ -598,12 +601,10 @@ execute_byte_code:
          var -= local;
          goto express;
       }
-      return 0;
+      goto cleanup;
 
    } // switch (tag)
-
-error:
-   return -1;
+   assert(0);
 
 error_undefined:
    inconsistence(st, "значение не определено", ip, step);
@@ -637,4 +638,13 @@ error_parenthesis_unpaired:
 error_link_out_of_range:
    inconsistence(st, "недействительная структурная скобка", cur, vm->size);
    goto error;
+
+error:
+   r = -1;
+cleanup:
+   refal_free(bracket, cfg->brackets_stack_size);
+   refal_free(var_stack, cfg->var_stack_size);
+   refal_free(stack, cfg->call_stack_size);
+
+   return r;
 }

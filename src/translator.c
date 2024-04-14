@@ -462,7 +462,7 @@ lexem_identifier_complete:
 #ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                var[id].src  = line;
                var[id].line = line_num;
-               var[id].pos  = pos - (chr != ' ');  //TODO заменить условие на 1.
+               var[id].pos  = pos - 1;
 #endif
                goto current_char;
             case id_global:
@@ -526,7 +526,7 @@ lexem_identifier_undefined:
                }
                // На случай ошибки.
                rf_alloc_value(vm, line_num, rf_undefined);
-               rf_alloc_value(vm, pos - (chr != ' '), rf_undefined); //TODO заменить условие на 1.
+               rf_alloc_value(vm, pos - 1, rf_undefined);
                rf_alloc_value(vm, line, rf_undefined);
             }
             goto current_char;

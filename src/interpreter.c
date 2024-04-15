@@ -201,6 +201,9 @@ pattern_match:
    case rf_undefined:
       goto error_undefined;
 
+   case rf_nop_name:
+      goto pattern_next_instruction;
+
    case rf_char:
    case rf_number:
    case rf_atom:
@@ -395,6 +398,9 @@ express:
    switch (tag) {
    case rf_undefined:
       goto error_undefined;
+
+   case rf_nop_name:
+      goto error_id_name;
 
    case rf_char:
    case rf_number:
@@ -605,6 +611,10 @@ execute_byte_code:
 
    } // switch (tag)
    assert(0);
+
+error_id_name:
+   inconsistence(st, "rf_id_name в выражении", ip, step);
+   goto error;
 
 error_undefined:
    inconsistence(st, "значение не определено", ip, step);

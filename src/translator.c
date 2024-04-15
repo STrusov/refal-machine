@@ -593,7 +593,8 @@ lexem_identifier_undefined:
             ids->n[ident].val.tag   = rft_byte_code;
 
             DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_command(vm, rf_equal);
+            // Содержит ссылку на таблицу атомов.
+            rf_alloc_value(vm, id_begin, rf_equal);
             lexer = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
@@ -609,7 +610,7 @@ lexem_identifier_undefined:
             if (ids->n[ident].val.tag == rft_enum) {
                assert(cmd_sentence);
                ids->n[ident].val.tag   = rft_byte_code;
-               ids->n[ident].val.value = cmd_sentence;
+               ids->n[ident].val.value = vm->u[cmd_sentence].prev;
             }
             // TODO проверить скобки ().
             rf_alloc_command(vm, rf_equal);
@@ -654,9 +655,13 @@ lexem_identifier_undefined:
             if (ids->n[node].val.tag != rft_undefined) {
                goto error_identifier_already_defined;
             }
-            cmd_sentence = rf_alloc_command(vm, rf_sentence);
             // Предварительно считаем функцию невычислимой.
             // При наличии предложений сменим тип и значение.
+            // Такой подход приводит к расходу двух лишних ячеек, однако,
+            // вряд ли стоит переусложнять код - кому нужны пустые функции,
+            // наверняка предпочтёт краткую запись: ид;
+            rf_alloc_value(vm, id_begin, rf_nop_name);
+            cmd_sentence = rf_alloc_command(vm, rf_sentence);
             assert(ident == node);
             ids->n[node].val.tag   = rft_enum;
             ids->n[node].val.value = id_begin;
@@ -853,6 +858,7 @@ lexem_identifier_undefined:
             goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
+            rf_alloc_value(vm, id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
@@ -1139,6 +1145,7 @@ sentence_complete:
             goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
+            rf_alloc_value(vm, id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
@@ -1186,6 +1193,7 @@ sentence_complete:
             goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
+            rf_alloc_value(vm, id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
@@ -1245,6 +1253,7 @@ symbol:
             goto next_char;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
+            rf_alloc_value(vm, id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
             // Возможно объявление и использование переменных.

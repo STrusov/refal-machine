@@ -138,6 +138,15 @@ int rf_output(
                     : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
                     &vm->id.s[id.value]);
             break;
+         } else if (id.tag == rft_byte_code) {
+            rf_index bytecode = id.value;
+            if (vm->u[bytecode].tag == rf_nop_name || vm->u[bytecode].tag == rf_equal) {
+               fprintf(stream, prevt == rf_identifier
+                       ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
+                       : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
+                       &vm->id.s[vm->u[bytecode].atom]);
+               break;
+            }
          }
          fprintf(stream, prevt == rf_identifier
                  ? RF_COLOR_SYMBOL" #%x"RF_ESC_RESET

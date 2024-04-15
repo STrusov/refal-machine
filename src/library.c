@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <stdio.h>
 
+#include "rtrie.h"
 #include "library.h"
 
 const struct refal_import_descriptor library[] = {
@@ -130,6 +131,14 @@ int rf_output(
                  &vm->id.s[vm->u[i].atom]);
          break;
       case rf_identifier:
+         struct rtrie_val id = rtrie_val_from_raw(vm->u[i].data);
+         if (id.tag == rft_enum && id.value < vm->id.free) {
+            fprintf(stream, prevt == rf_identifier
+                    ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
+                    : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
+                    &vm->id.s[id.value]);
+            break;
+         }
          fprintf(stream, prevt == rf_identifier
                  ? RF_COLOR_SYMBOL" #%x"RF_ESC_RESET
                  : RF_COLOR_SYMBOL"#%x"RF_ESC_RESET,

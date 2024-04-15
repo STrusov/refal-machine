@@ -136,14 +136,20 @@ int refal_translate_istream_to_bytecode(
    // области видимости происходит поиск в пространстве имён модуля.
    rtrie_index import_node = 0;
 
-   // Значение задаётся пустым функциям (ENUM в Refal-05) для сопоставления.
-   // Применяется предварительный инкремент, так что нумерация идёт минимум с 1.
+   // Пустым функциям (ENUM в Refal-05) для возможности сопоставления
+   // присваивается уникальное значение.
    // Значение 0 используется для идентификаторов модулей (при разрешении имён)
    // и в целевой код не переносится.
-   // Что бы получить уникальные для каждого модуля значения, используем номер
-   // свободной ячейки — количество занятых не превышает количество
+   // В случае явного определения используем индекс первого символа их имени
+   // в таблице атомов \c id_begin. Что бы гарантировать ненулевые значения,
+   // заносим лишний символ в начало таблицы.
+   wstr_append(&vm->id, module);
+   // В случае неявного определения, имена идентификаторов на заносятся в таблицу
+   // атомов. Что бы получить уникальные для каждого модуля значения, используем
+   // номер свободной ячейки — количество занятых не превышает количество
    // сгенерированных значений.
-   rf_index enum_couner = ids->free;
+   // Что бы значения не пересекались, для второго используем дополнительный код.
+   struct rtrie_val enum_couner = { .value = -ids->free };
 
    // РЕФАЛ позволяет произвольный порядок определения функций.
    // При последовательном проходе не все идентификаторы определены, такие
@@ -652,8 +658,8 @@ lexem_identifier_undefined:
             // Предварительно считаем функцию невычислимой.
             // При наличии предложений сменим тип и значение.
             assert(ident == node);
-            ids->n[node].val.value = ++enum_couner;
             ids->n[node].val.tag   = rft_enum;
+            ids->n[node].val.value = id_begin;
             lexer = lex_whitespace;
             semantic = ss_pattern;
             ++idc;
@@ -930,7 +936,7 @@ lexem_identifier_undefined:
                goto error_identifier_already_defined;
             }
             ids->n[node].val.tag   = rft_enum;
-            ids->n[node].val.value = ++enum_couner;
+            ids->n[node].val.value = id_begin;
             lexer = lex_whitespace;
             semantic = ss_source;
             goto next_char;
@@ -1434,8 +1440,11 @@ complete:
             if (cfg && cfg->warn_implicit_declaration) {
                warning(st, "неявное определение идентификатора", line_num, pos, &buf.s[line], &buf.s[buf.free]);
             }
+            if (!(vm->id.free < enum_couner.value)) {
+               critical_error(st, "исчерпан диапазон ENUM", vm->id.free, enum_couner.value);
+            }
             ids->n[n].val.tag   = rft_enum;
-            ids->n[n].val.value = ++enum_couner;
+            ids->n[n].val.value = --enum_couner.value;
          }
          // Скобке присваивается первая вычислимая функция, так что порядок
          // обработки списка неопределённых идентификаторов важен.

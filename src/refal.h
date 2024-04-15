@@ -215,7 +215,7 @@ void *wstr_alloc(
  */
 static inline
 void *wstr_check(
-      struct wstr          *ws,
+      const struct wstr    *ws,
       struct refal_message *status)
 {
    assert(ws);
@@ -259,6 +259,7 @@ wstr_index wstr_append(struct wstr *ws, wchar_t c)
 
 /**
  * Резервирует память для хранения поля зрения РЕФАЛ программы.
+ * Резервирует память для хранения имён идентификаторов (атомов).
  * Инициализирует начало двусвязного списка свободных ячеек.
  * Дальнейшее связывание происходит при вызовах `refal_vm_alloc_1()`.
  * \result Ненулевое значение в случае успеха.
@@ -266,7 +267,8 @@ wstr_index wstr_append(struct wstr *ws, wchar_t c)
 static inline
 void *refal_vm_init(
       struct refal_vm   *vm,  ///< Структура для инициализации.
-      rf_index size)          ///< Предполагаемый размер (в ячейках).
+      rf_index    size,       ///< Предполагаемый размер (в ячейках).
+      wstr_index  ids_size)   ///< Предполагаемый размер (в ячейках).
 {
    vm->u = refal_malloc(size * sizeof(rf_cell));
    if (vm->u) {
@@ -280,7 +282,8 @@ void *refal_vm_init(
       vm->u[vm->free] = (struct rf_cell) { .next = vm->free + 1 };
       vm->u[vm->free + 1] = (struct rf_cell) { .prev = vm->free };
    }
-   return vm->u;
+   wstr_alloc(&vm->id, ids_size);
+   return vm->u ? vm->id.s : NULL;
 }
 
 /**
@@ -353,7 +356,7 @@ void *refal_vm_check(
    if (status && !vm->u) {
       critical_error(status, "недостаточно памяти для поля зрения", -errno, vm->size);
    }
-   return vm->u;
+   return wstr_check(&vm->id, status) ? vm->u : NULL;
 }
 
 static inline

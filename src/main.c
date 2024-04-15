@@ -15,6 +15,7 @@
 #define REFAL_VERSION "версия 0.1.4 (альфа)"
 
 #define REFAL_INITIAL_MEMORY      (128*1024/sizeof(rf_cell))
+#define REFAL_ATOM_INITIAL_MEMORY (128*1024/sizeof(wchar_t))
 #define REFAL_TRIE_INITIAL_MEMORY (128*1024/sizeof(struct rtrie_node))
 
 #define REFAL_INTERPRETER_CALL_STACK_LIMIT   (8*1024*1024)
@@ -106,7 +107,7 @@ arguments:
 
    // Память РЕФАЛ-машины (байт-код и поле зрения совмещены).
    struct refal_vm   vm;
-   refal_vm_init(&vm, REFAL_INITIAL_MEMORY);
+   refal_vm_init(&vm, REFAL_INITIAL_MEMORY, REFAL_ATOM_INITIAL_MEMORY);
    if (refal_vm_check(&vm, &status)) {
 
       // Таблица символов.

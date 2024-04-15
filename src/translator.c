@@ -36,7 +36,6 @@ int refal_translate_module_to_bytecode(
       struct refal_trie    *ids,
       rtrie_index          module,
       const wchar_t        *name,
-      size_t               name_length,
       struct refal_message *st)
 {
    int too_long = 1;
@@ -53,11 +52,8 @@ int refal_translate_module_to_bytecode(
    char path[PATH_MAX];
    if (pl)
       strncpy(path, st->source, pl);
-   //TODO заменить на wcstombs(), когда появится таблица идентификаторов.
-   for (size_t i = 0; pl < PATH_MAX - MB_LEN_MAX && i != name_length; ++i) {
-      // Считаем, что недействительные символы отсеяны при чтении файла.
-      pl += wctomb(&path[pl], name[i]);
-   }
+   // Считаем, что недействительные символы отсеяны при чтении файла.
+   pl += wcstombs(&path[pl], name, PATH_MAX - MB_LEN_MAX);
    if (pl < PATH_MAX - sizeof(ext1)) {
       too_long = 0;
       const char *const ext[2] = { ext2, ext1 };
@@ -116,10 +112,13 @@ int refal_translate_istream_to_bytecode(
    // при импорте модуля временно меняется на 0.
    rtrie_index namespace = module;
 
-   // Начало и длина имени идентификатора. Для импорта модулей.
-   wstr_index  ident_line = 0;
-   unsigned    ident_pos = 0;
-   size_t      ident_strlen = 0;
+   // Первый символ идентификатора в массиве атомов.
+   // Используются при импорте и встраивании ссылки на имя функции в байткод.
+   wstr_index  id_begin = 0;
+   // Начало строки в буфере и позиция в исходном тексте для диагностики.
+   wstr_index  id_line  = 0;
+   unsigned    id_pos   = 0;
+   unsigned    id_line_num = 0;
 
    // Пространство имён текущего импортируемого модуля.
    // Кроме того, идентификатор модуля может встречаться и в выражениях,
@@ -132,9 +131,6 @@ int refal_translate_istream_to_bytecode(
 
    // Для вывода предупреждений об идентификаторах модулей.
    const char *redundant_module_id = "идентификатор модуля без функции не имеет смысла";
-   wstr_index im_line = 0;
-   unsigned   im_pos  = 0;
-   unsigned   im_line_num = 0;
 
    // При импорте идентификаторов параллельно с определением в текущей
    // области видимости происходит поиск в пространстве имён модуля.
@@ -322,8 +318,8 @@ lexem_identifier_complete:
          case ss_identifier:  // TODO 2 идентификатора подряд?
             assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
          case ss_source:
+            wstr_append(&vm->id, L'\0');
             semantic = ss_identifier;
-            ident_strlen = pos - 1 - ident_pos;
             ident = node;
             // Функции определяются во множестве мест, вынесено сюда.
             // Производить определение функций здесь возможно, но придётся
@@ -333,6 +329,7 @@ lexem_identifier_complete:
             cmd_sentence = 0;
             goto current_char;
          case ss_import:
+            wstr_append(&vm->id, L'\0');
             if (import_node < 0) {
                error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
                goto cleanup;
@@ -420,9 +417,9 @@ lexem_identifier_complete_global:
                else if (ids->n[node].val.tag == rft_enum && !ids->n[node].val.value) {
                   assert(!imports);
                   imports = rtrie_find_next(ids, node, ' ');
-                  im_line = line;
-                  im_pos  = pos - 1;
-                  im_line_num = line_num;
+                  id_line = line;
+                  id_pos  = pos - 1;
+                  id_line_num = line_num;
                   assert(imports > 0);
                } else {
                   rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
@@ -600,7 +597,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line_num, im_pos, &buf.s[im_line], &buf.s[buf.free]);
+               warning(st, redundant_module_id, id_line_num, id_pos, &buf.s[id_line], &buf.s[buf.free]);
                imports = 0;
             }
             if (ids->n[ident].val.tag == rft_enum) {
@@ -764,7 +761,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line_num, im_pos, &buf.s[im_line], &buf.s[buf.free]);
+               warning(st, redundant_module_id, id_line_num, id_pos, &buf.s[id_line], &buf.s[buf.free]);
                imports = 0;
             }
             cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
@@ -802,7 +799,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line_num, im_pos, &buf.s[im_line], &buf.s[buf.free]);
+               warning(st, redundant_module_id, id_line_num, id_pos, &buf.s[id_line], &buf.s[buf.free]);
                imports = 0;
             }
             assert(ep > 0);
@@ -951,7 +948,7 @@ sentence_complete:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, im_line_num, im_pos, &buf.s[im_line], &buf.s[buf.free]);
+               warning(st, redundant_module_id, id_line_num, id_pos, &buf.s[id_line], &buf.s[buf.free]);
                imports = 0;
             }
             rf_index sentence_complete;
@@ -1068,8 +1065,8 @@ sentence_complete:
                namespace = 0;
                imports_local = imports;
                imports = 0;
-               line = ident_line;
-               pos = ident_pos;
+               line = id_line;
+               pos = id_pos;
                semantic = ss_source;
                goto next_char;
             }
@@ -1080,7 +1077,7 @@ sentence_complete:
             }
             namespace = module;
             int r = refal_translate_module_to_bytecode(cfg, vm, ids, imports,
-                              &buf.s[ident_line + ident_pos], ident_strlen, st);
+                                                      &vm->id.s[id_begin], st);
             if (r < 0) {
                error = "исходный текст модуля недоступен";
                goto cleanup;
@@ -1236,8 +1233,9 @@ symbol:
             import_node = rtrie_find_at(ids, imports, chr);
          case ss_source:
             node = rtrie_insert_at(ids, namespace, chr);
-            ident_line = line;
-            ident_pos = pos - 1;
+            id_begin = wstr_append(&vm->id, chr);
+            id_line = line;
+            id_pos  = pos - 1;
             goto next_char;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
@@ -1330,6 +1328,7 @@ lexem_identifier:
             import_node = rtrie_find_next(ids, import_node, chr);
          case ss_source:
             node = rtrie_insert_next(ids, node, chr);
+            wstr_append(&vm->id, chr);
             goto next_char;
          case ss_identifier:
             goto error_identifier_odd;

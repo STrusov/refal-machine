@@ -28,11 +28,6 @@
 
 #include "refal.h"
 
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 /**
  * Максимальное количество файловых дескрипторов,
  * поддерживаемых встроенными функциями классического РЕФАЛ-5.
@@ -137,6 +132,11 @@ int Get(struct refal_vm *vm, rf_index prev, rf_index next);
 int Put(struct refal_vm *vm, rf_index prev, rf_index next);
 
 int Putout(struct refal_vm *vm, rf_index prev, rf_index next);
+
+/**\addtogroup library-aux Вспомогательные функции.
+ * Не вызываются из РЕФАЛ-програм непосредственно.
+ * \{
+ * \}*/
 
 /**\}*/
 
@@ -304,36 +304,5 @@ int Exit(const struct refal_vm *vm, rf_index prev, rf_index next);
        e.RetCode ::= '-'? s.NUMBER
  */
 int System(struct refal_vm *vm, rf_index prev, rf_index next);
-
-/**\}*/
-
-/**\addtogroup library-aux Вспомогательные функции.
- * Не вызываются из РЕФАЛ-програм непосредственно.
- * \{
- */
-
-/**
- * Отображает файл в память.
- *
- * \retval size Размер содержимого.
- * \result Указатель на начало файла либо \c MAP_FAILED при ошибке.
- */
-static inline
-void *mmap_file(
-      const char  *name,   ///< Имя файла.
-      size_t      *size)   ///< Указатель для сохранения результата.
-{
-   void *addr = MAP_FAILED;
-   const int fd = open(name, O_RDONLY, 0);
-   if (fd >= 0) {
-      struct stat sb;
-      if (fstat(fd, &sb) >= 0) {
-         *size = sb.st_size;
-         addr = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-      }
-      close(fd);
-   }
-   return addr;
-}
 
 /**\}*/

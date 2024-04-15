@@ -7,16 +7,27 @@
 
 #pragma once
 
-#include <stdio.h>
 #include "rtrie.h"
 #include "refal.h"
 
-/** При трансляции выдаётся замечание о копировании переменной (дорогая операция).*/
-#define REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
+#include <stdio.h>
 
+/** При трансляции выдаётся замечание о копировании переменной (дорогая операция).*/
+#ifndef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
+#define REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY 1
+#endif
+
+#ifndef REFAL_TRANSLATOR_LOCALS_DEFAULT
 #define REFAL_TRANSLATOR_LOCALS_DEFAULT   128
+#endif
+
+#ifndef REFAL_TRANSLATOR_EXECS_DEFAULT
 #define REFAL_TRANSLATOR_EXECS_DEFAULT    128
+#endif
+
+#ifndef REFAL_TRANSLATOR_BRACKETS_DEFAULT
 #define REFAL_TRANSLATOR_BRACKETS_DEFAULT 128
+#endif
 
 /**
  * Конфигурация транслятора.

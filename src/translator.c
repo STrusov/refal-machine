@@ -181,7 +181,7 @@ int refal_translate_istream_to_bytecode(
       cfg->locals_limit = local_max;
    }
    struct {
-#ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
+#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
       wstr_index  src;
       unsigned    line;
       unsigned    pos;
@@ -377,7 +377,7 @@ lexem_identifier_complete:
                rf_index id = ids->n[node].val.value;
                if (id_type != id_svar && var[id].opcode) {
                   vm->u[var[id].opcode].tag2 = 1;
-#ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
+#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                   if (cfg && cfg->notice_copy) {
                      performance(st, "создаётся копия переменной", var[id].line,
                                      var[id].pos, &buf.s[var[id].src], &buf.s[buf.free]);
@@ -385,7 +385,7 @@ lexem_identifier_complete:
 #endif
                }
                var[id].opcode = rf_alloc_value(vm, id, id_type);
-#ifdef REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
+#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                var[id].src  = line;
                var[id].line = line_num;
                var[id].pos  = pos - 1;

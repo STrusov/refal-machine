@@ -232,7 +232,7 @@ void *wstr_check(
 static inline
 void wstr_free(struct wstr *ws)
 {
-   refal_free(ws->s, ws->size);
+   refal_free(ws->s, ws->size * sizeof(*ws->s));
    ws->s = 0;
    ws->size = 0;
    ws->free = 0;
@@ -247,6 +247,7 @@ wstr_index wstr_append(struct wstr *ws, wchar_t c)
    wstr_index new_chr = ws->free++;
    if (new_chr == ws->size) {
       size_t size = ws->size * sizeof(sizeof(*ws->s));
+      //TODO нет памяти.
       ws->s = refal_realloc(ws->s, size, 2 * size);
       ws->size *= 2;
    }
@@ -313,6 +314,7 @@ rf_index refal_vm_alloc_1(
       }
       if (i + 1 >= vm->size) {
          size_t size = vm->size * sizeof(rf_cell);
+         //TODO нет памяти.
          void *p = refal_realloc(vm->u, size, 2 * size);
          if (!p) {
             vm->free = 0;
@@ -336,8 +338,9 @@ void refal_vm_free(
       struct refal_vm   *vm)
 {
    assert(vm);
+   wstr_free(&vm->id);
    // TODO освободить ресурсы, ссылки на которые могут храниться в ячейках.
-   refal_free(vm->u, vm->size);
+   refal_free(vm->u, vm->size * sizeof(rf_cell));
    vm->u = 0;
    vm->size = 0;
    vm->free = 0;

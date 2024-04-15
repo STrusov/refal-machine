@@ -124,7 +124,7 @@ static inline
 void rtrie_free(
       struct refal_trie *rtrie)
 {
-   refal_free(rtrie->n, rtrie->size);
+   refal_free(rtrie->n, rtrie->size * sizeof(struct rtrie_node));
    rtrie->n = 0;
    rtrie->size = 0;
    rtrie->free = 0;
@@ -147,6 +147,7 @@ rtrie_index rtrie_new_node(
    assert(!(node > rt->size));
    if (node == rt->size) {
       size_t size = rt->size * sizeof(struct rtrie_node);
+      //TODO нет памяти.
       rt->n = refal_realloc(rt->n, size, 2 * size);
       rt->size *= 2;
    }

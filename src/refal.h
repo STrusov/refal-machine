@@ -246,7 +246,7 @@ wstr_index wstr_append(struct wstr *ws, wchar_t c)
 {
    wstr_index new_chr = ws->free++;
    if (new_chr == ws->size) {
-      size_t size = ws->size * sizeof(sizeof(*ws->s));
+      size_t size = ws->size * sizeof(*ws->s);
       //TODO нет памяти.
       ws->s = refal_realloc(ws->s, size, 2 * size);
       ws->size *= 2;

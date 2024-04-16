@@ -147,11 +147,12 @@ int rf_output(
                        &vm->id.s[vm->u[bytecode].atom]);
                break;
             }
-         } else if (id.tag == rft_machine_code) {
+         } else if (id.tag == rft_machine_code
+                 && id.value < vm->library_size && vm->library[id.value].name) {
             fprintf(stream, prevt == rf_identifier
                     ? RF_COLOR_SYMBOL" %s"RF_ESC_RESET
                     : RF_COLOR_SYMBOL"%s"RF_ESC_RESET,
-                    library[id.value].name);
+                    vm->library[id.value].name);
             break;
          }
          fprintf(stream, prevt == rf_identifier

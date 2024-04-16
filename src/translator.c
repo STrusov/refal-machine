@@ -1484,15 +1484,13 @@ complete:
    }
 
 cleanup:
-   wstr_free(&buf);
-
    //TODO error = "неполный символ UTF-8"; "недействительный символ UTF-8";
-
-   if (error) {
+   if (error)
       syntax_error(st, error, line_num, pos, &buf.s[line], &buf.s[buf.free]);
-      return 1;
-   }
-   return 0;
+
+   wstr_free(&buf);
+   //TODO количество ошибок не подсчитывается.
+   return error ? 1 : 0;
 
 error_no_identifier_in_module:
    error = "идентификатор не определён в модуле";

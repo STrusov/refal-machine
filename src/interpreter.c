@@ -74,6 +74,9 @@ int refal_interpret_bytecode(
    unsigned stack_size = cfg->call_stack_size / sizeof(*stack);
    unsigned sp = 0;
 
+   // Исполняемая функция, для определения имени (обычно, по rf_nop_name).
+   struct rtrie_val  fn_name = { .value = next_sentence, .tag = rft_byte_code };
+
    struct {
       // s-переменная или первый элемент e- или t- переменной.
       rf_index s;
@@ -382,10 +385,19 @@ equal:
 
    case rf_complete:
 recognition_impossible:
-      // TODO Ошибки в байт-коде нет. Реализовать вывод текущего состояния.
       // TODO Раскрутка стека с размещением в поле зрения признака исключения?
-      if (next != stack[0].next)
+      // Делаем результатом что-то похожее на вызов функции с текущим Полем Зрения.
+      result = vm->free;
+      rf_alloc_value(vm, 0, rf_undefined);
+      rf_alloc_command(vm, rf_execute);
+      rf_splice_evar_prev(vm, result, vm->free, next);
+      rf_alloc_command(vm, rf_open_function);
+      rf_alloc_value(vm, rtrie_val_to_raw(fn_name), rf_identifier);
+      rf_splice_evar_prev(vm, result, vm->free, vm->u[prev].next);
+      if (sp && next != stack[0].next) {
+         rf_free_evar(vm, stack[0].prev, stack[0].next);
          rf_splice_evar_prev(vm, prev, next, stack[0].next);
+      }
       r = cur;
       goto cleanup;
 
@@ -505,6 +517,7 @@ evar_express:
    case rf_execute:
       next = vm->free;
       struct rtrie_val function = rtrie_val_from_raw(vm->u[ip].data);
+      fn_name = function;
       switch (function.tag) {
       case rft_enum:
          inconsistence(st, "пустая функция", ip, step);
@@ -527,6 +540,7 @@ Mu_argument:   switch (vm->u[id].tag) {
                      continue;
                   case rft_byte_code:
                      rf_free_evar(vm, vm->u[id].prev, vm->u[id].next);
+                     fn_name = function;
                      goto execute_byte_code;
                   case rft_machine_code:
                      next_id = vm->u[id].next;
@@ -535,6 +549,7 @@ Mu_argument:   switch (vm->u[id].tag) {
                         id = next_id;
                         goto Mu_argument;
                      }
+                     fn_name = function;
                      goto execute_machine_code;
                   }
                case rf_opening_bracket:

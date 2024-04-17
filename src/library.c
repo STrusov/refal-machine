@@ -166,6 +166,12 @@ int rf_output(
       case rf_closing_bracket:
          fprintf(stream, RF_COLOR_BRACKET")"RF_ESC_RESET);
          break;
+      case rf_open_function:
+         fprintf(stream, RF_COLOR_SYMBOL" <"RF_ESC_RESET);
+         break;
+      case rf_execute:
+         fprintf(stream, RF_COLOR_SYMBOL"> "RF_ESC_RESET);
+         break;
       case rf_undefined:
       default:
          // TODO ситуация возникать не должна.

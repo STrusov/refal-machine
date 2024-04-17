@@ -60,6 +60,7 @@ int main(int argc, char **argv)
    // 0-й параметр пропускаем (содержит имя интерпретатора).
    // Начинающиеся с + и - параметры считаем ключами интерпретатору.
    // Первый отличающийся параметр — именем программы для исполнения.
+   // Одиночный - служит для ввода из stdin.
    --argc;
    ++argv;
    for (int i = 1; 0 < argc; ++i, --argc, ++argv) {
@@ -67,6 +68,10 @@ int main(int argc, char **argv)
       unsigned flag = 0;
       switch (argv[0][0]) {
       case '-':
+         if (argv[0][1] == '\0') {
+            argv[0] = NULL;
+            goto arguments;
+         }
          flag = 0;
          break;
       case '+':
@@ -101,7 +106,7 @@ option_unrecognized:
    }
 arguments:
    if (argc < 1) {
-      fprintf(stderr, "%s: укажите имя файла с исходным текстом.\n", status.source);
+      fprintf(stderr, "%s: укажите имя файла с исходным текстом или - для потока ввода.\n", status.source);
       return EXIT_FAILURE;
    }
 

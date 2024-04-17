@@ -18,13 +18,22 @@ int refal_translate_file_to_bytecode(
       struct refal_message *st)
 {
    int r = -1;
-   const char *os = refal_message_source(st, name);
-   FILE * src = fopen(name, "r");
+   FILE *src;
+   const char *os;
+   if (name) {
+      src = fopen(name, "r");
+      os = refal_message_source(st, name);
+   }
+   else {
+      src = stdin;
+      os = refal_message_source(st, "//stdin");
+   }
    if (!src) {
       critical_error(st, "исходный текст недоступен", -errno, 0);
    } else {
       r = refal_translate_istream_to_bytecode(cfg, vm, ids, 0, src, st);
-      fclose(src);
+      if (name)
+         fclose(src);
    }
    refal_message_source(st, os);
    return r;

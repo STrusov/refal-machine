@@ -84,7 +84,7 @@ int refal_translate_file_to_bytecode(
       struct refal_translator_config   *cfg, ///< Конфигурация.
       struct refal_vm      *vm,     ///< Память для целевого кода.
       struct refal_trie    *ids,    ///< Таблица символов.
-      const char           *name,   ///< имя файла с исходным текстом.
+      const char           *name,   ///< имя файла с исходным текстом или NULL для ввода из стандартного потока.
       struct refal_message *st
       );
 

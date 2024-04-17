@@ -305,6 +305,10 @@ int calc(struct refal_vm *vm, rf_index prev, rf_index next, aop *op)
    rf_index s2 = vm->u[s1].next;
    if (vm->u[s2].next != next)
       return s2;
+   if (vm->u[s1].tag != rf_number)
+      return s1;
+   if (vm->u[s2].tag != rf_number)
+      return s2;
    vm->u[s1].num = op(vm->u[s1].num, vm->u[s2].num);
    rf_free_evar(vm, s1, next);
    return 0;

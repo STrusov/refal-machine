@@ -291,7 +291,13 @@ next_line:
          break;
       }
    }
-   unsigned pos = 0;             // номер символа в строке исходника
+   // Номер символа в строке исходника. Используется с двумя целями:
+   // 1. Адресация во входном буфере относительно начала строки;
+   //    здесь значение соотвествует требованиям к индексам, отсчёт идёт от 0.
+   // 2. Вывод сообщений (в т.ч. копией в id_pos) об ошибках наряду с line_num;
+   //    в таком случае нумерация символов начинается с 1, а значение
+   //    обычно подходит, поскольку pos указывает на последующий символ.
+   unsigned pos = 0;
 
 next_char: ;
    wchar_t chr = buf.s[line + pos++];
@@ -1259,6 +1265,7 @@ symbol:
             id_begin = wstr_append(&vm->id, chr);
             id_line = line;
             id_pos  = pos - 1;
+            id_line_num = line_num;
             goto next_char;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
@@ -1411,6 +1418,9 @@ complete:
          error = "не завершено определение функции (пропущена } ?)";
       else
          error = "не завершено определение функции (пропущена ; ?)";
+      line = id_line;
+      pos  = id_pos + 1;
+      line_num = id_line_num;
       goto cleanup;
    }
 

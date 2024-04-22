@@ -547,6 +547,8 @@ Mu_byte_code:        rf_free_evar(vm, vm->u[id].prev, n);
                   case rft_machine_code:
 Mu_machine_code:     rf_free_evar(vm, vm->u[id].prev, n);
                      if (!function.value) {
+                        if (n == next)
+                           goto recognition_impossible;
                         id = n;
                         goto Mu_argument;
                      }

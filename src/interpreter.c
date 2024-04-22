@@ -558,9 +558,16 @@ Mu_machine_code:     rf_free_evar(vm, vm->u[id].prev, n);
                case rf_char: ;
                   // Просматриваем последовательность символов до конца.
                   // Параллельно производится поиск в дереве, если возможен.
+                  // Пробел может следовать после имени модуля и вызывает
+                  // поиск в отдельном пространство имён.
                   rtrie_index idx = rtrie_find_first(vm->rt, vm->u[id].chr);
+                  wchar_t pc = L'\0';
                   for (n = vm->u[id].next ; n != next && vm->u[n].tag == rf_char; n = vm->u[n].next)
-                     idx = rtrie_find_next(vm->rt, idx, vm->u[n].chr);
+                     if (!(idx < 0)) {
+                        idx = pc == L' ' ? rtrie_find_at(vm->rt, idx, vm->u[n].chr)
+                                    : rtrie_find_next(vm->rt, idx, vm->u[n].chr);
+                        pc = vm->u[n].chr;
+                     }
                   if (!(idx < 0)) {
                      function = vm->rt->n[idx].val;
                      switch (function.tag) {

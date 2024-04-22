@@ -130,7 +130,7 @@ int rf_output(
                  : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
                  &vm->id.s[vm->u[i].atom]);
          break;
-      case rf_identifier:
+      case rf_identifier: ;
          struct rtrie_val id = rtrie_val_from_raw(vm->u[i].data);
          if (id.tag == rft_enum && id.value < vm->id.free) {
             fprintf(stream, prevt == rf_identifier

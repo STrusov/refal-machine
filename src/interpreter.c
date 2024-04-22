@@ -526,11 +526,13 @@ evar_express:
          goto error_undefined_identifier;
       case rft_machine_code:
          // Функции Mu соответствует индекс 0.
-         // Ищем в поле зрения вычислимую функцию и вызываем её.
+         // Ищем в поле зрения вычислимую функцию
+         // либо её имя в глобальном пространстве и вызываем.
+         // Если очередной функцией является Mu, "исполняем" её, удаляя.
          if (!function.value) {
-            rf_index next_id;
-            for (rf_index id = vm->u[prev].next; id != next; id = vm->u[id].next)
-Mu_argument:   switch (vm->u[id].tag) {
+            for (rf_index id = vm->u[prev].next; id != next; id = vm->u[id].next) {
+Mu_argument: ; rf_index n = vm->u[id].next;
+               switch (vm->u[id].tag) {
                case rf_identifier:
                   function = rtrie_val_from_raw(vm->u[id].data);
                   switch (function.tag) {
@@ -539,19 +541,42 @@ Mu_argument:   switch (vm->u[id].tag) {
                   case rft_enum:
                      continue;
                   case rft_byte_code:
-                     rf_free_evar(vm, vm->u[id].prev, vm->u[id].next);
+Mu_byte_code:        rf_free_evar(vm, vm->u[id].prev, n);
                      fn_name = function;
                      goto execute_byte_code;
                   case rft_machine_code:
-                     next_id = vm->u[id].next;
-                     rf_free_evar(vm, vm->u[id].prev, next_id);
+Mu_machine_code:     rf_free_evar(vm, vm->u[id].prev, n);
                      if (!function.value) {
-                        id = next_id;
+                        id = n;
                         goto Mu_argument;
                      }
                      fn_name = function;
                      goto execute_machine_code;
                   }
+               case rf_char: ;
+                  // Просматриваем последовательность символов до конца.
+                  // Параллельно производится поиск в дереве, если возможен.
+                  rtrie_index idx = rtrie_find_first(vm->rt, vm->u[id].chr);
+                  for (n = vm->u[id].next ; n != next && vm->u[n].tag == rf_char; n = vm->u[n].next)
+                     idx = rtrie_find_next(vm->rt, idx, vm->u[n].chr);
+                  if (!(idx < 0)) {
+                     function = vm->rt->n[idx].val;
+                     switch (function.tag) {
+                     case rft_byte_code:
+                        goto Mu_byte_code;
+                     case rft_machine_code:
+                        goto Mu_machine_code;
+                     // Если идентификатор "найден", но неопределён,
+                     // значит это часть другого. Считаем его обычным текстом.
+                     case rft_undefined:
+                     case rft_enum:
+                        break;
+                     }
+                  }
+                  if (n == next)
+                     goto recognition_impossible;
+                  id = n;
+                  continue;
                case rf_opening_bracket:
                   id = vm->u[id].link;
                   if (!(id < vm->size)) {
@@ -560,6 +585,7 @@ Mu_argument:   switch (vm->u[id].tag) {
                default:
                   continue;
                }
+            }
             goto recognition_impossible;
          }
 execute_machine_code:

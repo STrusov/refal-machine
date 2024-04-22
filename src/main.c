@@ -120,6 +120,7 @@ arguments:
       rtrie_alloc(&ids, REFAL_TRIE_INITIAL_MEMORY);
       if (rtrie_check(&ids, &status)) {
 
+         vm.rt = &ids;
          vm.library = library;
          vm.library_size = refal_import(&ids, vm.library);
 

@@ -530,8 +530,8 @@ evar_express:
          // либо её имя в глобальном пространстве и вызываем.
          // Если очередной функцией является Mu, "исполняем" её, удаляя.
          if (!function.value) {
-            for (rf_index id = vm->u[prev].next; id != next; id = vm->u[id].next) {
-Mu_argument: ; rf_index n = vm->u[id].next;
+            for (rf_index n, id = vm->u[prev].next; id != next; id = n) {
+               n = vm->u[id].next;
                switch (vm->u[id].tag) {
                case rf_identifier:
                   function = rtrie_val_from_raw(vm->u[id].data);
@@ -547,10 +547,7 @@ Mu_byte_code:        rf_free_evar(vm, vm->u[id].prev, n);
                   case rft_machine_code:
 Mu_machine_code:     rf_free_evar(vm, vm->u[id].prev, n);
                      if (!function.value) {
-                        if (n == next)
-                           goto recognition_impossible;
-                        id = n;
-                        goto Mu_argument;
+                        continue;
                      }
                      fn_name = function;
                      goto execute_machine_code;
@@ -582,15 +579,13 @@ Mu_machine_code:     rf_free_evar(vm, vm->u[id].prev, n);
                         break;
                      }
                   }
-                  if (n == next)
-                     goto recognition_impossible;
-                  id = n;
                   continue;
                case rf_opening_bracket:
                   id = vm->u[id].link;
                   if (!(id < vm->size)) {
                      goto error_link_out_of_range;
                   }
+                  n = vm->u[id].next;
                default:
                   continue;
                }

@@ -112,9 +112,6 @@ struct lexer {
    // Начало текущей строки в буфере.
    wstr_index  line;
 
-   // При сканировании лексем "число" здесь накапливается результат.
-   rf_int      number;
-
    // Идентификаторы заносятся в таблицу символов параллельно разбору исходного
    // текста. Здесь хранится текущий добавленный в префиксное дерево узел.
    rtrie_index node;
@@ -150,7 +147,6 @@ void lexer_init(struct lexer* lex, FILE *src)
    wstr_alloc(&lex->buf, 1024);
    lex->state    = lex_leadingspace;
    lex->src      = src;
-   lex->number   = 0;
    lex->node     = 0;
    lex->ident    = 0;
    lex->id_begin = 0;
@@ -221,6 +217,48 @@ static inline
 wchar_t lexer_next_char(struct lexer *lex)
 {
    return lex->buf.s[lex->line + lex->pos++];
+}
+
+
+///\page    Синтаксис
+///\ingroup refal-syntax
+///\section lexem          Лексические единицы
+///
+/// Лексические единицы РЕФАЛ подразделяются на специальные знаки, символы и
+/// переменные. Между лексическими единицами может проставляться любое
+/// количество как пробелов, так и спец.символов табуляции и переноса строки.
+/// Пробелы становятся лексической единицей, когда они появляются в строке,
+/// заключённой в кавычки.
+
+
+///\page    Синтаксис
+///\ingroup refal-syntax
+///\section Макроцифры
+///
+/// Макроцифрами являются целые неотрицательные числа. Они представляются
+/// строками десятичных цифр. Значение наибольшей макроцифры зависит от
+/// платформы (соответствует размеру регистров общего назначения процессора).
+/// Если последовательность цифр в исходном тексте определяет число,
+/// превосходящее наибольшее допустимое, выводится предупреждение, а
+/// результатом являются младшие двоичные разряды (деление по модулю).
+///
+
+/**
+ * Переносит макрофицру из исходного текста в байт-код.
+ */
+static inline
+void lexem_number(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct refal_message *st)
+{
+   lex->state = lex_number;
+   rf_int   number = 0;
+   while ((*chr >= '0') && (*chr <= '9')) {
+      number = number * 10 + (*chr - '0');
+      if (number < (*chr - '0')) {
+         warning(st, "целочисленное переполнение", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
+      }
+     *chr = lexer_next_char(lex);
+   }
+   rf_alloc_int(vm, number);
 }
 
 int refal_translate_istream_to_bytecode(
@@ -363,16 +401,6 @@ next_char: ;
 current_char:
    switch (chr) {
 
-   ///\page    Синтаксис
-   ///\ingroup refal-syntax
-   ///\section lexem          Лексические единицы
-   ///
-   /// Лексические единицы РЕФАЛ подразделяются на специальные знаки, символы и
-   /// переменные. Между лексическими единицами может проставляться любое
-   /// количество как пробелов, так и спец.символов табуляции и переноса строки.
-   /// Пробелы становятся лексической единицей, когда они появляются в строке,
-   /// заключённой в кавычки.
-
    case '\t':  //TODO pos += 7;
    case ' ':
       switch (lex.state) {
@@ -385,7 +413,6 @@ current_char:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_number:
-         rf_alloc_int(vm, lex.number);
          lex.state = lex_whitespace;
          goto next_char;
       case lex_identifier:
@@ -540,7 +567,6 @@ lexem_identifier_undefined:
    case '\n':
       switch (lex.state) {
       case lex_number:
-         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
       case lex_comment_line:
@@ -649,7 +675,6 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -763,7 +788,6 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, lex.number);
          lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
@@ -827,7 +851,6 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -865,7 +888,6 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -921,7 +943,6 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -956,7 +977,6 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -998,7 +1018,6 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, lex.number);
          lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
@@ -1092,7 +1111,6 @@ sentence_complete:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, lex.number);  //TODO 123: ?
          lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
@@ -1202,7 +1220,6 @@ sentence_complete:
    case '\'':
       switch (lex.state) {
       case lex_number:
-         rf_alloc_int(vm, lex.number);
          lex.state = chr == '"' ? lex_string_dquoted : lex_string_quoted;
          goto next_char;
       case lex_leadingspace:
@@ -1240,15 +1257,6 @@ sentence_complete:
          goto lexem_identifier_complete;
       }
 
-   ///\section Макроцифры
-   ///
-   /// Макроцифрами являются целые неотрицательные числа. Они представляются
-   /// строками десятичных цифр. Значение наибольшей макроцифры зависит от
-   /// платформы (соответствует размеру регистров общего назначения процессора).
-   /// Если последовательность цифр в исходном тексте определяет число,
-   /// превосходящее наибольшее допустимое, выводится предупреждение, а
-   /// результатом являются младшие двоичные разряды (деление по модулю).
-
    // Начало целого числа, либо продолжение идентификатора.
    case '0'...'9':
       switch (lex.state) {
@@ -1266,15 +1274,11 @@ sentence_complete:
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
-            lex.state = lex_number;
-            lex.number = chr - '0';
-            goto next_char;
+            lexem_number(&lex, &chr, vm, st);
+            goto current_char;
          }
       case lex_number:
-         lex.number = lex.number * 10 + (chr - '0');
-         if (lex.number < (chr - '0')) {
-            warning(st, "целочисленное переполнение", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
-         }
+         assert(0);
          goto next_char;
       case lex_string_quoted:
       case lex_string_dquoted:
@@ -1304,7 +1308,6 @@ symbol:
       case lex_number:
          // TODO символ после цифры?
          // Может быть частью шестнадцатеричного числа, что пока не поддержано.
-         rf_alloc_int(vm, lex.number);
          warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
       case lex_leadingspace:
       case lex_whitespace:

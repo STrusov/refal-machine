@@ -91,8 +91,6 @@ enum lexer_state {
    lex_whitespace,      // Пробелы после лексемы.
    lex_comment_line,    // Строка комментария, начинается со *
    lex_comment_c,       // Комментарии в стиле C /* */
-   lex_string_quoted,   // Знаковая строка в одинарных кавычках.
-   lex_string_dquoted,  // Знаковая строка в двойных кавычках.
    lex_number,          // Целое число.
    lex_identifier,      // Идентификатор (имя функции).
 };
@@ -230,6 +228,72 @@ wchar_t lexer_next_char(struct lexer *lex)
 /// Пробелы становятся лексической единицей, когда они появляются в строке,
 /// заключённой в кавычки.
 
+///\page    Синтаксис
+///\ingroup refal-syntax
+///\section Строки
+///
+/// Знаковые символы заключаются в одинарные или двойные кавычки.
+/// Цепочка (строка) знаковых символов заключается в кавычки целиком; так:
+///
+///      'да в'
+/// есть последовательность четырёх знаковых символов. Недопустим перенос
+/// цепочки знаковых символов со строки на строку. Кавычка внутри цепочки,
+/// которая ограничена кавычками того же вида, представляется сдвоенной
+/// кавычкой. Следующие две строки-цепочки:
+///
+///      '''слова в кавычках'''
+///      "'слова в кавычках'"
+/// представляют один и тот же РЕФАЛ-объект. Для того, что бы избежать
+/// ложных кавычек, следует разделять заключённые в кавычки цепочки
+/// пробелами в том случае, когда они следуют непосредственно одна за другой.
+///
+/// Что бы включить в строку специальные символы, используются
+/// экранированные последовательности:
+///   - \c '\t'  табуляция       (код \c 0x09)
+///   - \c '\\n'  новая строка    (код \c 0x0a)
+///   - \c '\r'  перевод каретки (код \c 0x0d)
+///
+/// Символ \c \ перед иными знаками представляет сам себя.
+
+/**
+ * Переносит строку из исходного текста в байт-код.
+ */
+static inline
+void lexem_string(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct refal_message *st)
+{
+   wchar_t q = *chr;
+   while(1) {
+      *chr = lexer_next_char(lex);
+      switch(*chr) {
+      // Кавычка внутри строки кодируется сдвоенной, иначе завершает строку.
+      case '"': case '\'':
+         if (*chr != q) break;
+         if (lex->buf.s[lex->line + lex->pos] == q) {
+            ++lex->pos;
+            break;
+         }
+         lex->state = lex_whitespace;
+         return;
+      case '\\': switch (lex->buf.s[lex->line + lex->pos]) {
+         case 't': ++lex->pos; *chr = '\t'; break;
+         case 'n': ++lex->pos; *chr = '\n'; break;
+         case 'r': ++lex->pos; *chr = '\r'; break;
+         default : break;
+         }
+         break;
+      case '\r': case '\n':
+         //TODO Позволить многострочные?
+         syntax_error(st, "отсутствует закрывающая кавычка", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
+         lex->state = lex_whitespace;
+         return;
+      default:
+         if (*chr < ' ')
+            warning(st, "нечитаемый символ", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
+         break;
+      }
+      rf_alloc_char(vm, *chr);
+   }
+}
 
 ///\page    Синтаксис
 ///\ingroup refal-syntax
@@ -260,6 +324,7 @@ void lexem_number(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
    }
    rf_alloc_int(vm, number);
 }
+
 
 int refal_translate_istream_to_bytecode(
       struct refal_translator_config   *cfg,
@@ -409,9 +474,6 @@ current_char:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_quoted: // TODO табуляция внутри строк?
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_number:
          lex.state = lex_whitespace;
          goto next_char;
@@ -573,10 +635,6 @@ lexem_identifier_undefined:
          lex.state = lex_leadingspace;
       case lex_comment_c:
          goto next_line;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         error = "отсутствует закрывающая кавычка";
-         goto cleanup;
       case lex_identifier:
          goto lexem_identifier_complete;
       }
@@ -607,9 +665,6 @@ lexem_identifier_undefined:
          goto next_char;
       case lex_comment_line:
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_number:
       case lex_whitespace:
       case lex_identifier:
@@ -648,9 +703,6 @@ lexem_identifier_undefined:
       case lex_comment_line:
       case lex_comment_c:
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       }
 
    ///\section    Спец           Специальные знаки
@@ -669,9 +721,6 @@ lexem_identifier_undefined:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -733,9 +782,6 @@ lexem_identifier_undefined:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_number:
          // TODO Вложенные блоки пока не поддержаны.
          goto error_incorrect_function_definition;
@@ -782,9 +828,6 @@ lexem_identifier_undefined:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_dquoted:
-      case lex_string_quoted:
-         goto lexem_string;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -845,9 +888,6 @@ lexem_identifier_undefined:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -882,9 +922,6 @@ lexem_identifier_undefined:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -937,9 +974,6 @@ lexem_identifier_undefined:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -971,9 +1005,6 @@ lexem_identifier_undefined:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -1012,9 +1043,6 @@ lexem_identifier_undefined:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_dquoted:
-      case lex_string_quoted:
-         goto lexem_string;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -1105,9 +1133,6 @@ sentence_complete:
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
-      case lex_string_dquoted:
-      case lex_string_quoted:
-         goto lexem_string;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -1191,36 +1216,12 @@ sentence_complete:
          }
       }
 
-   ///\section Строки
-   ///
-   /// Знаковые символы заключаются в одинарные или двойные кавычки.
-   /// Цепочка (строка) знаковых символов заключается в кавычки целиком; так:
-   ///
-   ///      'да в'
-   /// есть последовательность четырёх знаковых символов. Недопустим перенос
-   /// цепочки знаковых символов со строки на строку. Кавычка внутри цепочки,
-   /// которая ограничена кавычками того же вида, представляется сдвоенной
-   /// кавычкой. Следующие две строки-цепочки:
-   ///
-   ///      '''слова в кавычках'''
-   ///      "'слова в кавычках'"
-   /// представляют один и тот же РЕФАЛ-объект. Для того, что бы избежать
-   /// ложных кавычек, следует разделять заключённые в кавычки цепочки
-   /// пробелами в том случае, когда они следуют непосредственно одна за другой.
-   ///
-   /// Что бы включить в строку специальные символы, используются
-   /// экранированные последовательности:
-   ///   - '\t'  табуляция       (код 0x09)
-   ///   - '\n'  новая строка    (код 0x0a)
-   ///   - '\r'  перевод каретки (код 0x0d)
-   /// Символ \ перед иными знаками представляет сам себя.
-
    // Начинает и заканчивает строку знаковых символов.
    case '"':
    case '\'':
       switch (lex.state) {
       case lex_number:
-         lex.state = chr == '"' ? lex_string_dquoted : lex_string_quoted;
+         lexem_string(&lex, &chr, vm, st);
          goto next_char;
       case lex_leadingspace:
       case lex_whitespace:
@@ -1235,21 +1236,9 @@ sentence_complete:
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
-            lex.state = chr == '"' ? lex_string_dquoted : lex_string_quoted;
+            lexem_string(&lex, &chr, vm, st);
             goto next_char;
          }
-      case lex_string_dquoted:
-      case lex_string_quoted:
-         if ((lex.state == lex_string_dquoted && chr == '\'')
-          || (lex.state == lex_string_quoted && chr == '"'))
-            goto lexem_string;
-         // Кавычка внутри строки кодируется сдвоенной, иначе завершает строку.
-         if (lex.buf.s[lex.line + lex.pos] == chr) {
-            ++lex.pos;
-            goto lexem_string;
-         }
-         lex.state = lex_whitespace;
-         goto next_char;
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -1280,9 +1269,6 @@ sentence_complete:
       case lex_number:
          assert(0);
          goto next_char;
-      case lex_string_quoted:
-      case lex_string_dquoted:
-         goto lexem_string;
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -1438,29 +1424,6 @@ lexem_identifier:
             }
             goto next_char;
          }
-      case lex_string_quoted:
-      case lex_string_dquoted:
-lexem_string:
-         if (chr == '\\') {
-            switch (lex.buf.s[lex.line + lex.pos]) {
-            case 't':
-               ++lex.pos;
-               chr = '\t';
-               break;
-            case 'n':
-               ++lex.pos;
-               chr = '\n';
-               break;
-            case 'r':
-               ++lex.pos;
-               chr = '\r';
-               break;
-            default:
-               break;
-            }
-         }
-         rf_alloc_char(vm, chr);
-         goto next_char;
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;

@@ -85,6 +85,143 @@ int refal_translate_module_to_bytecode(
    return -1;
 }
 
+// Состояние лексического анализатора.
+enum lexer_state {
+   lex_leadingspace,    // Пробелы в начале строки.
+   lex_whitespace,      // Пробелы после лексемы.
+   lex_comment_line,    // Строка комментария, начинается со *
+   lex_comment_c,       // Комментарии в стиле C /* */
+   lex_string_quoted,   // Знаковая строка в одинарных кавычках.
+   lex_string_dquoted,  // Знаковая строка в двойных кавычках.
+   lex_number,          // Целое число.
+   lex_identifier,      // Идентификатор (имя функции).
+};
+
+struct lexer {
+
+   enum lexer_state  state;
+
+   FILE        *src;
+
+   // Здесь храним обрабатываемый исходный текст для сообщений об ошибках.
+   // Поскольку определение идентификаторов возможно после их использование,
+   // и после первого прохода производится дополнительный, сохраняется
+   // весь входной поток целиком.
+   struct wstr buf;
+
+   // Начало текущей строки в буфере.
+   wstr_index  line;
+
+   // При сканировании лексем "число" здесь накапливается результат.
+   rf_int      number;
+
+   // Идентификаторы заносятся в таблицу символов параллельно разбору исходного
+   // текста. Здесь хранится текущий добавленный в префиксное дерево узел.
+   rtrie_index node;
+
+   // Последний узел глобального идентификатора (текущей функции).
+   // Используется как корень для локальных (переменных)
+   // и для возможности изменить тип функции (с пустой на вычислимую).
+   rtrie_index ident;
+
+   // Первый символ идентификатора в массиве атомов.
+   // Используются при импорте и встраивании ссылки на имя функции в байткод.
+   wstr_index  id_begin;
+   // Начало строки в буфере и позиция в исходном тексте для диагностики.
+   wstr_index  id_line;
+   unsigned    id_pos;
+   unsigned    id_line_num;
+
+   // Номер текущей строки.
+   unsigned    line_num;
+
+   // Номер символа в строке исходника. Используется с двумя целями:
+   // 1. Адресация во входном буфере относительно начала строки;
+   //    здесь значение соотвествует требованиям к индексам, отсчёт идёт от 0.
+   // 2. Вывод сообщений (в т.ч. копией в id_pos) об ошибках наряду с line_num;
+   //    в таком случае нумерация символов начинается с 1, а значение
+   //    обычно подходит, поскольку pos указывает на последующий символ.
+   unsigned    pos;
+};
+
+static inline
+void lexer_init(struct lexer* lex, FILE *src)
+{
+   wstr_alloc(&lex->buf, 1024);
+   lex->state    = lex_leadingspace;
+   lex->src      = src;
+   lex->number   = 0;
+   lex->node     = 0;
+   lex->ident    = 0;
+   lex->id_begin = 0;
+   lex->id_line  = 0;
+   lex->id_pos   = 0;
+   lex->id_line_num = 0;
+   lex->line_num = 0;
+   lex->pos      = 0;
+}
+
+static inline
+void lexer_free(struct lexer *lex)
+{
+   wstr_free(&lex->buf);
+}
+
+/**
+ * В первой строке могут быть символы #!, тогда игнорируем её.
+ */
+static inline
+void lexer_check_hashbang(struct lexer *lex)
+{
+   wint_t wc = fgetwc(lex->src);
+   if (wc == '#')
+      lex->state = lex_comment_line;
+   else
+      ungetwc(wc, lex->src);
+}
+
+/**
+ * При выводе сообщений об ошибках требуется строка целиком.
+ *
+ * return -1 при ошибке; 0 при завершении файла; 1 при наличии данных для анализа.
+ */
+static inline
+int lexer_next_line(struct lexer *lex, struct refal_message *st)
+{
+   lex->line_num++;
+   lex->pos = 0;
+
+   // Исключаем второй символ возможных '\r' '\n' для совместимости.
+   // Для простоты разбора (и что бы не проверять возможный выход за буфер
+   // при чтении следующего символа) гарантируем перенос строки в конце.
+   lex->line = lex->buf.free;
+   wint_t wc;
+   while (1) {
+      if ((wc = fgetwc(lex->src)) == WEOF) {
+         if (lex->line == lex->buf.free)
+            return 0;
+         wc = '\n';
+      }
+      wstr_append(&lex->buf, wc);
+      if (!wstr_check(&lex->buf, st))
+         return -1;
+      if (wc == '\n')
+         break;
+      if (wc == '\r') {
+         wc = fgetwc(lex->src);
+         if (wc != '\n' && wc != WEOF)
+            ungetwc(wc, lex->src);
+         break;
+      }
+   }
+   return 1;
+}
+
+static inline
+wchar_t lexer_next_char(struct lexer *lex)
+{
+   return lex->buf.s[lex->line + lex->pos++];
+}
 
 int refal_translate_istream_to_bytecode(
       struct refal_translator_config   *cfg,
@@ -96,33 +233,6 @@ int refal_translate_istream_to_bytecode(
 {
    // Сообщение об ошибке при завершении.
    const char *error = NULL;
-
-   // Здесь храним обрабатываемый исходный текст для сообщений об ошибках.
-   // Поскольку определение идентификаторов возможно после их использование,
-   // и после первого прохода производится дополнительный, сохраняется
-   // весь входной поток целиком.
-   struct wstr buf;
-   wstr_alloc(&buf, 1024);
-
-   // При сканировании лексем "число" здесь накапливается результат.
-   rf_int number = 0;
-
-   // Идентификаторы заносятся в таблицу символов параллельно разбору исходного
-   // текста. Здесь хранится текущий добавленный в префиксное дерево узел.
-   rtrie_index node = 0;
-
-   // Последний узел глобального идентификатора (текущей функции).
-   // Используется как корень для локальных (переменных)
-   // и для возможности изменить тип функции (с пустой на вычислимую).
-   rtrie_index ident = 0;
-
-   // Первый символ идентификатора в массиве атомов.
-   // Используются при импорте и встраивании ссылки на имя функции в байткод.
-   wstr_index  id_begin = 0;
-   // Начало строки в буфере и позиция в исходном тексте для диагностики.
-   wstr_index  id_line  = 0;
-   unsigned    id_pos   = 0;
-   unsigned    id_line_num = 0;
 
    // Пространство имён текущего импортируемого модуля.
    // Кроме того, идентификатор модуля может встречаться и в выражениях,
@@ -235,63 +345,20 @@ int refal_translate_istream_to_bytecode(
       ss_expression,
    } semantic = ss_source;
 
-   // Состояние лексического анализатора.
-   enum {
-      lex_leadingspace,    // Пробелы в начале строки.
-      lex_whitespace,      // Пробелы после лексемы.
-      lex_comment_line,    // Строка комментария, начинается со *
-      lex_comment_c,       // Комментарии в стиле C /* */
-      lex_string_quoted,   // Знаковая строка в одинарных кавычках.
-      lex_string_dquoted,  // Знаковая строка в двойных кавычках.
-      lex_number,          // Целое число.
-      lex_identifier,      // Идентификатор (имя функции).
-   } lexer  = lex_leadingspace;
+   struct lexer lex;
+   lexer_init(&lex, src);
 
-   unsigned line_num = 0;     // номер текущей строки
-
-   // В первой строке могут быть символы #!, тогда игнорируем её.
-   wint_t wc = fgetwc(src);
-   if (wc == '#')
-      lexer = lex_comment_line;
-   else
-      ungetwc(wc, src);
+   lexer_check_hashbang(&lex);
 
 next_line:
-   ++line_num;
-
-   // При выводе сообщений об ошибках требуется строка целиком.
-   // Исключаем второй символ возможных '\r' '\n' для совместимости.
-   // Для простоты разбора (и что бы не проверять возможный выход за буфер
-   // при чтении следующего символа) гарантируем перенос строки в конце.
-   wstr_index line = buf.free;
-   while (1) {
-      if ((wc = fgetwc(src)) == WEOF) {
-         if (line == buf.free)
-            goto complete;
-         wc = '\n';
-      }
-      wstr_append(&buf, wc);
-      if (!wstr_check(&buf, st))
-         goto cleanup;
-      if (wc == '\n')
-         break;
-      if (wc == '\r') {
-         wc = fgetwc(src);
-         if (wc != '\n' && wc != WEOF)
-            ungetwc(wc, src);
-         break;
-      }
+   switch(lexer_next_line(&lex, st)) {
+   case -1: goto cleanup;
+   case  0: goto complete;
+   case  1: break;
    }
-   // Номер символа в строке исходника. Используется с двумя целями:
-   // 1. Адресация во входном буфере относительно начала строки;
-   //    здесь значение соотвествует требованиям к индексам, отсчёт идёт от 0.
-   // 2. Вывод сообщений (в т.ч. копией в id_pos) об ошибках наряду с line_num;
-   //    в таком случае нумерация символов начинается с 1, а значение
-   //    обычно подходит, поскольку pos указывает на последующий символ.
-   unsigned pos = 0;
 
 next_char: ;
-   wchar_t chr = buf.s[line + pos++];
+   wchar_t chr = lexer_next_char(&lex);
 
 current_char:
    switch (chr) {
@@ -308,7 +375,7 @@ current_char:
 
    case '\t':  //TODO pos += 7;
    case ' ':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_leadingspace:
       case lex_whitespace:
       case lex_comment_c:
@@ -318,21 +385,21 @@ current_char:
       case lex_string_dquoted:
          goto lexem_string;
       case lex_number:
-         rf_alloc_int(vm, number);
-         lexer = lex_whitespace;
+         rf_alloc_int(vm, lex.number);
+         lex.state = lex_whitespace;
          goto next_char;
       case lex_identifier:
          // Ветка определяет идентификатор, а обработку текущего символа
          // производит последующим переходом на current_char.
 lexem_identifier_complete:
-         lexer = lex_whitespace;
+         lex.state = lex_whitespace;
          switch (semantic) {
          case ss_identifier:  // TODO 2 идентификатора подряд?
             assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
          case ss_source:
             wstr_append(&vm->id, L'\0');
             semantic = ss_identifier;
-            ident = node;
+            lex.ident = lex.node;
             // Функции определяются во множестве мест, вынесено сюда.
             // Производить определение функций здесь возможно, но придётся
             // распознавать ситуацию с импортом модуля, идентификатор которого
@@ -346,11 +413,11 @@ lexem_identifier_complete:
                error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
                goto cleanup;
             }
-            if (ids->n[node].val.tag != rft_undefined) {
+            if (ids->n[lex.node].val.tag != rft_undefined) {
                error = "импортируемый идентификатор уже определён";
                goto cleanup;
             }
-            ids->n[node].val = ids->n[import_node].val;
+            ids->n[lex.node].val = ids->n[import_node].val;
             goto current_char;
          case ss_pattern:
             assert(!cmd_exec[ep]);
@@ -362,12 +429,12 @@ lexem_identifier_complete:
                   error = "превышен лимит переменных";
                   goto cleanup;
                }
-               if (ids->n[node].val.tag == rft_undefined) {
+               if (ids->n[lex.node].val.tag == rft_undefined) {
                   var[local].opcode = 0;
-                  ids->n[node].val.tag   = rft_enum;
-                  ids->n[node].val.value = local++;
+                  ids->n[lex.node].val.tag   = rft_enum;
+                  ids->n[lex.node].val.value = local++;
                }
-               rf_alloc_value(vm, ids->n[node].val.value, id_type);
+               rf_alloc_value(vm, ids->n[lex.node].val.value, id_type);
                goto current_char;
             case id_global:
                goto lexem_identifier_complete_global;
@@ -377,41 +444,41 @@ lexem_identifier_complete:
             case id_svar:
             case id_tvar:
             case id_evar:
-               if (ids->n[node].val.tag == rft_undefined) {
+               if (ids->n[lex.node].val.tag == rft_undefined) {
                   goto error_identifier_undefined;
                }
                // При первом вхождении создаём переменную и запоминаем её индекс.
                // При следующем вхождении устанавливаем значение tag2 по
                // сохранённому индексу, а индекс заменяем на текущий.
-               rf_index id = ids->n[node].val.value;
+               rf_index id = ids->n[lex.node].val.value;
                if (id_type != id_svar && var[id].opcode) {
                   vm->u[var[id].opcode].tag2 = 1;
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                   if (cfg && cfg->notice_copy) {
                      performance(st, "создаётся копия переменной", var[id].line,
-                                     var[id].pos, &buf.s[var[id].src], &buf.s[buf.free]);
+                                     var[id].pos, &lex.buf.s[var[id].src], &lex.buf.s[lex.buf.free]);
                   }
 #endif
                }
                var[id].opcode = rf_alloc_value(vm, id, id_type);
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
-               var[id].src  = line;
-               var[id].line = line_num;
-               var[id].pos  = pos - 1;
+               var[id].src  = lex.line;
+               var[id].line = lex.line_num;
+               var[id].pos  = lex.pos - 1;
 #endif
                goto current_char;
             case id_global:
                break;
             }
 lexem_identifier_complete_global:
-            if (node < 0) {
+            if (lex.node < 0) {
                assert(imports);
                goto error_no_identifier_in_module;
             }
-            if (ids->n[node].val.tag != rft_undefined) {
+            if (ids->n[lex.node].val.tag != rft_undefined) {
                // Если открыта вычислительная скобка, задаём ей адрес
                // первой вычислимой функции из выражения.
-               if (ids->n[node].val.tag != rft_enum && cmd_exec[ep]
+               if (ids->n[lex.node].val.tag != rft_enum && cmd_exec[ep]
                && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
                   // Если в поле действия данной скобки встретился идентификатор,
                   // который на данный момент не определён, не известно,
@@ -421,20 +488,20 @@ lexem_identifier_complete_global:
                   // неопределённые на данном проходе идентификаторы.
                   if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).value)
                      goto lexem_identifier_undefined;
-                  vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[node].val);
+                  vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[lex.node].val);
                   imports = 0;
                }
                // rft_enum и нулевое значение означают идентификатор модуля.
                // Используем соответствующую ветку для поиска следующего идентификатора.
-               else if (ids->n[node].val.tag == rft_enum && !ids->n[node].val.value) {
+               else if (ids->n[lex.node].val.tag == rft_enum && !ids->n[lex.node].val.value) {
                   assert(!imports);
-                  imports = rtrie_find_next(ids, node, ' ');
-                  id_line = line;
-                  id_pos  = pos - 1;
-                  id_line_num = line_num;
+                  imports = rtrie_find_next(ids, lex.node, ' ');
+                  lex.id_line = lex.line;
+                  lex.id_pos  = lex.pos - 1;
+                  lex.id_line_num = lex.line_num;
                   assert(imports > 0);
                } else {
-                  rf_alloc_value(vm, rtrie_val_to_raw(ids->n[node].val), rf_identifier);
+                  rf_alloc_value(vm, rtrie_val_to_raw(ids->n[lex.node].val), rf_identifier);
                   imports = 0;
                }
             } else {
@@ -443,7 +510,7 @@ lexem_identifier_undefined:
                   goto error_no_identifier_in_module;
                }
                // После первого прохода поищем, не появилось ли определение.
-               rf_alloc_value(vm, node, rf_undefined);
+               rf_alloc_value(vm, lex.node, rf_undefined);
                rf_index l = rf_alloc_value(vm, 0, rf_undefined);
                if (!undefined_fist)
                   undefined_fist = l;
@@ -460,9 +527,9 @@ lexem_identifier_undefined:
                   vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(f);
                }
                // На случай ошибки.
-               rf_alloc_value(vm, line_num, rf_undefined);
-               rf_alloc_value(vm, pos - 1, rf_undefined);
-               rf_alloc_value(vm, line, rf_undefined);
+               rf_alloc_value(vm, lex.line_num, rf_undefined);
+               rf_alloc_value(vm, lex.pos - 1, rf_undefined);
+               rf_alloc_value(vm, lex.line, rf_undefined);
             }
             goto current_char;
          } // case lex_identifier: switch (semantic)
@@ -471,13 +538,13 @@ lexem_identifier_undefined:
    // Конец строки.
    case '\r':  // возможный последующий '\n' не сохраняется в буфере.
    case '\n':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_number:
-         rf_alloc_int(vm, number);
+         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
       case lex_comment_line:
-         lexer = lex_leadingspace;
+         lex.state = lex_leadingspace;
       case lex_comment_c:
          goto next_line;
       case lex_string_quoted:
@@ -502,14 +569,14 @@ lexem_identifier_undefined:
    // TODO последовательность */ без предшествующей /* воспринимается как
    //      однострочный комментарий.
    case '*':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_leadingspace:
-         lexer = lex_comment_line;
+         lex.state = lex_comment_line;
          goto next_char;
       case lex_comment_c:
-         if (buf.s[line + pos] == '/') {
-            ++pos;
-            lexer = lex_whitespace;
+         if (lex.buf.s[lex.line + lex.pos] == '/') {
+            ++lex.pos;
+            lex.state = lex_whitespace;
          }
          goto next_char;
       case lex_comment_line:
@@ -534,17 +601,17 @@ lexem_identifier_undefined:
    ///     // Одна строка с комментарием.
 
    case '/':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_leadingspace:
       case lex_whitespace:
-         switch(buf.s[line + pos]) {
+         switch(lex.buf.s[lex.line + lex.pos]) {
          case '/':
-            ++pos;
-            lexer = lex_comment_line;
+            ++lex.pos;
+            lex.state = lex_comment_line;
             goto next_char;
          case '*':
-            ++pos;
-            lexer = lex_comment_c;
+            ++lex.pos;
+            lex.state = lex_comment_c;
             goto next_char;
          default:
             goto symbol;
@@ -572,7 +639,7 @@ lexem_identifier_undefined:
    /// _простую функцию_ (не имеет альтернативных предложений).
 
    case '=':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -582,7 +649,7 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);
+         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -593,15 +660,15 @@ lexem_identifier_undefined:
          case ss_identifier:
 #define DEFINE_SIMPLE_FUNCTION                           \
             assert(function_block == 0);                 \
-            if (ids->n[ident].val.tag != rft_undefined)  \
+            if (ids->n[lex.ident].val.tag != rft_undefined)  \
                goto error_identifier_already_defined;    \
-            ids->n[ident].val.value = vm->free;          \
-            ids->n[ident].val.tag   = rft_byte_code;
+            ids->n[lex.ident].val.value = vm->free;          \
+            ids->n[lex.ident].val.tag   = rft_byte_code;
 
             DEFINE_SIMPLE_FUNCTION;
             // Содержит ссылку на таблицу атомов.
-            rf_alloc_value(vm, id_begin, rf_equal);
-            lexer = lex_whitespace;
+            rf_alloc_value(vm, lex.id_begin, rf_equal);
+            lex.state = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
          case ss_pattern:
@@ -610,17 +677,17 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, id_line_num, id_pos, &buf.s[id_line], &buf.s[buf.free]);
+               warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
                imports = 0;
             }
-            if (ids->n[ident].val.tag == rft_enum) {
+            if (ids->n[lex.ident].val.tag == rft_enum) {
                assert(cmd_sentence);
-               ids->n[ident].val.tag   = rft_byte_code;
-               ids->n[ident].val.value = vm->u[cmd_sentence].prev;
+               ids->n[lex.ident].val.tag   = rft_byte_code;
+               ids->n[lex.ident].val.value = vm->u[cmd_sentence].prev;
             }
             // TODO проверить скобки ().
             rf_alloc_command(vm, rf_equal);
-            lexer = lex_whitespace;
+            lex.state = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
          case ss_expression:
@@ -637,7 +704,7 @@ lexem_identifier_undefined:
 
    // Начинает блок (перечень предложений) функции.
    case '{':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -658,7 +725,7 @@ lexem_identifier_undefined:
             goto error_incorrect_import;
          case ss_identifier:
             assert(function_block == 0);
-            if (ids->n[node].val.tag != rft_undefined) {
+            if (ids->n[lex.node].val.tag != rft_undefined) {
                goto error_identifier_already_defined;
             }
             // Предварительно считаем функцию невычислимой.
@@ -666,12 +733,12 @@ lexem_identifier_undefined:
             // Такой подход приводит к расходу двух лишних ячеек, однако,
             // вряд ли стоит переусложнять код - кому нужны пустые функции,
             // наверняка предпочтёт краткую запись: ид;
-            rf_alloc_value(vm, id_begin, rf_nop_name);
+            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
             cmd_sentence = rf_alloc_command(vm, rf_sentence);
-            assert(ident == node);
-            ids->n[node].val.tag   = rft_enum;
-            ids->n[node].val.value = id_begin;
-            lexer = lex_whitespace;
+            assert(lex.ident == lex.node);
+            ids->n[lex.node].val.tag   = rft_enum;
+            ids->n[lex.node].val.value = lex.id_begin;
+            lex.state = lex_whitespace;
             semantic = ss_pattern;
             ++idc;
             ++function_block;
@@ -686,7 +753,7 @@ lexem_identifier_undefined:
       }
 
    case '}':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -696,8 +763,8 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);
-         lexer = lex_whitespace;
+         rf_alloc_int(vm, lex.number);
+         lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -750,7 +817,7 @@ lexem_identifier_undefined:
    /// эквивалентны.
 
    case '<':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -760,7 +827,7 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);
+         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -778,17 +845,17 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, id_line_num, id_pos, &buf.s[id_line], &buf.s[buf.free]);
+               warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
                imports = 0;
             }
             cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
-            lexer = lex_whitespace;
+            lex.state = lex_whitespace;
             goto next_char;
          }
       }
 
    case '>':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -798,7 +865,7 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);
+         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -816,7 +883,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, id_line_num, id_pos, &buf.s[id_line], &buf.s[buf.free]);
+               warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
                imports = 0;
             }
             assert(ep > 0);
@@ -833,7 +900,7 @@ lexem_identifier_undefined:
                vm->u[cmd_exec[ep]].data = ec;
             }
             cmd_exec[ep--] = 0;
-            lexer = lex_whitespace;
+            lex.state = lex_whitespace;
             goto next_char;
          }
       }
@@ -844,7 +911,7 @@ lexem_identifier_undefined:
    /// рассматриваться как единое целое, или _терм_.
 
    case '(':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -854,7 +921,7 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);
+         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -864,7 +931,7 @@ lexem_identifier_undefined:
             goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_value(vm, id_begin, rf_nop_name);
+            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
@@ -873,13 +940,13 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-            lexer = lex_whitespace;
+            lex.state = lex_whitespace;
             goto next_char;
          }
       }
 
    case ')':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -889,7 +956,7 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);
+         rf_alloc_int(vm, lex.number);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -906,7 +973,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
-            lexer = lex_whitespace;
+            lex.state = lex_whitespace;
             goto next_char;
          }
       }
@@ -921,7 +988,7 @@ lexem_identifier_undefined:
    /// идентификатора, определяя пустую функцию.
 
    case ';':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -931,8 +998,8 @@ lexem_identifier_undefined:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);
-         lexer = lex_whitespace;
+         rf_alloc_int(vm, lex.number);
+         lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -944,12 +1011,12 @@ lexem_identifier_undefined:
             goto next_char;
          // Идентификатор пустой функции (ENUM в Refal-05).
          case ss_identifier:
-            if (ids->n[node].val.tag != rft_undefined) {
+            if (ids->n[lex.node].val.tag != rft_undefined) {
                goto error_identifier_already_defined;
             }
-            ids->n[node].val.tag   = rft_enum;
-            ids->n[node].val.value = id_begin;
-            lexer = lex_whitespace;
+            ids->n[lex.node].val.tag   = rft_enum;
+            ids->n[lex.node].val.value = lex.id_begin;
+            lex.state = lex_whitespace;
             semantic = ss_source;
             goto next_char;
          case ss_pattern:
@@ -966,7 +1033,7 @@ sentence_complete:
                goto cleanup;
             }
             if (imports) {
-               warning(st, redundant_module_id, id_line_num, id_pos, &buf.s[id_line], &buf.s[buf.free]);
+               warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
                imports = 0;
             }
             rf_index sentence_complete;
@@ -1015,7 +1082,7 @@ sentence_complete:
    ///
    ///     ИмяМодуля: функция1 функция2;
    case ':':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_comment_c:
       case lex_comment_line:
          goto next_char;
@@ -1025,8 +1092,8 @@ sentence_complete:
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
-         rf_alloc_int(vm, number);  //TODO 123: ?
-         lexer = lex_whitespace;
+         rf_alloc_int(vm, lex.number);  //TODO 123: ?
+         lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1039,25 +1106,25 @@ sentence_complete:
             goto error_incorrect_import;
          // Идентификатор внешнего модуля.
          case ss_identifier:
-            switch (ids->n[node].val.tag) {
+            switch (ids->n[lex.node].val.tag) {
             case rft_machine_code:
             case rft_byte_code:
                goto error_identifier_already_defined;
             case rft_enum:
-               if (ids->n[node].val.value)
+               if (ids->n[lex.node].val.value)
                   goto error_identifier_already_defined;
                // Если идентификатор определён со значением 0, значит трансляция
                // модуля уже выполнена. Импортируем идентификаторы.
-               imports = rtrie_find_next(ids, node, ' ');
+               imports = rtrie_find_next(ids, lex.node, ' ');
                assert(!(imports < 0));
                semantic = ss_import;
                goto next_char;
             case rft_undefined:
                break;
             }
-            ids->n[node].val.tag   = rft_enum;
-            ids->n[node].val.value = 0;
-            lexer = lex_whitespace;
+            ids->n[lex.node].val.tag   = rft_enum;
+            ids->n[lex.node].val.value = 0;
+            lex.state = lex_whitespace;
             // Имя модуля внесено в текущее пространство имён, что гарантирует
             // отсутствие иного одноимённого идентификатора и даёт возможность
             // квалифицированного (именем модуля) поиска идентификаторов.
@@ -1075,23 +1142,23 @@ sentence_complete:
             // дублируется в глобальном пространстве и в узел "пробел" копируется
             // соответствующий ему из пространства модуля, что обеспечит
             // единообразный импорт идентификаторов модуля.
-            imports = rtrie_insert_next(ids, node, ' ');
+            imports = rtrie_insert_next(ids, lex.node, ' ');
             if (module) {
-               const wchar_t *mn = &vm->id.s[id_begin];
-               node = rtrie_insert_at(ids, 0, *mn);
+               const wchar_t *mn = &vm->id.s[lex.id_begin];
+               lex.node = rtrie_insert_at(ids, 0, *mn);
                while (*(++mn))
-                  node = rtrie_insert_next(ids, node, *mn);
-               node = rtrie_find_next(ids, node, ' ');
-               if (node > 0) {
+                  lex.node = rtrie_insert_next(ids, lex.node, *mn);
+               lex.node = rtrie_find_next(ids, lex.node, ' ');
+               if (lex.node > 0) {
                   semantic = ss_import;
-                  ids->n[imports] = ids->n[node];
+                  ids->n[imports] = ids->n[lex.node];
                   goto next_char;
                }
                // Сейчас это мёртвая ветка.
-               node = rtrie_insert_next(ids, node, ' ');
+               lex.node = rtrie_insert_next(ids, lex.node, ' ');
             }
             int r = refal_translate_module_to_bytecode(cfg, vm, ids, imports,
-                                                      &vm->id.s[id_begin], st);
+                                                      &vm->id.s[lex.id_begin], st);
             if (r < 0) {
                error = "исходный текст модуля недоступен";
                goto cleanup;
@@ -1133,10 +1200,10 @@ sentence_complete:
    // Начинает и заканчивает строку знаковых символов.
    case '"':
    case '\'':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_number:
-         rf_alloc_int(vm, number);
-         lexer = chr == '"' ? lex_string_dquoted : lex_string_quoted;
+         rf_alloc_int(vm, lex.number);
+         lex.state = chr == '"' ? lex_string_dquoted : lex_string_quoted;
          goto next_char;
       case lex_leadingspace:
       case lex_whitespace:
@@ -1147,24 +1214,24 @@ sentence_complete:
             goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_value(vm, id_begin, rf_nop_name);
+            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
-            lexer = chr == '"' ? lex_string_dquoted : lex_string_quoted;
+            lex.state = chr == '"' ? lex_string_dquoted : lex_string_quoted;
             goto next_char;
          }
       case lex_string_dquoted:
       case lex_string_quoted:
-         if ((lexer == lex_string_dquoted && chr == '\'')
-          || (lexer == lex_string_quoted && chr == '"'))
+         if ((lex.state == lex_string_dquoted && chr == '\'')
+          || (lex.state == lex_string_quoted && chr == '"'))
             goto lexem_string;
          // Кавычка внутри строки кодируется сдвоенной, иначе завершает строку.
-         if (buf.s[line + pos] == chr) {
-            ++pos;
+         if (lex.buf.s[lex.line + lex.pos] == chr) {
+            ++lex.pos;
             goto lexem_string;
          }
-         lexer = lex_whitespace;
+         lex.state = lex_whitespace;
          goto next_char;
       case lex_comment_c:
       case lex_comment_line:
@@ -1184,7 +1251,7 @@ sentence_complete:
 
    // Начало целого числа, либо продолжение идентификатора.
    case '0'...'9':
-      switch (lexer) {
+      switch (lex.state) {
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1195,18 +1262,18 @@ sentence_complete:
             goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_value(vm, id_begin, rf_nop_name);
+            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
-            lexer = lex_number;
-            number = chr - '0';
+            lex.state = lex_number;
+            lex.number = chr - '0';
             goto next_char;
          }
       case lex_number:
-         number = number * 10 + (chr - '0');
-         if (number < (chr - '0')) {
-            warning(st, "целочисленное переполнение", line_num, pos, &buf.s[line], &buf.s[buf.free]);
+         lex.number = lex.number * 10 + (chr - '0');
+         if (lex.number < (chr - '0')) {
+            warning(st, "целочисленное переполнение", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
          }
          goto next_char;
       case lex_string_quoted:
@@ -1233,30 +1300,30 @@ sentence_complete:
    // Оставшиеся символы считаются допустимыми для идентификаторов.
    default:
 symbol:
-      switch (lexer) {
+      switch (lex.state) {
       case lex_number:
          // TODO символ после цифры?
          // Может быть частью шестнадцатеричного числа, что пока не поддержано.
-         rf_alloc_int(vm, number);
-         warning(st, "идентификаторы следует отделять от цифр пробелом", line_num, pos, &buf.s[line], &buf.s[buf.free]);
+         rf_alloc_int(vm, lex.number);
+         warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
       case lex_leadingspace:
       case lex_whitespace:
-         lexer = lex_identifier;
+         lex.state = lex_identifier;
          switch (semantic) {
          // Перечисленные после имени модуля идентификаторы импортируются,
          // для чего ищутся в модуле и определяются в текущей области видимости.
          case ss_import:
             import_node = rtrie_find_at(ids, imports, chr);
          case ss_source:
-            node = rtrie_insert_at(ids, module, chr);
-            id_begin = wstr_append(&vm->id, chr);
-            id_line = line;
-            id_pos  = pos - 1;
-            id_line_num = line_num;
+            lex.node = rtrie_insert_at(ids, module, chr);
+            lex.id_begin = wstr_append(&vm->id, chr);
+            lex.id_line = lex.line;
+            lex.id_pos  = lex.pos - 1;
+            lex.id_line_num = lex.line_num;
             goto next_char;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_value(vm, id_begin, rf_nop_name);
+            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
             // Возможно объявление и использование переменных.
@@ -1282,11 +1349,11 @@ symbol:
             case 's':
                id_type = id_svar;
 lexem_identifier_local_pat_check:
-               if (buf.s[line + pos] == '.') {
-                  ++pos;
+               if (lex.buf.s[lex.line + lex.pos] == '.') {
+                  ++lex.pos;
 lexem_identifier_local_pat:
-                  node = rtrie_insert_next(ids, ident, idc);
-                  node = rtrie_insert_next(ids, node, chr);
+                  lex.node = rtrie_insert_next(ids, lex.ident, idc);
+                  lex.node = rtrie_insert_next(ids, lex.node, chr);
                   goto next_char;
                }
             default:
@@ -1314,12 +1381,12 @@ lexem_identifier_local_pat:
             case 's':
                id_type = id_svar;
 lexem_identifier_local_exp_check:
-               if (buf.s[line + pos] == '.') {
-                 ++pos;
+               if (lex.buf.s[lex.line + lex.pos] == '.') {
+                 ++lex.pos;
 lexem_identifier_local_exp:
-                  node = rtrie_find_next(ids, ident, idc);
-                  node = rtrie_find_next(ids, node, chr);
-                  if (node < 0) {
+                  lex.node = rtrie_find_next(ids, lex.ident, idc);
+                  lex.node = rtrie_find_next(ids, lex.node, chr);
+                  if (lex.node < 0) {
                      goto error_identifier_undefined;
                   }
                   goto next_char;
@@ -1329,11 +1396,11 @@ lexem_identifier_global:
                id_type = id_global;
                if (imports) {
                   // Ищем в пространстве имён другого модуля.
-                  node = rtrie_find_at(ids, imports, chr);
+                  lex.node = rtrie_find_at(ids, imports, chr);
                } else {
                   // Если идентификатор не существует, добавляем.
                   // После первого прохода проверим, не появилось ли определение.
-                  node = rtrie_insert_at(ids, module, chr);
+                  lex.node = rtrie_insert_at(ids, module, chr);
                }
                goto next_char;
             }
@@ -1344,7 +1411,7 @@ lexem_identifier:
          case ss_import:
             import_node = rtrie_find_next(ids, import_node, chr);
          case ss_source:
-            node = rtrie_insert_next(ids, node, chr);
+            lex.node = rtrie_insert_next(ids, lex.node, chr);
             wstr_append(&vm->id, chr);
             goto next_char;
          case ss_identifier:
@@ -1355,16 +1422,16 @@ lexem_identifier:
             case id_svar:
             case id_tvar:
             case id_evar:
-               node = rtrie_insert_next(ids, node, chr);
+               lex.node = rtrie_insert_next(ids, lex.node, chr);
                goto next_char;
             case id_global:
                break;
             }
          case ss_expression:
             if (imports) {
-               node = rtrie_find_next(ids, node, chr);
+               lex.node = rtrie_find_next(ids, lex.node, chr);
             } else {
-               node = rtrie_insert_next(ids, node, chr);
+               lex.node = rtrie_insert_next(ids, lex.node, chr);
             }
             goto next_char;
          }
@@ -1372,17 +1439,17 @@ lexem_identifier:
       case lex_string_dquoted:
 lexem_string:
          if (chr == '\\') {
-            switch (buf.s[line + pos]) {
+            switch (lex.buf.s[lex.line + lex.pos]) {
             case 't':
-               ++pos;
+               ++lex.pos;
                chr = '\t';
                break;
             case 'n':
-               ++pos;
+               ++lex.pos;
                chr = '\n';
                break;
             case 'r':
-               ++pos;
+               ++lex.pos;
                chr = '\r';
                break;
             default:
@@ -1404,9 +1471,9 @@ complete:
          error = "не завершено определение функции (пропущена } ?)";
       else
          error = "не завершено определение функции (пропущена ; ?)";
-      line = id_line;
-      pos  = id_pos + 1;
-      line_num = id_line_num;
+      lex.line = lex.id_line;
+      lex.pos  = lex.id_pos + 1;
+      lex.line_num = lex.id_line_num;
       goto cleanup;
    }
 
@@ -1432,11 +1499,11 @@ complete:
          } else if (ex) {
             continue;
          }
-         line_num = vm->u[s].num;
+         lex.line_num = vm->u[s].num;
          s = vm->u[s].next;
-         pos  = vm->u[s].num;
+         lex.pos  = vm->u[s].num;
          s = vm->u[s].next;
-         line = vm->u[s].num;
+         lex.line = vm->u[s].num;
          s = vm->u[s].next;
 
          // В результате трансляции rf_complete в данной позиции невозможен,
@@ -1452,7 +1519,7 @@ complete:
             if (ex)
                continue;
             if (cfg && cfg->warn_implicit_declaration) {
-               warning(st, "неявное определение идентификатора", line_num, pos, &buf.s[line], &buf.s[buf.free]);
+               warning(st, "неявное определение идентификатора", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
             }
             if (!(vm->id.free < enum_couner.value)) {
                critical_error(st, "исчерпан диапазон ENUM", vm->id.free, enum_couner.value);
@@ -1476,7 +1543,7 @@ complete:
                } else if (last_exec != exec_close) {
                   last_exec = exec_close;
                   syntax_error(st, "активное выражение должно содержать "
-                               "вычислимую функцию", line_num, pos, &buf.s[line], &buf.s[buf.free]);
+                               "вычислимую функцию", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
                }
             } else if (ex) {
                continue;
@@ -1491,9 +1558,9 @@ complete:
 cleanup:
    //TODO error = "неполный символ UTF-8"; "недействительный символ UTF-8";
    if (error)
-      syntax_error(st, error, line_num, pos, &buf.s[line], &buf.s[buf.free]);
+      syntax_error(st, error, lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
 
-   wstr_free(&buf);
+   lexer_free(&lex);
    //TODO количество ошибок не подсчитывается.
    return error ? 1 : 0;
 

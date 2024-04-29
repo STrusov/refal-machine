@@ -220,6 +220,51 @@ wchar_t lexer_next_char(struct lexer *lex)
 
 ///\page    Синтаксис
 ///\ingroup refal-syntax
+///\section Идентификаторы
+///
+/// Идентификаторы в РЕФАЛ-5 являются строкой алфавитно-цифровых знаков,
+/// начинающейся с буквы. Могут включать тире и подчёркивания (они являются
+/// эквивалентными).
+///
+/// В данной реализации идентификаторы могут содержать практически любые
+/// символы Уникода, включая знаки операций (кроме скобок, кавычек и прочих
+/// специальных знаков РЕФАЛ), тире и подчёркивание различаются (пока?).
+
+
+static inline
+void lexem_identifier(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
+      rtrie_index module, rtrie_index imports, rtrie_index *import_node,
+      struct refal_vm *vm, struct refal_message *st)
+{
+   lex->state   = lex_identifier;
+   lex->id_line = lex->line;
+   lex->id_pos  = lex->pos - 1;
+   lex->id_line_num = lex->line_num;
+   // Перечисленные после имени модуля идентификаторы импортируются,
+   // для чего ищутся в модуле и определяются в текущей области видимости.
+   if (!(imports < 0))
+      *import_node = rtrie_find_at(ids, imports, *chr);
+   lex->node = rtrie_insert_at(ids, module, *chr);
+   lex->id_begin = wstr_append(&vm->id, *chr);
+   while (1) {
+      *chr = lexer_next_char(lex);
+      switch (*chr) {
+      case '<':case '>':case '{':case '}':case '(':case ')':case '=':
+      case ' ':case '\t':case '\n':case '\r':case '\0':
+      case '"':case '\'':
+      case ';':case ':':case '/'://TODO //
+         return;
+      default: break;
+      }
+      if (!(imports < 0))
+         *import_node = rtrie_find_next(ids, *import_node, *chr);
+      lex->node = rtrie_insert_next(ids, lex->node, *chr);
+      wstr_append(&vm->id, *chr);
+   }
+}
+
+///\page    Синтаксис
+///\ingroup refal-syntax
 ///\section Строки
 ///
 /// Знаковые символы заключаются в одинарные или двойные кавычки.
@@ -1250,17 +1295,6 @@ sentence_complete:
          goto lexem_identifier;
       }
 
-   ///\page    Синтаксис
-   ///\section Идентификаторы
-   ///
-   /// Идентификаторы в РЕФАЛ-5 являются строкой алфавитно-цифровых знаков,
-   /// начинающейся с буквы. Могут включать тире и подчёркивания (они являются
-   /// эквивалентными).
-   ///
-   /// В данной реализации идентификаторы могут содержать практически любые
-   /// символы Юникода, включая знаки операций (кроме скобок, кавычек и прочих
-   /// специальных знаков РЕФАЛ), тире и подчёркивание различаются (пока?).
-
    // Оставшиеся символы считаются допустимыми для идентификаторов.
    default:
 symbol:
@@ -1273,17 +1307,12 @@ symbol:
       case lex_whitespace:
          lex.state = lex_identifier;
          switch (semantic) {
-         // Перечисленные после имени модуля идентификаторы импортируются,
-         // для чего ищутся в модуле и определяются в текущей области видимости.
          case ss_import:
-            import_node = rtrie_find_at(ids, imports, chr);
+            lexem_identifier(&lex, &chr, ids, module, imports, &import_node, vm, st);
+            goto lexem_identifier_complete;
          case ss_source:
-            lex.node = rtrie_insert_at(ids, module, chr);
-            lex.id_begin = wstr_append(&vm->id, chr);
-            lex.id_line = lex.line;
-            lex.id_pos  = lex.pos - 1;
-            lex.id_line_num = lex.line_num;
-            goto next_char;
+            lexem_identifier(&lex, &chr, ids, module, -1, &import_node, vm, st);
+            goto lexem_identifier_complete;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
             rf_alloc_value(vm, lex.id_begin, rf_nop_name);
@@ -1372,11 +1401,8 @@ lexem_identifier_global:
 lexem_identifier:
          switch (semantic) {
          case ss_import:
-            import_node = rtrie_find_next(ids, import_node, chr);
          case ss_source:
-            lex.node = rtrie_insert_next(ids, lex.node, chr);
-            wstr_append(&vm->id, chr);
-            goto next_char;
+            assert(0);
          case ss_identifier:
             goto error_identifier_odd;
          case ss_pattern:

@@ -89,8 +89,6 @@ int refal_translate_module_to_bytecode(
 enum lexer_state {
    lex_leadingspace,    // Пробелы в начале строки.
    lex_whitespace,      // Пробелы после лексемы.
-   lex_comment_line,    // Строка комментария, начинается со *
-   lex_comment_c,       // Комментарии в стиле C /* */
    lex_number,          // Целое число.
    lex_identifier,      // Идентификатор (имя функции).
 };
@@ -169,7 +167,7 @@ void lexer_check_hashbang(struct lexer *lex)
 {
    wint_t wc = fgetwc(lex->src);
    if (wc == '#')
-      lex->state = lex_comment_line;
+      ;//TODO lex->state = lex_comment_line;
    else
       ungetwc(wc, lex->src);
 }
@@ -325,6 +323,63 @@ void lexem_number(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
    rf_alloc_int(vm, number);
 }
 
+///\page    Синтаксис
+///\section Комментарии
+///\ingroup refal-syntax
+///
+/// В Базовом РЕФАЛ начинающиеся с символа `*` строки являются комментариями:
+///
+///      * Комментарий в стиле РЕФАЛ-5
+///
+/// В данной реализации `*` не обязательно должен располагаться в самом
+/// начале строки, допустимы предшествующие пробельные символы.
+///
+/// Можно использовать комментарии в стиле Си:
+///
+///      /*
+///         Комментарий
+///         в несколько строк
+///      */
+/// В дополнение к Базовому РЕФАЛ, поддерживаются однострочные комментарии:
+///
+///      // Одна строка с комментарием.
+
+/**
+ * Пропускает комментарий.
+ */
+static inline
+void lexem_comment(struct lexer *lex, wchar_t *chr, int multiline, struct refal_vm *vm, struct refal_message *st)
+{
+   while (1) {
+      *chr = lexer_next_char(lex);
+      switch(*chr) {
+      case '\r': case '\n':
+         switch(lexer_next_line(lex, st)) {
+         //TODO ошибку с буфером следует учесть.
+         case -1:
+            return;
+         case  0:
+            syntax_error(st, "не закрыт комментарий /* */", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
+            return;
+         case  1:
+            if (!multiline) {
+               lex->state = lex_leadingspace;
+               return;
+            }
+            break;
+         }
+         break;
+      case '*':
+         if (multiline && lex->buf.s[lex->line + lex->pos] == '/') {
+            ++lex->pos;
+            lex->state = lex_whitespace;
+            return;
+         }
+      default: break;
+      }
+   }
+}
+
 
 int refal_translate_istream_to_bytecode(
       struct refal_translator_config   *cfg,
@@ -471,8 +526,6 @@ current_char:
       switch (lex.state) {
       case lex_leadingspace:
       case lex_whitespace:
-      case lex_comment_c:
-      case lex_comment_line:
          goto next_char;
       case lex_number:
          lex.state = lex_whitespace;
@@ -631,23 +684,11 @@ lexem_identifier_undefined:
       case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
-      case lex_comment_line:
          lex.state = lex_leadingspace;
-      case lex_comment_c:
          goto next_line;
       case lex_identifier:
          goto lexem_identifier_complete;
       }
-
-   ///\section Комментарии
-   ///\ingroup refal-syntax
-   ///
-   /// В Базовом РЕФАЛ начинающиеся с символа `*` строки являются комментариями:
-   ///
-   ///     * Комментарий в стиле РЕФАЛ-5
-   ///
-   /// В данной реализации `*` не обязательно должен располагаться в самом
-   /// начале строки, допустимы предшествующие пробельные символы.
 
    // Начинает строку комментариев, либо может завершать комментарий в стиле Си.
    // TODO последовательность */ без предшествующей /* воспринимается как
@@ -655,31 +696,13 @@ lexem_identifier_undefined:
    case '*':
       switch (lex.state) {
       case lex_leadingspace:
-         lex.state = lex_comment_line;
-         goto next_char;
-      case lex_comment_c:
-         if (lex.buf.s[lex.line + lex.pos] == '/') {
-            ++lex.pos;
-            lex.state = lex_whitespace;
-         }
-         goto next_char;
-      case lex_comment_line:
+         lexem_comment(&lex, &chr, 0, vm, st);
          goto next_char;
       case lex_number:
       case lex_whitespace:
       case lex_identifier:
          goto symbol;
       }
-
-   /// Можно использовать комментарии в стиле Си:
-   ///
-   ///     /*
-   ///        Комментарий
-   ///        в несколько строк
-   ///     */
-   /// В дополнение к Базовому РЕФАЛ, поддерживаются однострочные комментарии:
-   ///
-   ///     // Одна строка с комментарием.
 
    case '/':
       switch (lex.state) {
@@ -688,11 +711,11 @@ lexem_identifier_undefined:
          switch(lex.buf.s[lex.line + lex.pos]) {
          case '/':
             ++lex.pos;
-            lex.state = lex_comment_line;
+            lexem_comment(&lex, &chr, 0, vm, st);
             goto next_char;
          case '*':
             ++lex.pos;
-            lex.state = lex_comment_c;
+            lexem_comment(&lex, &chr, 1, vm, st);
             goto next_char;
          default:
             goto symbol;
@@ -700,9 +723,6 @@ lexem_identifier_undefined:
       case lex_number:
       case lex_identifier:
          goto symbol;
-      case lex_comment_line:
-      case lex_comment_c:
-         goto next_char;
       }
 
    ///\section    Спец           Специальные знаки
@@ -718,9 +738,6 @@ lexem_identifier_undefined:
 
    case '=':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -779,9 +796,6 @@ lexem_identifier_undefined:
    // Начинает блок (перечень предложений) функции.
    case '{':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_number:
          // TODO Вложенные блоки пока не поддержаны.
          goto error_incorrect_function_definition;
@@ -825,9 +839,6 @@ lexem_identifier_undefined:
 
    case '}':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -885,9 +896,6 @@ lexem_identifier_undefined:
 
    case '<':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -919,9 +927,6 @@ lexem_identifier_undefined:
 
    case '>':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -971,9 +976,6 @@ lexem_identifier_undefined:
 
    case '(':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -1002,9 +1004,6 @@ lexem_identifier_undefined:
 
    case ')':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -1040,9 +1039,6 @@ lexem_identifier_undefined:
 
    case ';':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -1130,9 +1126,6 @@ sentence_complete:
    ///     ИмяМодуля: функция1 функция2;
    case ':':
       switch (lex.state) {
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       case lex_number:
@@ -1239,9 +1232,6 @@ sentence_complete:
             lexem_string(&lex, &chr, vm, st);
             goto next_char;
          }
-      case lex_comment_c:
-      case lex_comment_line:
-         goto next_char;
       case lex_identifier:
          goto lexem_identifier_complete;
       }
@@ -1268,9 +1258,6 @@ sentence_complete:
          }
       case lex_number:
          assert(0);
-         goto next_char;
-      case lex_comment_c:
-      case lex_comment_line:
          goto next_char;
       case lex_identifier:
          goto lexem_identifier;
@@ -1424,8 +1411,6 @@ lexem_identifier:
             }
             goto next_char;
          }
-      case lex_comment_c:
-      case lex_comment_line:
          goto next_char;
       }
    }

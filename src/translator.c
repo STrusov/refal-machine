@@ -85,6 +85,31 @@ int refal_translate_module_to_bytecode(
    return -1;
 }
 
+/**
+ * Читает поток в буфер.
+ * Для простоты разбора завершает L'\0'.
+ * Исключает второй символ возможных '\r' '\n' для совместимости.
+ */
+static inline
+void read_file(struct wstr *buf,  FILE *src)
+{
+   //TODO Хорошо бы заменять управляющие символы и Уникод переводы строки.
+   while (1) {
+      wint_t wc = fgetwc(src);
+      if (wc == WEOF)
+         wc = L'\0';
+      wstr_append(buf, wc);
+      if (wc == L'\0' || !wstr_check(buf, NULL))
+         return;
+      if (wc == '\r') {
+         wc = fgetwc(src);
+         if (wc != '\n' && wc != WEOF)
+            ungetwc(wc, src);
+      }
+   }
+}
+
+
 // Состояние лексического анализатора.
 enum lexer_state {
    lex_leadingspace,    // Пробелы в начале строки.
@@ -96,8 +121,6 @@ enum lexer_state {
 struct lexer {
 
    enum lexer_state  state;
-
-   FILE        *src;
 
    // Здесь храним обрабатываемый исходный текст для сообщений об ошибках.
    // Поскольку определение идентификаторов возможно после их использование,
@@ -140,9 +163,7 @@ struct lexer {
 static inline
 void lexer_init(struct lexer* lex, FILE *src)
 {
-   wstr_alloc(&lex->buf, 1024);
    lex->state    = lex_leadingspace;
-   lex->src      = src;
    lex->node     = 0;
    lex->ident    = 0;
    lex->id_begin = 0;
@@ -151,6 +172,10 @@ void lexer_init(struct lexer* lex, FILE *src)
    lex->id_line_num = 0;
    lex->line_num = 0;
    lex->pos      = 0;
+
+   wstr_alloc(&lex->buf, 1024);
+   lex->line = lex->buf.free;
+   read_file(&lex->buf, src);
 }
 
 static inline
@@ -165,48 +190,15 @@ void lexer_free(struct lexer *lex)
 static inline
 void lexer_check_hashbang(struct lexer *lex)
 {
-   wint_t wc = fgetwc(lex->src);
-   if (wc == '#')
-      ;//TODO lex->state = lex_comment_line;
-   else
-      ungetwc(wc, lex->src);
+   //TODO
 }
 
-/**
- * При выводе сообщений об ошибках требуется строка целиком.
- *
- * return -1 при ошибке; 0 при завершении файла; 1 при наличии данных для анализа.
- */
 static inline
-int lexer_next_line(struct lexer *lex, struct refal_message *st)
+void lexer_next_line(struct lexer *lex)
 {
+   lex->line += lex->pos;
    lex->line_num++;
    lex->pos = 0;
-
-   // Исключаем второй символ возможных '\r' '\n' для совместимости.
-   // Для простоты разбора (и что бы не проверять возможный выход за буфер
-   // при чтении следующего символа) гарантируем перенос строки в конце.
-   lex->line = lex->buf.free;
-   wint_t wc;
-   while (1) {
-      if ((wc = fgetwc(lex->src)) == WEOF) {
-         if (lex->line == lex->buf.free)
-            return 0;
-         wc = '\n';
-      }
-      wstr_append(&lex->buf, wc);
-      if (!wstr_check(&lex->buf, st))
-         return -1;
-      if (wc == '\n')
-         break;
-      if (wc == '\r') {
-         wc = fgetwc(lex->src);
-         if (wc != '\n' && wc != WEOF)
-            ungetwc(wc, lex->src);
-         break;
-      }
-   }
-   return 1;
 }
 
 static inline
@@ -353,20 +345,15 @@ void lexem_comment(struct lexer *lex, wchar_t *chr, int multiline, struct refal_
    while (1) {
       *chr = lexer_next_char(lex);
       switch(*chr) {
-      case '\r': case '\n':
-         switch(lexer_next_line(lex, st)) {
-         //TODO ошибку с буфером следует учесть.
-         case -1:
-            return;
-         case  0:
+      case '\0':
+         if (multiline)
             syntax_error(st, "не закрыт комментарий /* */", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
+         return;
+      case '\r': case '\n':
+         lexer_next_line(lex);
+         if (!multiline) {
+            lex->state = lex_leadingspace;
             return;
-         case  1:
-            if (!multiline) {
-               lex->state = lex_leadingspace;
-               return;
-            }
-            break;
          }
          break;
       case '*':
@@ -505,21 +492,21 @@ int refal_translate_istream_to_bytecode(
 
    struct lexer lex;
    lexer_init(&lex, src);
+   if (!wstr_check(&lex.buf, st))
+      goto cleanup;
 
    lexer_check_hashbang(&lex);
 
 next_line:
-   switch(lexer_next_line(&lex, st)) {
-   case -1: goto cleanup;
-   case  0: goto complete;
-   case  1: break;
-   }
+   lexer_next_line(&lex);
 
 next_char: ;
    wchar_t chr = lexer_next_char(&lex);
 
 current_char:
    switch (chr) {
+
+   case '\0': goto complete;
 
    case '\t':  //TODO pos += 7;
    case ' ':

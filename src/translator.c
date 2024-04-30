@@ -121,7 +121,6 @@ enum identifier_type {
 enum lexer_state {
    lex_leadingspace,    // Пробелы в начале строки.
    lex_whitespace,      // Пробелы после лексемы.
-   lex_number,          // Целое число.
 };
 
 enum lexem_type {
@@ -437,7 +436,6 @@ void lexem_string(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
 static inline
 void lexem_number(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct refal_message *st)
 {
-   lex->state = lex_number;
    rf_int   number = 0;
    while ((*chr >= '0') && (*chr <= '9')) {
       number = number * 10 + (*chr - '0');
@@ -640,9 +638,6 @@ current_char:
       case lex_leadingspace:
       case lex_whitespace:
          goto next_char;
-      case lex_number:
-         lex.state = lex_whitespace;
-         goto next_char;
 
          // Ветка определяет идентификатор, а обработку текущего символа
          // производит последующим переходом на current_char.
@@ -794,7 +789,6 @@ lexem_identifier_undefined:
    case '\r':  // возможный последующий '\n' не сохраняется в буфере.
    case '\n':
       switch (lex.state) {
-      case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
          lex.state = lex_leadingspace;
@@ -809,7 +803,6 @@ lexem_identifier_undefined:
       case lex_leadingspace:
          lexem_comment(&lex, &chr, 0, vm, st);
          goto next_char;
-      case lex_number:
       case lex_whitespace:
          goto symbol;
       }
@@ -830,8 +823,6 @@ lexem_identifier_undefined:
          default:
             goto symbol;
          }
-      case lex_number:
-         goto symbol;
       }
 
    ///\section    Спец           Специальные знаки
@@ -847,7 +838,6 @@ lexem_identifier_undefined:
 
    case '=':
       switch (lex.state) {
-      case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -903,9 +893,6 @@ lexem_identifier_undefined:
    // Начинает блок (перечень предложений) функции.
    case '{':
       switch (lex.state) {
-      case lex_number:
-         // TODO Вложенные блоки пока не поддержаны.
-         goto error_incorrect_function_definition;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -944,8 +931,6 @@ lexem_identifier_undefined:
 
    case '}':
       switch (lex.state) {
-      case lex_number:
-         lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -999,7 +984,6 @@ lexem_identifier_undefined:
 
    case '<':
       switch (lex.state) {
-      case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1028,7 +1012,6 @@ lexem_identifier_undefined:
 
    case '>':
       switch (lex.state) {
-      case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1075,7 +1058,6 @@ lexem_identifier_undefined:
 
    case '(':
       switch (lex.state) {
-      case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1101,7 +1083,6 @@ lexem_identifier_undefined:
 
    case ')':
       switch (lex.state) {
-      case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1134,8 +1115,6 @@ lexem_identifier_undefined:
 
    case ';':
       switch (lex.state) {
-      case lex_number:
-         lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1219,8 +1198,6 @@ sentence_complete:
    ///     ИмяМодуля: функция1 функция2;
    case ':':
       switch (lex.state) {
-      case lex_number:
-         lex.state = lex_whitespace;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1304,9 +1281,6 @@ sentence_complete:
    case '"':
    case '\'':
       switch (lex.state) {
-      case lex_number:
-         lexem_string(&lex, &chr, vm, st);
-         goto next_char;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -1343,21 +1317,16 @@ sentence_complete:
          case ss_pattern:
          case ss_expression:
             lexem_number(&lex, &chr, vm, st);
+            if (lex_type(chr) != L_whitespace && lex_type(chr) == L_uncpecified)
+               warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
             goto current_char;
          }
-      case lex_number:
-         assert(0);
-         goto next_char;
       }
 
    // Оставшиеся символы считаются допустимыми для идентификаторов.
    default:
 symbol:
       switch (lex.state) {
-      case lex_number:
-         // TODO символ после цифры?
-         // Может быть частью шестнадцатеричного числа, что пока не поддержано.
-         warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {

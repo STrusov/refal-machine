@@ -109,6 +109,13 @@ void read_file(struct wstr *buf,  FILE *src)
    }
 }
 
+// Тип текущего идентификатора.
+enum identifier_type {
+   id_global = rf_identifier, // Глобальная область видимости.
+   id_svar   = rf_svar,       // s-переменная (один символ).
+   id_tvar   = rf_tvar,       // t-переменная (s- либо выражение в скобках).
+   id_evar   = rf_evar,       // e-переменная (произвольное количество элементов.
+};
 
 // Состояние лексического анализатора.
 enum lexer_state {
@@ -140,6 +147,8 @@ struct lexer {
    // и для возможности изменить тип функции (с пустой на вычислимую).
    rtrie_index ident;
 
+   enum identifier_type id_type;
+
    // Первый символ идентификатора в массиве атомов.
    // Используются при импорте и встраивании ссылки на имя функции в байткод.
    wstr_index  id_begin;
@@ -165,6 +174,7 @@ void lexer_init(struct lexer* lex, FILE *src)
 {
    lex->state    = lex_leadingspace;
    lex->node     = 0;
+   lex->id_type  = id_global;
    lex->ident    = 0;
    lex->id_begin = 0;
    lex->id_line  = 0;
@@ -260,6 +270,61 @@ void lexem_identifier(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
          *import_node = rtrie_find_next(ids, *import_node, *chr);
       lex->node = rtrie_insert_next(ids, lex->node, *chr);
       wstr_append(&vm->id, *chr);
+   }
+}
+
+/**
+ * Обрабатывает идентификатор выражения-образца или -результата.
+ *
+ * Для импортируемых поиск происходит в пространстве имён соответствующего модуля.
+ * Глобальные идентификаторы не обязательно должны быть определены ранее;
+ * в таком случае вносятся в дерево для отложенного поиска.
+ *
+ * Локальные идентификаторы (s-, e- и t-переменные) выражения-образца
+ * могут быть как определены, так и использованы (повторное вхождение).
+ * Для выражения-результа такие должны быть определены, выполняется поиск.
+ * В случае отсутствия lex->node отрицателен.
+ */
+static inline
+void lexem_identifier_exp(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
+      rtrie_index module, rtrie_index imports, wchar_t idc, int pattern,
+      struct refal_vm *vm, struct refal_message *st)
+{
+   switch (*chr) {
+   case L'…':
+   case '.': lex->id_type = id_evar; goto local;
+   case '?': lex->id_type = id_svar; goto local;
+   case '!': lex->id_type = id_tvar; goto local;
+   case 'e': lex->id_type = id_evar; goto check_local;
+   case 't': lex->id_type = id_tvar; goto check_local;
+   case 's': lex->id_type = id_svar;
+check_local:
+      if (lex->buf.s[lex->line + lex->pos] == '.') {
+        ++lex->pos;
+local:   lex->node = pattern ? rtrie_insert_next(ids, lex->ident, idc)
+                             : rtrie_find_next(ids, lex->ident, idc);
+         lex->node = pattern ? rtrie_insert_next(ids, lex->node, *chr)
+                             : rtrie_find_next(ids, lex->node, *chr);
+         goto tail;
+      }
+      [[fallthrough]];
+   default:
+      lex->id_type = id_global;
+      lex->node = imports ? rtrie_find_at(ids, imports, *chr)
+                          : rtrie_insert_at(ids, module, *chr);
+   }
+   while (1) {
+tail: *chr = lexer_next_char(lex);
+      switch (*chr) {
+      case '<':case '>':case '{':case '}':case '(':case ')':case '=':
+      case ' ':case '\t':case '\n':case '\r':case '\0':
+      case '"':case '\'':
+      case ';':case ':':case '/'://TODO //
+         return;
+      default: break;
+      }
+      lex->node = imports ? rtrie_find_next(ids, lex->node, *chr)
+                          : rtrie_insert_next(ids, lex->node, *chr);
    }
 }
 
@@ -458,14 +523,6 @@ int refal_translate_istream_to_bytecode(
    rf_index undefined_fist = 0;
    rf_index undefined_last = 0;
 
-   // Тип текущего идентификатора.
-   enum {
-      id_global = rf_identifier, // Глобальная область видимости.
-      id_svar   = rf_svar,       // s-переменная (один символ).
-      id_tvar   = rf_tvar,       // t-переменная (s- либо выражение в скобках).
-      id_evar   = rf_evar,       // e-переменная (произвольное количество элементов.
-   } id_type = id_global;
-
    // Локальные идентификаторы храним в таблице символов как продолжение
    // глобальных, отделяясь символом который не может встретиться в Unicode.
    // Для каждого предложения вычисляется новый символ-разделитель (инкрементом),
@@ -595,7 +652,7 @@ lexem_identifier_complete:
             goto current_char;
          case ss_pattern:
             assert(!cmd_exec[ep]);
-            switch (id_type) {
+            switch (lex.id_type) {
             case id_svar:
             case id_tvar:
             case id_evar:
@@ -608,13 +665,13 @@ lexem_identifier_complete:
                   ids->n[lex.node].val.tag   = rft_enum;
                   ids->n[lex.node].val.value = local++;
                }
-               rf_alloc_value(vm, ids->n[lex.node].val.value, id_type);
+               rf_alloc_value(vm, ids->n[lex.node].val.value, lex.id_type);
                goto current_char;
             case id_global:
                goto lexem_identifier_complete_global;
             }
          case ss_expression:
-            switch (id_type) {
+            switch (lex.id_type) {
             case id_svar:
             case id_tvar:
             case id_evar:
@@ -625,7 +682,7 @@ lexem_identifier_complete:
                // При следующем вхождении устанавливаем значение tag2 по
                // сохранённому индексу, а индекс заменяем на текущий.
                rf_index id = ids->n[lex.node].val.value;
-               if (id_type != id_svar && var[id].opcode) {
+               if (lex.id_type != id_svar && var[id].opcode) {
                   vm->u[var[id].opcode].tag2 = 1;
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                   if (cfg && cfg->notice_copy) {
@@ -634,7 +691,7 @@ lexem_identifier_complete:
                   }
 #endif
                }
-               var[id].opcode = rf_alloc_value(vm, id, id_type);
+               var[id].opcode = rf_alloc_value(vm, id, lex.id_type);
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                var[id].src  = lex.line;
                var[id].line = lex.line_num;
@@ -1289,10 +1346,9 @@ sentence_complete:
             goto current_char;
          }
       case lex_number:
+      case lex_identifier:
          assert(0);
          goto next_char;
-      case lex_identifier:
-         goto lexem_identifier;
       }
 
    // Оставшиеся символы считаются допустимыми для идентификаторов.
@@ -1318,113 +1374,22 @@ symbol:
             rf_alloc_value(vm, lex.id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
-            // Возможно объявление и использование переменных.
-            // Сохраняем их в таблице символов, отделив от идентификатора
-            // текущей функции спецсимволом.
-            switch (chr) {
-            case L'…':
-            case '.':
-               id_type = id_evar;
-               goto lexem_identifier_local_pat;
-            case '?':
-               id_type = id_svar;
-               goto lexem_identifier_local_pat;
-            case '!':
-               id_type = id_tvar;
-               goto lexem_identifier_local_pat;
-            case 'e':
-               id_type = id_evar;
-               goto lexem_identifier_local_pat_check;
-            case 't':
-               id_type = id_tvar;
-               goto lexem_identifier_local_pat_check;
-            case 's':
-               id_type = id_svar;
-lexem_identifier_local_pat_check:
-               if (lex.buf.s[lex.line + lex.pos] == '.') {
-                  ++lex.pos;
-lexem_identifier_local_pat:
-                  lex.node = rtrie_insert_next(ids, lex.ident, idc);
-                  lex.node = rtrie_insert_next(ids, lex.node, chr);
-                  goto next_char;
-               }
-            default:
-               goto lexem_identifier_global;
-            }
+            lexem_identifier_exp(&lex, &chr, ids, module, imports, idc, 1, vm, st);
+            goto current_char;
          case ss_expression:
-            // Возможно использование переменных.
-            switch (chr) {
-            case L'…':
-            case '.':
-               id_type = id_evar;
-               goto lexem_identifier_local_exp;
-            case '?':
-               id_type = id_svar;
-               goto lexem_identifier_local_exp;
-            case '!':
-               id_type = id_tvar;
-               goto lexem_identifier_local_exp;
-            case 'e':
-               id_type = id_evar;
-               goto lexem_identifier_local_exp_check;
-            case 't':
-               id_type = id_tvar;
-               goto lexem_identifier_local_exp_check;
-            case 's':
-               id_type = id_svar;
-lexem_identifier_local_exp_check:
-               if (lex.buf.s[lex.line + lex.pos] == '.') {
-                 ++lex.pos;
-lexem_identifier_local_exp:
-                  lex.node = rtrie_find_next(ids, lex.ident, idc);
-                  lex.node = rtrie_find_next(ids, lex.node, chr);
-                  if (lex.node < 0) {
-                     goto error_identifier_undefined;
-                  }
-                  goto next_char;
-               }
-            default:
-lexem_identifier_global:
-               id_type = id_global;
-               if (imports) {
-                  // Ищем в пространстве имён другого модуля.
-                  lex.node = rtrie_find_at(ids, imports, chr);
-               } else {
-                  // Если идентификатор не существует, добавляем.
-                  // После первого прохода проверим, не появилось ли определение.
-                  lex.node = rtrie_insert_at(ids, module, chr);
-               }
-               goto next_char;
-            }
+            lexem_identifier_exp(&lex, &chr, ids, module, imports, idc, 0, vm, st);
+            goto current_char;
          }
       case lex_identifier:
-lexem_identifier:
          switch (semantic) {
          case ss_import:
          case ss_source:
+         case ss_pattern:
+         case ss_expression:
             assert(0);
          case ss_identifier:
             goto error_identifier_odd;
-         case ss_pattern:
-            // Переменные объявляются в выражении-образце.
-            switch (id_type) {
-            case id_svar:
-            case id_tvar:
-            case id_evar:
-               lex.node = rtrie_insert_next(ids, lex.node, chr);
-               goto next_char;
-            case id_global:
-               break;
-            }
-         case ss_expression:
-            if (imports) {
-               lex.node = rtrie_find_next(ids, lex.node, chr);
-            } else {
-               lex.node = rtrie_insert_next(ids, lex.node, chr);
-            }
-            goto next_char;
          }
-         goto next_char;
       }
    }
    assert(0);

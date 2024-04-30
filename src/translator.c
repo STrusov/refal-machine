@@ -124,6 +124,44 @@ enum lexer_state {
    lex_number,          // Целое число.
 };
 
+enum lexem_type {
+   L_unspecified,
+   L_identifier,
+   L_string,
+
+   L_whitespace   = ' ',
+   L_exec_open    = '<',
+   L_exec_close   = '>',
+   L_block_open   = '{',
+   L_block_close  = '}',
+   L_term_open    = '(',
+   L_term_close   = ')',
+   L_equal        = '=',
+   L_Dquote       = '"',
+   L_quote        = '\'',
+   L_semicolon    = ';',
+   L_colon        = ':',
+};
+
+enum lexem_type lex_type(wchar_t c)
+{
+   if (c <= ' ')  return L_whitespace;
+   switch (c) {
+      case '<':   return L_exec_open;
+      case '>':   return L_exec_close;
+      case '{':   return L_block_open;
+      case '}':   return L_block_close;
+      case '(':   return L_term_open;
+      case ')':   return L_term_close;
+      case '=':   return L_equal;
+      case '"':   return L_Dquote;
+      case '\'':  return L_quote;
+      case ';':   return L_semicolon;
+      case ':':   return L_colon;
+      default:    return L_unspecified;
+   }
+}
+
 struct lexer {
 
    enum lexer_state  state;
@@ -256,14 +294,8 @@ void lexem_identifier(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
    lex->id_begin = wstr_append(&vm->id, *chr);
    while (1) {
       *chr = lexer_next_char(lex);
-      switch (*chr) {
-      case '<':case '>':case '{':case '}':case '(':case ')':case '=':
-      case ' ':case '\t':case '\n':case '\r':case '\0':
-      case '"':case '\'':
-      case ';':case ':':case '/'://TODO //
+      if (lex_type(*chr) != L_unspecified)
          return;
-      default: break;
-      }
       if (!(imports < 0))
          *import_node = rtrie_find_next(ids, *import_node, *chr);
       lex->node = rtrie_insert_next(ids, lex->node, *chr);
@@ -313,14 +345,8 @@ local:   lex->node = pattern ? rtrie_insert_next(ids, lex->ident, idc)
    }
    while (1) {
 tail: *chr = lexer_next_char(lex);
-      switch (*chr) {
-      case '<':case '>':case '{':case '}':case '(':case ')':case '=':
-      case ' ':case '\t':case '\n':case '\r':case '\0':
-      case '"':case '\'':
-      case ';':case ':':case '/'://TODO //
+      if (lex_type(*chr) != L_unspecified)
          return;
-      default: break;
-      }
       lex->node = imports ? rtrie_find_next(ids, lex->node, *chr)
                           : rtrie_insert_next(ids, lex->node, *chr);
    }

@@ -122,7 +122,6 @@ enum lexer_state {
    lex_leadingspace,    // Пробелы в начале строки.
    lex_whitespace,      // Пробелы после лексемы.
    lex_number,          // Целое число.
-   lex_identifier,      // Идентификатор (имя функции).
 };
 
 struct lexer {
@@ -246,7 +245,6 @@ void lexem_identifier(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
       rtrie_index module, rtrie_index imports, rtrie_index *import_node,
       struct refal_vm *vm, struct refal_message *st)
 {
-   lex->state   = lex_identifier;
    lex->id_line = lex->line;
    lex->id_pos  = lex->pos - 1;
    lex->id_line_num = lex->line_num;
@@ -619,7 +617,7 @@ current_char:
       case lex_number:
          lex.state = lex_whitespace;
          goto next_char;
-      case lex_identifier:
+
          // Ветка определяет идентификатор, а обработку текущего символа
          // производит последующим переходом на current_char.
 lexem_identifier_complete:
@@ -775,8 +773,6 @@ lexem_identifier_undefined:
       case lex_whitespace:
          lex.state = lex_leadingspace;
          goto next_line;
-      case lex_identifier:
-         goto lexem_identifier_complete;
       }
 
    // Начинает строку комментариев, либо может завершать комментарий в стиле Си.
@@ -789,7 +785,6 @@ lexem_identifier_undefined:
          goto next_char;
       case lex_number:
       case lex_whitespace:
-      case lex_identifier:
          goto symbol;
       }
 
@@ -810,7 +805,6 @@ lexem_identifier_undefined:
             goto symbol;
          }
       case lex_number:
-      case lex_identifier:
          goto symbol;
       }
 
@@ -827,8 +821,6 @@ lexem_identifier_undefined:
 
    case '=':
       switch (lex.state) {
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
@@ -888,8 +880,6 @@ lexem_identifier_undefined:
       case lex_number:
          // TODO Вложенные блоки пока не поддержаны.
          goto error_incorrect_function_definition;
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_leadingspace:
       case lex_whitespace:
          switch (semantic) {
@@ -928,8 +918,6 @@ lexem_identifier_undefined:
 
    case '}':
       switch (lex.state) {
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_number:
          lex.state = lex_whitespace;
       case lex_leadingspace:
@@ -985,8 +973,6 @@ lexem_identifier_undefined:
 
    case '<':
       switch (lex.state) {
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
@@ -1016,8 +1002,6 @@ lexem_identifier_undefined:
 
    case '>':
       switch (lex.state) {
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
@@ -1065,8 +1049,6 @@ lexem_identifier_undefined:
 
    case '(':
       switch (lex.state) {
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
@@ -1093,8 +1075,6 @@ lexem_identifier_undefined:
 
    case ')':
       switch (lex.state) {
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_number:
       case lex_leadingspace:
       case lex_whitespace:
@@ -1128,8 +1108,6 @@ lexem_identifier_undefined:
 
    case ';':
       switch (lex.state) {
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_number:
          lex.state = lex_whitespace;
       case lex_leadingspace:
@@ -1215,8 +1193,6 @@ sentence_complete:
    ///     ИмяМодуля: функция1 функция2;
    case ':':
       switch (lex.state) {
-      case lex_identifier:
-         goto lexem_identifier_complete;
       case lex_number:
          lex.state = lex_whitespace;
       case lex_leadingspace:
@@ -1321,8 +1297,6 @@ sentence_complete:
             lexem_string(&lex, &chr, vm, st);
             goto next_char;
          }
-      case lex_identifier:
-         goto lexem_identifier_complete;
       }
 
    // Начало целого числа, либо продолжение идентификатора.
@@ -1346,7 +1320,6 @@ sentence_complete:
             goto current_char;
          }
       case lex_number:
-      case lex_identifier:
          assert(0);
          goto next_char;
       }
@@ -1361,7 +1334,6 @@ symbol:
          warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
       case lex_leadingspace:
       case lex_whitespace:
-         lex.state = lex_identifier;
          switch (semantic) {
          case ss_import:
             lexem_identifier(&lex, &chr, ids, module, imports, &import_node, vm, st);
@@ -1375,20 +1347,10 @@ symbol:
             semantic = ss_pattern;
          case ss_pattern:
             lexem_identifier_exp(&lex, &chr, ids, module, imports, idc, 1, vm, st);
-            goto current_char;
+            goto lexem_identifier_complete;
          case ss_expression:
             lexem_identifier_exp(&lex, &chr, ids, module, imports, idc, 0, vm, st);
-            goto current_char;
-         }
-      case lex_identifier:
-         switch (semantic) {
-         case ss_import:
-         case ss_source:
-         case ss_pattern:
-         case ss_expression:
-            assert(0);
-         case ss_identifier:
-            goto error_identifier_odd;
+            goto lexem_identifier_complete;
          }
       }
    }

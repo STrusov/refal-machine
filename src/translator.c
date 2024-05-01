@@ -117,12 +117,6 @@ enum identifier_type {
    id_evar   = rf_evar,       // e-переменная (произвольное количество элементов.
 };
 
-// Состояние лексического анализатора.
-enum lexer_state {
-   lex_leadingspace,    // Пробелы в начале строки.
-   lex_whitespace,      // Пробелы после лексемы.
-};
-
 enum lexem_type {
    L_unspecified,
    L_identifier,
@@ -162,9 +156,6 @@ enum lexem_type lex_type(wchar_t c)
 }
 
 struct lexer {
-
-   enum lexer_state  state;
-
    // Здесь храним обрабатываемый исходный текст для сообщений об ошибках.
    // Поскольку определение идентификаторов возможно после их использование,
    // и после первого прохода производится дополнительный, сохраняется
@@ -208,7 +199,6 @@ struct lexer {
 static inline
 void lexer_init(struct lexer* lex, FILE *src)
 {
-   lex->state    = lex_leadingspace;
    lex->node     = 0;
    lex->id_type  = id_global;
    lex->ident    = 0;
@@ -252,7 +242,6 @@ wchar_t lexer_next_char(struct lexer *lex)
 {
    return lex->buf.s[lex->line + lex->pos++];
 }
-
 
 ///\page    Синтаксис
 ///\ingroup refal-syntax
@@ -395,7 +384,6 @@ void lexem_string(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
             ++lex->pos;
             break;
          }
-         lex->state = lex_whitespace;
          return;
       case '\\': switch (lex->buf.s[lex->line + lex->pos]) {
          case 't': ++lex->pos; *chr = '\t'; break;
@@ -407,7 +395,6 @@ void lexem_string(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
       case '\r': case '\n':
          //TODO Позволить многострочные?
          syntax_error(st, "отсутствует закрывающая кавычка", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
-         lex->state = lex_whitespace;
          return;
       default:
          if (*chr < ' ')
@@ -484,17 +471,41 @@ void lexem_comment(struct lexer *lex, wchar_t *chr, int multiline, struct refal_
       case '\r': case '\n':
          lexer_next_line(lex);
          if (!multiline) {
-            lex->state = lex_leadingspace;
             return;
          }
          break;
       case '*':
          if (multiline && lex->buf.s[lex->line + lex->pos] == '/') {
             ++lex->pos;
-            lex->state = lex_whitespace;
             return;
          }
       default: break;
+      }
+   }
+}
+
+static inline
+wchar_t lexer_next_lexem(struct lexer *lex)
+{
+   int comment = 0;
+   unsigned first_pos = lex->pos;
+   while (1) {
+      wchar_t chr = lexer_next_char(lex);
+      switch (chr) {
+      case '\r': case '\n':
+         lexer_next_line(lex);
+         first_pos = lex->pos;
+         comment = 0;
+         break;
+      case '*':
+         if (first_pos == 0) {
+            comment = 1;
+            break;
+         }
+         return chr;
+      default:
+         if (chr == '\0' || (!comment && lex_type(chr) != L_whitespace))
+            return chr;
       }
    }
 }
@@ -625,7 +636,7 @@ next_line:
    lexer_next_line(&lex);
 
 next_char: ;
-   wchar_t chr = lexer_next_char(&lex);
+   wchar_t chr = lexer_next_lexem(&lex);
 
 current_char:
    switch (chr) {
@@ -634,15 +645,11 @@ current_char:
 
    case '\t':  //TODO pos += 7;
    case ' ':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          goto next_char;
 
          // Ветка определяет идентификатор, а обработку текущего символа
          // производит последующим переходом на current_char.
 lexem_identifier_complete:
-         lex.state = lex_whitespace;
          switch (semantic) {
          case ss_identifier:  // TODO 2 идентификатора подряд?
             assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
@@ -783,34 +790,13 @@ lexem_identifier_undefined:
             }
             goto current_char;
          } // case lex_identifier: switch (semantic)
-      }
 
    // Конец строки.
    case '\r':  // возможный последующий '\n' не сохраняется в буфере.
    case '\n':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
-         lex.state = lex_leadingspace;
          goto next_line;
-      }
-
-   // Начинает строку комментариев, либо может завершать комментарий в стиле Си.
-   // TODO последовательность */ без предшествующей /* воспринимается как
-   //      однострочный комментарий.
-   case '*':
-      switch (lex.state) {
-      case lex_leadingspace:
-         lexem_comment(&lex, &chr, 0, vm, st);
-         goto next_char;
-      case lex_whitespace:
-         goto symbol;
-      }
 
    case '/':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch(lex.buf.s[lex.line + lex.pos]) {
          case '/':
             ++lex.pos;
@@ -823,7 +809,6 @@ lexem_identifier_undefined:
          default:
             goto symbol;
          }
-      }
 
    ///\section    Спец           Специальные знаки
    ///\subsection Замена
@@ -837,9 +822,6 @@ lexem_identifier_undefined:
    /// _простую функцию_ (не имеет альтернативных предложений).
 
    case '=':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -856,7 +838,6 @@ lexem_identifier_undefined:
             DEFINE_SIMPLE_FUNCTION;
             // Содержит ссылку на таблицу атомов.
             rf_alloc_value(vm, lex.id_begin, rf_equal);
-            lex.state = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
          case ss_pattern:
@@ -875,14 +856,12 @@ lexem_identifier_undefined:
             }
             // TODO проверить скобки ().
             rf_alloc_command(vm, rf_equal);
-            lex.state = lex_whitespace;
             semantic = ss_expression;
             goto next_char;
          case ss_expression:
             error = "недопустимый оператор в выражении (пропущена ; ?)";
             goto cleanup;
          }
-      }
 
    ///\subsection Блок           Начало и конец
    ///
@@ -892,9 +871,6 @@ lexem_identifier_undefined:
 
    // Начинает блок (перечень предложений) функции.
    case '{':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -915,7 +891,6 @@ lexem_identifier_undefined:
             assert(lex.ident == lex.node);
             ids->n[lex.node].val.tag   = rft_enum;
             ids->n[lex.node].val.value = lex.id_begin;
-            lex.state = lex_whitespace;
             semantic = ss_pattern;
             ++idc;
             ++function_block;
@@ -927,12 +902,8 @@ lexem_identifier_undefined:
             error = "вложенные блоки {} пока не поддерживаются";
             goto cleanup;
          }
-      }
 
    case '}':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -961,7 +932,6 @@ lexem_identifier_undefined:
             semantic = ss_source;
             goto next_char;
          }
-      }
 
    ///\subsection Вычисление     Вычислительные скобки
    ///
@@ -983,9 +953,6 @@ lexem_identifier_undefined:
    /// эквивалентны.
 
    case '<':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -1005,15 +972,10 @@ lexem_identifier_undefined:
                imports = 0;
             }
             cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
-            lex.state = lex_whitespace;
             goto next_char;
          }
-      }
 
    case '>':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -1046,10 +1008,8 @@ lexem_identifier_undefined:
                vm->u[cmd_exec[ep]].data = ec;
             }
             cmd_exec[ep--] = 0;
-            lex.state = lex_whitespace;
             goto next_char;
          }
-      }
 
    ///\subsection Структуры   Структурные скобки
    ///
@@ -1057,9 +1017,6 @@ lexem_identifier_undefined:
    /// рассматриваться как единое целое, или _терм_.
 
    case '(':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -1076,15 +1033,10 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-            lex.state = lex_whitespace;
             goto next_char;
          }
-      }
 
    case ')':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -1099,10 +1051,8 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
-            lex.state = lex_whitespace;
             goto next_char;
          }
-      }
 
    ///\subsection Иначе
    ///
@@ -1114,9 +1064,6 @@ lexem_identifier_undefined:
    /// идентификатора, определяя пустую функцию.
 
    case ';':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -1131,7 +1078,6 @@ lexem_identifier_undefined:
             }
             ids->n[lex.node].val.tag   = rft_enum;
             ids->n[lex.node].val.value = lex.id_begin;
-            lex.state = lex_whitespace;
             semantic = ss_source;
             goto next_char;
          case ss_pattern:
@@ -1180,7 +1126,6 @@ sentence_complete:
             }
             goto next_char;
          }
-      }
 
    // Знак доллара в кириллической раскладке отсутствует, соответственно
    // принципиально не используется, как и директивы $ENTRY, $EXTERN и т.п.
@@ -1197,9 +1142,6 @@ sentence_complete:
    ///
    ///     ИмяМодуля: функция1 функция2;
    case ':':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          // Импорт из глобального пространства имён.
          case ss_source:
@@ -1228,7 +1170,6 @@ sentence_complete:
             }
             ids->n[lex.node].val.tag   = rft_enum;
             ids->n[lex.node].val.value = 0;
-            lex.state = lex_whitespace;
             // Имя модуля внесено в текущее пространство имён, что гарантирует
             // отсутствие иного одноимённого идентификатора и даёт возможность
             // квалифицированного (именем модуля) поиска идентификаторов.
@@ -1275,14 +1216,10 @@ sentence_complete:
             error = "условия не поддерживаются";
             goto cleanup;
          }
-      }
 
    // Начинает и заканчивает строку знаковых символов.
    case '"':
    case '\'':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
@@ -1297,13 +1234,9 @@ sentence_complete:
             lexem_string(&lex, &chr, vm, st);
             goto next_char;
          }
-      }
 
    // Начало целого числа, либо продолжение идентификатора.
    case '0'...'9':
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_source:
             error = "числа допустимы только в выражениях";
@@ -1321,14 +1254,10 @@ sentence_complete:
                warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
             goto current_char;
          }
-      }
 
    // Оставшиеся символы считаются допустимыми для идентификаторов.
    default:
 symbol:
-      switch (lex.state) {
-      case lex_leadingspace:
-      case lex_whitespace:
          switch (semantic) {
          case ss_import:
             lexem_identifier(&lex, &chr, ids, module, imports, &import_node, vm, st);
@@ -1347,7 +1276,6 @@ symbol:
             lexem_identifier_exp(&lex, &chr, ids, module, imports, idc, 0, vm, st);
             goto lexem_identifier_complete;
          }
-      }
    }
    assert(0);
 

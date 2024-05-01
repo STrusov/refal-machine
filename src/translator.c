@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -457,57 +458,57 @@ void lexem_number(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
 ///      // Одна строка с комментарием.
 
 /**
- * Пропускает комментарий.
+ * Пропускает комментарии, пробелы, переводы строк и т.п. и
+ * останавливается на первом символе идентификатора.
+ * return   Тип лексемы.
  */
 static inline
-void lexem_comment(struct lexer *lex, wchar_t *chr, int multiline, struct refal_vm *vm, struct refal_message *st)
+wchar_t lexer_next_lexem(struct lexer *lex, struct refal_message *st)
 {
-   while (1) {
-      *chr = lexer_next_char(lex);
-      switch(*chr) {
-      case '\0':
-         if (multiline)
-            syntax_error(st, "не закрыт комментарий /* */", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
-         return;
-      case '\r': case '\n':
-         lexer_next_line(lex);
-         if (!multiline) {
-            return;
-         }
-         break;
-      case '*':
-         if (multiline && lex->buf.s[lex->line + lex->pos] == '/') {
-            ++lex->pos;
-            return;
-         }
-      default: break;
-      }
-   }
-}
-
-static inline
-wchar_t lexer_next_lexem(struct lexer *lex)
-{
-   int comment = 0;
+   bool comment = false;
+   bool multiline = false;
+   // * может начинать комментарий, если является первым печатным символом в строке.
    unsigned first_pos = lex->pos;
    while (1) {
       wchar_t chr = lexer_next_char(lex);
       switch (chr) {
-      case '\r': case '\n':
-         lexer_next_line(lex);
-         first_pos = lex->pos;
-         comment = 0;
-         break;
-      case '*':
-         if (first_pos == 0) {
-            comment = 1;
-            break;
-         }
+      case '\0':
+         if (multiline)
+            syntax_error(st, "не закрыт комментарий /* */", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
          return chr;
+      case '\n': case '\r':
+         lexer_next_line(lex);
+         first_pos = 0;
+         comment = multiline;
+         continue;
+      case '*':
+         if (multiline && lex->buf.s[lex->line + lex->pos] == '/') {
+            first_pos = ++lex->pos;
+            comment = multiline = false;
+            continue;
+         } else if (first_pos == 0) {
+            // multiline не меняем, поскольку может быть частью многострочного.
+            comment = true;
+            continue;
+         }
+         break;
+      case '/':
+            if (!comment) switch(lex->buf.s[lex->line + lex->pos]) {
+            case '/':
+               ++lex->pos;
+               comment = true;
+               multiline = false;
+               break;
+            case '*':
+               ++lex->pos;
+               comment = multiline = true;
+            default:
+            }
+            break;
       default:
-         if (chr == '\0' || (!comment && lex_type(chr) != L_whitespace))
-            return chr;
       }
+      if (!comment && lex_type(chr) != L_whitespace)
+         return chr;
    }
 }
 
@@ -634,7 +635,7 @@ int refal_translate_istream_to_bytecode(
    lexer_check_hashbang(&lex);
 
 next_char: ;
-   wchar_t chr = lexer_next_lexem(&lex);
+   wchar_t chr = lexer_next_lexem(&lex, st);
 
    switch (chr) {
 
@@ -783,20 +784,6 @@ lexem_identifier_undefined:
             }
             goto next_char;
          } // case lex_identifier: switch (semantic)
-
-   case '/':
-         switch(lex.buf.s[lex.line + lex.pos]) {
-         case '/':
-            ++lex.pos;
-            lexem_comment(&lex, &chr, 0, vm, st);
-            goto next_char;
-         case '*':
-            ++lex.pos;
-            lexem_comment(&lex, &chr, 1, vm, st);
-            goto next_char;
-         default:
-            goto symbol;
-         }
 
    ///\section    Спец           Специальные знаки
    ///\subsection Замена
@@ -1239,7 +1226,6 @@ sentence_complete:
 
    // Оставшиеся символы считаются допустимыми для идентификаторов.
    default:
-symbol:
          switch (semantic) {
          case ss_import:
             lexem_identifier(&lex, &chr, ids, module, imports, &import_node, vm, st);

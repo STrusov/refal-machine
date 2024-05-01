@@ -640,12 +640,6 @@ next_char: ;
 
    case '\0': goto complete;
 
-   case '\r':  // возможный последующий '\n' не сохраняется в буфере.
-   case '\n':
-   case '\t':  //TODO pos += 7;
-   case ' ':
-         goto next_char;
-
          // Ветка определяет идентификатор, а обработку текущего символа
          // производит последующим переходом на current_char.
 lexem_identifier_complete:

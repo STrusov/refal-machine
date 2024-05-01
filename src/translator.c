@@ -206,7 +206,7 @@ void lexer_init(struct lexer* lex, FILE *src)
    lex->id_line  = 0;
    lex->id_pos   = 0;
    lex->id_line_num = 0;
-   lex->line_num = 0;
+   lex->line_num = 1;
    lex->pos      = 0;
 
    wstr_alloc(&lex->buf, 1024);
@@ -272,7 +272,7 @@ void lexem_identifier(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
       struct refal_vm *vm, struct refal_message *st)
 {
    lex->id_line = lex->line;
-   lex->id_pos  = lex->pos - 1;
+   lex->id_pos  = lex->pos;
    lex->id_line_num = lex->line_num;
    // Перечисленные после имени модуля идентификаторы импортируются,
    // для чего ищутся в модуле и определяются в текущей области видимости.
@@ -281,9 +281,9 @@ void lexem_identifier(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
    lex->node = rtrie_insert_at(ids, module, *chr);
    lex->id_begin = wstr_append(&vm->id, *chr);
    while (1) {
-      *chr = lexer_next_char(lex);
-      if (lex_type(*chr) != L_unspecified)
+      if (lex_type(lex->buf.s[lex->line + lex->pos]) != L_unspecified)
          return;
+      *chr = lexer_next_char(lex);
       if (!(imports < 0))
          *import_node = rtrie_find_next(ids, *import_node, *chr);
       lex->node = rtrie_insert_next(ids, lex->node, *chr);
@@ -332,9 +332,9 @@ local:   lex->node = pattern ? rtrie_insert_next(ids, lex->ident, idc)
                           : rtrie_insert_at(ids, module, *chr);
    }
    while (1) {
-tail: *chr = lexer_next_char(lex);
-      if (lex_type(*chr) != L_unspecified)
+tail: if (lex_type(lex->buf.s[lex->line + lex->pos]) != L_unspecified)
          return;
+      *chr = lexer_next_char(lex);
       lex->node = imports ? rtrie_find_next(ids, lex->node, *chr)
                           : rtrie_insert_next(ids, lex->node, *chr);
    }
@@ -431,6 +431,7 @@ void lexem_number(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
       }
      *chr = lexer_next_char(lex);
    }
+   --lex->pos; //TODO изменить цикл выше.
    rf_alloc_int(vm, number);
 }
 
@@ -632,17 +633,15 @@ int refal_translate_istream_to_bytecode(
 
    lexer_check_hashbang(&lex);
 
-next_line:
-   lexer_next_line(&lex);
-
 next_char: ;
    wchar_t chr = lexer_next_lexem(&lex);
 
-current_char:
    switch (chr) {
 
    case '\0': goto complete;
 
+   case '\r':  // возможный последующий '\n' не сохраняется в буфере.
+   case '\n':
    case '\t':  //TODO pos += 7;
    case ' ':
          goto next_char;
@@ -663,7 +662,7 @@ lexem_identifier_complete:
             // может встречаться на верхнем уровне многократно.
             local = 0;
             cmd_sentence = 0;
-            goto current_char;
+            goto next_char;
          case ss_import:
             wstr_append(&vm->id, L'\0');
             if (import_node < 0) {
@@ -675,7 +674,7 @@ lexem_identifier_complete:
                goto cleanup;
             }
             ids->n[lex.node].val = ids->n[import_node].val;
-            goto current_char;
+            goto next_char;
          case ss_pattern:
             assert(!cmd_exec[ep]);
             switch (lex.id_type) {
@@ -692,7 +691,7 @@ lexem_identifier_complete:
                   ids->n[lex.node].val.value = local++;
                }
                rf_alloc_value(vm, ids->n[lex.node].val.value, lex.id_type);
-               goto current_char;
+               goto next_char;
             case id_global:
                goto lexem_identifier_complete_global;
             }
@@ -721,9 +720,9 @@ lexem_identifier_complete:
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                var[id].src  = lex.line;
                var[id].line = lex.line_num;
-               var[id].pos  = lex.pos - 1;
+               var[id].pos  = lex.pos;
 #endif
-               goto current_char;
+               goto next_char;
             case id_global:
                break;
             }
@@ -754,7 +753,7 @@ lexem_identifier_complete_global:
                   assert(!imports);
                   imports = rtrie_find_next(ids, lex.node, ' ');
                   lex.id_line = lex.line;
-                  lex.id_pos  = lex.pos - 1;
+                  lex.id_pos  = lex.pos;
                   lex.id_line_num = lex.line_num;
                   assert(imports > 0);
                } else {
@@ -785,16 +784,11 @@ lexem_identifier_undefined:
                }
                // На случай ошибки.
                rf_alloc_value(vm, lex.line_num, rf_undefined);
-               rf_alloc_value(vm, lex.pos - 1, rf_undefined);
+               rf_alloc_value(vm, lex.pos, rf_undefined);
                rf_alloc_value(vm, lex.line, rf_undefined);
             }
-            goto current_char;
+            goto next_char;
          } // case lex_identifier: switch (semantic)
-
-   // Конец строки.
-   case '\r':  // возможный последующий '\n' не сохраняется в буфере.
-   case '\n':
-         goto next_line;
 
    case '/':
          switch(lex.buf.s[lex.line + lex.pos]) {
@@ -1243,9 +1237,10 @@ sentence_complete:
          case ss_pattern:
          case ss_expression:
             lexem_number(&lex, &chr, vm, st);
-            if (lex_type(chr) != L_whitespace && lex_type(chr) == L_uncpecified)
-               warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
-            goto current_char;
+            //TODO здесь в chr содержит последующий символ, но pos лексера перед ним.
+            if (lex_type(chr) != L_whitespace && lex_type(chr) == L_unspecified)
+               warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos + 1, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
+            goto next_char;
          }
 
    // Оставшиеся символы считаются допустимыми для идентификаторов.
@@ -1279,7 +1274,7 @@ complete:
       else
          error = "не завершено определение функции (пропущена ; ?)";
       lex.line = lex.id_line;
-      lex.pos  = lex.id_pos + 1;
+      lex.pos  = lex.id_pos;
       lex.line_num = lex.id_line_num;
       goto cleanup;
    }

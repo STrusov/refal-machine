@@ -237,19 +237,22 @@ void lexer_next_line(struct lexer *lex)
    lex->pos = 0;
 }
 
+/**
+ * Первый символ распознанного идентификатора.
+ */
 static inline
-wchar_t lexer_next_char(struct lexer *lex)
+wchar_t lexer_char(const struct lexer *lex)
 {
-   return lex->buf.s[lex->line + lex->pos++];
+   return lex->buf.s[lex->line + lex->pos - 1];
 }
 
 /**
- * Текущий символ.
+ * Следующий после обработанного идентификатора символ.
  */
 static inline
-wchar_t lexer_char(struct lexer *lex)
+wchar_t lexer_next_char(const struct lexer *lex)
 {
-   return lex->buf.s[lex->line + lex->pos - 1];
+   return lex->buf.s[lex->line + lex->pos];
 }
 
 ///\page    Синтаксис
@@ -276,27 +279,29 @@ wchar_t lexer_char(struct lexer *lex)
 
 
 static inline
-void lexem_identifier(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
+void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
       rtrie_index module, rtrie_index imports, rtrie_index *import_node,
       struct refal_vm *vm, struct refal_message *st)
 {
    lex->id_line = lex->line;
    lex->id_pos  = lex->pos;
    lex->id_line_num = lex->line_num;
+   wchar_t chr = lexer_char(lex);
    // Перечисленные после имени модуля идентификаторы импортируются,
    // для чего ищутся в модуле и определяются в текущей области видимости.
    if (!(imports < 0))
-      *import_node = rtrie_find_at(ids, imports, *chr);
-   lex->node = rtrie_insert_at(ids, module, *chr);
-   lex->id_begin = wstr_append(&vm->id, *chr);
+      *import_node = rtrie_find_at(ids, imports, chr);
+   lex->node = rtrie_insert_at(ids, module, chr);
+   lex->id_begin = wstr_append(&vm->id, chr);
    while (1) {
-      if (lex_type(lex->buf.s[lex->line + lex->pos]) != L_unspecified)
+      chr = lexer_next_char(lex);
+      if (lex_type(chr) != L_unspecified)
          return;
-      *chr = lexer_next_char(lex);
+      ++lex->pos;
       if (!(imports < 0))
-         *import_node = rtrie_find_next(ids, *import_node, *chr);
-      lex->node = rtrie_insert_next(ids, lex->node, *chr);
-      wstr_append(&vm->id, *chr);
+         *import_node = rtrie_find_next(ids, *import_node, chr);
+      lex->node = rtrie_insert_next(ids, lex->node, chr);
+      wstr_append(&vm->id, chr);
    }
 }
 
@@ -313,11 +318,12 @@ void lexem_identifier(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
  * В случае отсутствия lex->node отрицателен.
  */
 static inline
-void lexem_identifier_exp(struct lexer *lex, wchar_t *chr, struct refal_trie *ids,
+void lexem_identifier_exp(struct lexer *lex, struct refal_trie *ids,
       rtrie_index module, rtrie_index imports, wchar_t idc, int pattern,
       struct refal_vm *vm, struct refal_message *st)
 {
-   switch (*chr) {
+   wchar_t chr = lexer_char(lex);
+   switch (chr) {
    case L'…':
    case '.': lex->id_type = id_evar; goto local;
    case '?': lex->id_type = id_svar; goto local;
@@ -326,26 +332,27 @@ void lexem_identifier_exp(struct lexer *lex, wchar_t *chr, struct refal_trie *id
    case 't': lex->id_type = id_tvar; goto check_local;
    case 's': lex->id_type = id_svar;
 check_local:
-      if (lex->buf.s[lex->line + lex->pos] == '.') {
+      if (lexer_next_char(lex) == '.') {
         ++lex->pos;
 local:   lex->node = pattern ? rtrie_insert_next(ids, lex->ident, idc)
                              : rtrie_find_next(ids, lex->ident, idc);
-         lex->node = pattern ? rtrie_insert_next(ids, lex->node, *chr)
-                             : rtrie_find_next(ids, lex->node, *chr);
+         lex->node = pattern ? rtrie_insert_next(ids, lex->node, chr)
+                             : rtrie_find_next(ids, lex->node, chr);
          goto tail;
       }
       [[fallthrough]];
    default:
       lex->id_type = id_global;
-      lex->node = imports ? rtrie_find_at(ids, imports, *chr)
-                          : rtrie_insert_at(ids, module, *chr);
+      lex->node = imports ? rtrie_find_at(ids, imports, chr)
+                          : rtrie_insert_at(ids, module, chr);
    }
    while (1) {
-tail: if (lex_type(lex->buf.s[lex->line + lex->pos]) != L_unspecified)
+tail: chr = lexer_next_char(lex);
+      if (lex_type(chr) != L_unspecified)
          return;
-      *chr = lexer_next_char(lex);
-      lex->node = imports ? rtrie_find_next(ids, lex->node, *chr)
-                          : rtrie_insert_next(ids, lex->node, *chr);
+      ++lex->pos;
+      lex->node = imports ? rtrie_find_next(ids, lex->node, chr)
+                          : rtrie_insert_next(ids, lex->node, chr);
    }
 }
 
@@ -380,24 +387,25 @@ tail: if (lex_type(lex->buf.s[lex->line + lex->pos]) != L_unspecified)
  * Переносит строку из исходного текста в байт-код.
  */
 static inline
-void lexem_string(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct refal_message *st)
+void lexem_string(struct lexer *lex, struct refal_vm *vm, struct refal_message *st)
 {
-   wchar_t q = *chr;
+   wchar_t q = lexer_char(lex);
    while(1) {
-      *chr = lexer_next_char(lex);
-      switch(*chr) {
+      wchar_t chr = lexer_next_char(lex);
+      ++lex->pos;
+      switch(chr) {
       // Кавычка внутри строки кодируется сдвоенной, иначе завершает строку.
       case '"': case '\'':
-         if (*chr != q) break;
-         if (lex->buf.s[lex->line + lex->pos] == q) {
+         if (chr != q) break;
+         if (lexer_next_char(lex) == q) {
             ++lex->pos;
             break;
          }
          return;
-      case '\\': switch (lex->buf.s[lex->line + lex->pos]) {
-         case 't': ++lex->pos; *chr = '\t'; break;
-         case 'n': ++lex->pos; *chr = '\n'; break;
-         case 'r': ++lex->pos; *chr = '\r'; break;
+      case '\\': switch (lexer_next_char(lex)) {
+         case 't': ++lex->pos; chr = '\t'; break;
+         case 'n': ++lex->pos; chr = '\n'; break;
+         case 'r': ++lex->pos; chr = '\r'; break;
          default : break;
          }
          break;
@@ -406,11 +414,11 @@ void lexem_string(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
          syntax_error(st, "отсутствует закрывающая кавычка", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
          return;
       default:
-         if (*chr < ' ')
+         if (chr < ' ')
             warning(st, "нечитаемый символ", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
          break;
       }
-      rf_alloc_char(vm, *chr);
+      rf_alloc_char(vm, chr);
    }
 }
 
@@ -430,15 +438,16 @@ void lexem_string(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct r
  * Переносит макрофицру из исходного текста в байт-код.
  */
 static inline
-void lexem_number(struct lexer *lex, wchar_t *chr, struct refal_vm *vm, struct refal_message *st)
+void lexem_number(struct lexer *lex, struct refal_vm *vm, struct refal_message *st)
 {
+   wchar_t chr = lexer_char(lex);
    rf_int   number = 0;
-   while ((*chr >= '0') && (*chr <= '9')) {
-      number = number * 10 + (*chr - '0');
-      if (number < (*chr - '0')) {
+   while ((chr >= '0') && (chr <= '9')) {
+      number = number * 10 + (chr - '0');
+      if (number < (chr - '0')) {
          warning(st, "целочисленное переполнение", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
       }
-     *chr = lexer_next_char(lex);
+     chr = lex->buf.s[lex->line + lex->pos++];
    }
    --lex->pos; //TODO изменить цикл выше.
    rf_alloc_int(vm, number);
@@ -478,7 +487,7 @@ enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
    // * может начинать комментарий, если является первым печатным символом в строке.
    unsigned first_pos = lex->pos;
    while (1) {
-      wchar_t chr = lexer_next_char(lex);
+      wchar_t chr = lex->buf.s[lex->line + lex->pos++];
       switch (chr) {
       case '\0':
          if (multiline)
@@ -643,16 +652,15 @@ int refal_translate_istream_to_bytecode(
 
    lexer_check_hashbang(&lex);
 
-next_char: ;
+next_lexem: ;
    enum lexem_type t = lexer_next_lexem(&lex, st);
-   wchar_t chr = lexer_char(&lex);
 
    switch (t) {
 
    case L_EOF: goto complete;
-   case L_whitespace: assert(0); goto next_char;
+   case L_whitespace: assert(0); goto next_lexem;
 
-   case L_unspecified: switch (chr) {
+   case L_unspecified: switch (lexer_char(&lex)) {
 
       // Начало целого числа, либо продолжение идентификатора.
       case '0'...'9':
@@ -675,31 +683,30 @@ next_char: ;
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
-            lexem_number(&lex, &chr, vm, st);
-            //TODO здесь в chr содержит последующий символ, но pos лексера перед ним.
-            if (lex_type(chr) != L_whitespace && lex_type(chr) == L_unspecified)
+            lexem_number(&lex, vm, st);
+            if (lex_type(lexer_next_char(&lex)) != L_whitespace && lex_type(lexer_next_char(&lex)) == L_unspecified)
                warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos + 1, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
-            goto next_char;
+            goto next_lexem;
          }
 
       // Оставшиеся символы считаются допустимыми для идентификаторов.
       default:
          switch (semantic) {
          case ss_import:
-            lexem_identifier(&lex, &chr, ids, module, imports, &import_node, vm, st);
+            lexem_identifier(&lex, ids, module, imports, &import_node, vm, st);
             goto lexem_identifier_complete;
          case ss_source:
-            lexem_identifier(&lex, &chr, ids, module, -1, &import_node, vm, st);
+            lexem_identifier(&lex, ids, module, -1, &import_node, vm, st);
             goto lexem_identifier_complete;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
             rf_alloc_value(vm, lex.id_begin, rf_nop_name);
             semantic = ss_pattern;
          case ss_pattern:
-            lexem_identifier_exp(&lex, &chr, ids, module, imports, idc, 1, vm, st);
+            lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
             goto lexem_identifier_complete;
          case ss_expression:
-            lexem_identifier_exp(&lex, &chr, ids, module, imports, idc, 0, vm, st);
+            lexem_identifier_exp(&lex, ids, module, imports, idc, 0, vm, st);
             goto lexem_identifier_complete;
          }
       }
@@ -720,7 +727,7 @@ lexem_identifier_complete:
             // может встречаться на верхнем уровне многократно.
             local = 0;
             cmd_sentence = 0;
-            goto next_char;
+            goto next_lexem;
          case ss_import:
             wstr_append(&vm->id, L'\0');
             if (import_node < 0) {
@@ -732,7 +739,7 @@ lexem_identifier_complete:
                goto cleanup;
             }
             ids->n[lex.node].val = ids->n[import_node].val;
-            goto next_char;
+            goto next_lexem;
          case ss_pattern:
             assert(!cmd_exec[ep]);
             switch (lex.id_type) {
@@ -749,7 +756,7 @@ lexem_identifier_complete:
                   ids->n[lex.node].val.value = local++;
                }
                rf_alloc_value(vm, ids->n[lex.node].val.value, lex.id_type);
-               goto next_char;
+               goto next_lexem;
             case id_global:
                goto lexem_identifier_complete_global;
             }
@@ -780,7 +787,7 @@ lexem_identifier_complete:
                var[id].line = lex.line_num;
                var[id].pos  = lex.pos;
 #endif
-               goto next_char;
+               goto next_lexem;
             case id_global:
                break;
             }
@@ -845,7 +852,7 @@ lexem_identifier_undefined:
                rf_alloc_value(vm, lex.pos, rf_undefined);
                rf_alloc_value(vm, lex.line, rf_undefined);
             }
-            goto next_char;
+            goto next_lexem;
          } // case lex_identifier: switch (semantic)
 
    ///\section    Спец           Специальные знаки
@@ -870,7 +877,7 @@ lexem_identifier_undefined:
             // Содержит ссылку на таблицу атомов.
             rf_alloc_value(vm, lex.id_begin, rf_equal);
             semantic = ss_expression;
-            goto next_char;
+            goto next_lexem;
          case ss_pattern:
             if (bp) {
                error = "не закрыта структурная скобка";
@@ -888,7 +895,7 @@ lexem_identifier_undefined:
             // TODO проверить скобки ().
             rf_alloc_command(vm, rf_equal);
             semantic = ss_expression;
-            goto next_char;
+            goto next_lexem;
          case ss_expression:
             error = "недопустимый оператор в выражении (пропущена ; ?)";
             goto cleanup;
@@ -925,7 +932,7 @@ lexem_identifier_undefined:
             semantic = ss_pattern;
             ++idc;
             ++function_block;
-            goto next_char;
+            goto next_lexem;
          case ss_pattern:
             error = "блок недопустим в выражении (пропущено = ?)";
             goto cleanup;
@@ -961,7 +968,7 @@ lexem_identifier_undefined:
             }
             vm->u[cmd_sentence].tag = rf_complete;
             semantic = ss_source;
-            goto next_char;
+            goto next_lexem;
          }
 
    ///\subsection Вычисление     Вычислительные скобки
@@ -1003,7 +1010,7 @@ lexem_identifier_undefined:
                imports = 0;
             }
             cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
-            goto next_char;
+            goto next_lexem;
          }
 
    case L_exec_close:
@@ -1039,7 +1046,7 @@ lexem_identifier_undefined:
                vm->u[cmd_exec[ep]].data = ec;
             }
             cmd_exec[ep--] = 0;
-            goto next_char;
+            goto next_lexem;
          }
 
    ///\subsection Структуры   Структурные скобки
@@ -1064,7 +1071,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-            goto next_char;
+            goto next_lexem;
          }
 
    case L_term_close:
@@ -1082,7 +1089,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
-            goto next_char;
+            goto next_lexem;
          }
 
    ///\subsection Иначе
@@ -1101,7 +1108,7 @@ lexem_identifier_undefined:
          case ss_import:
             semantic = ss_source;
             imports = 0;
-            goto next_char;
+            goto next_lexem;
          // Идентификатор пустой функции (ENUM в Refal-05).
          case ss_identifier:
             if (ids->n[lex.node].val.tag != rft_undefined) {
@@ -1110,7 +1117,7 @@ lexem_identifier_undefined:
             ids->n[lex.node].val.tag   = rft_enum;
             ids->n[lex.node].val.value = lex.id_begin;
             semantic = ss_source;
-            goto next_char;
+            goto next_lexem;
          case ss_pattern:
             error = "образец без общего выражения (пропущено = ?)";
             goto cleanup;
@@ -1155,7 +1162,7 @@ sentence_complete:
             if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
                vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
             }
-            goto next_char;
+            goto next_lexem;
          }
 
    ///\subsection Является
@@ -1171,7 +1178,7 @@ sentence_complete:
          case ss_source:
             imports = 0;
             semantic = ss_import;
-            goto next_char;
+            goto next_lexem;
          case ss_import:
             goto error_incorrect_import;
          // Идентификатор внешнего модуля.
@@ -1188,7 +1195,7 @@ sentence_complete:
                imports = rtrie_find_next(ids, lex.node, ' ');
                assert(!(imports < 0));
                semantic = ss_import;
-               goto next_char;
+               goto next_lexem;
             case rft_undefined:
                break;
             }
@@ -1221,7 +1228,7 @@ sentence_complete:
                if (lex.node > 0) {
                   semantic = ss_import;
                   ids->n[imports] = ids->n[lex.node];
-                  goto next_char;
+                  goto next_lexem;
                }
                // Сейчас это мёртвая ветка.
                lex.node = rtrie_insert_next(ids, lex.node, ' ');
@@ -1233,7 +1240,7 @@ sentence_complete:
                goto cleanup;
             } else { //TODO пока ошибки трансляции модуля не учитываются
                semantic = ss_import;
-               goto next_char;
+               goto next_lexem;
             }
          case ss_pattern:
          case ss_expression:
@@ -1255,8 +1262,8 @@ sentence_complete:
             semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
-            lexem_string(&lex, &chr, vm, st);
-            goto next_char;
+            lexem_string(&lex, vm, st);
+            goto next_lexem;
          }
    }
    assert(0);

@@ -220,14 +220,6 @@ void lexer_free(struct lexer *lex)
    wstr_free(&lex->buf);
 }
 
-static inline
-void lexer_next_line(struct lexer *lex)
-{
-   lex->line += lex->pos;
-   lex->line_num++;
-   lex->pos = 0;
-}
-
 /**
  * Первый символ распознанного идентификатора.
  */
@@ -493,8 +485,9 @@ enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
             syntax_error(st, "не закрыт комментарий /* */", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
          return L_EOF;
       case '\n': case '\r':
-         lexer_next_line(lex);
-         first_pos = 0;
+         lex->line += lex->pos;
+         ++lex->line_num;
+         first_pos = lex->pos = 0;
          comment = multiline;
          continue;
       case '*':

@@ -441,15 +441,21 @@ static inline
 void lexem_number(struct lexer *lex, struct refal_vm *vm, struct refal_message *st)
 {
    wchar_t chr = lexer_char(lex);
+   // Не обязательно, поскольку проверяется перед вызовом.
+   // Но вернее ничего не располагать на выходе, если на входе ничего нет.
+   if (chr < '0' || chr > '9')
+      return;
    rf_int   number = 0;
-   while ((chr >= '0') && (chr <= '9')) {
+   while (1) {
       number = number * 10 + (chr - '0');
       if (number < (chr - '0')) {
          warning(st, "целочисленное переполнение", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
       }
-     chr = lex->buf.s[lex->line + lex->pos++];
+      chr = lexer_next_char(lex);
+      if ((chr < '0' || chr > '9'))
+         break;
+      ++lex->pos;
    }
-   --lex->pos; //TODO изменить цикл выше.
    rf_alloc_int(vm, number);
 }
 
@@ -487,7 +493,8 @@ enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
    // * может начинать комментарий, если является первым печатным символом в строке.
    unsigned first_pos = lex->pos;
    while (1) {
-      wchar_t chr = lex->buf.s[lex->line + lex->pos++];
+      wchar_t chr = lexer_next_char(lex);
+      ++lex->pos;
       switch (chr) {
       case '\0':
          if (multiline)
@@ -499,7 +506,7 @@ enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
          comment = multiline;
          continue;
       case '*':
-         if (multiline && lex->buf.s[lex->line + lex->pos] == '/') {
+         if (multiline && lexer_next_char(lex) == '/') {
             first_pos = ++lex->pos;
             comment = multiline = false;
             continue;
@@ -510,7 +517,7 @@ enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
          }
          break;
       case '/':
-            if (!comment) switch(lex->buf.s[lex->line + lex->pos]) {
+            if (!comment) switch(lexer_next_char(lex)) {
             case '/':
                ++lex->pos;
                comment = true;

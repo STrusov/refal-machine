@@ -481,6 +481,7 @@ enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
       ++lex->pos;
       switch (chr) {
       case '\0':
+         --lex->pos;
          if (multiline)
             syntax_error(st, "не закрыт комментарий /* */", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
          return L_EOF;

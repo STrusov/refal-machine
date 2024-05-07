@@ -220,15 +220,6 @@ void lexer_free(struct lexer *lex)
    wstr_free(&lex->buf);
 }
 
-/**
- * В первой строке могут быть символы #!, тогда игнорируем её.
- */
-static inline
-void lexer_check_hashbang(struct lexer *lex)
-{
-   //TODO
-}
-
 static inline
 void lexer_next_line(struct lexer *lex)
 {
@@ -483,12 +474,13 @@ void lexem_number(struct lexer *lex, struct refal_vm *vm, struct refal_message *
 /**
  * Пропускает комментарии, пробелы, переводы строк и т.п. и
  * останавливается на первом символе идентификатора.
+ * В первой строке могут быть символы #!, тогда игнорируем, считая # комментарием.
  * return   Тип лексемы.
  */
 static inline
 enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
 {
-   bool comment = false;
+   bool comment = lex->line_num == 1 && !lex->pos && lexer_next_char(lex) == '#';
    bool multiline = false;
    // * может начинать комментарий, если является первым печатным символом в строке.
    unsigned first_pos = lex->pos;
@@ -656,8 +648,6 @@ int refal_translate_istream_to_bytecode(
    lexer_init(&lex, src);
    if (!wstr_check(&lex.buf, st))
       goto cleanup;
-
-   lexer_check_hashbang(&lex);
 
 next_lexem: ;
    enum lexem_type t = lexer_next_lexem(&lex, st);

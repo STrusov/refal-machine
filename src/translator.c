@@ -121,19 +121,18 @@ enum identifier_type {
 enum lexem_type {
    L_EOF,
    L_unspecified,
-
-   L_whitespace   = ' ',
-   L_exec_open    = '<',
-   L_exec_close   = '>',
-   L_block_open   = '{',
-   L_block_close  = '}',
-   L_term_open    = '(',
-   L_term_close   = ')',
-   L_equal        = '=',
-   L_Dquote       = '"',
-   L_quote        = '\'',
-   L_semicolon    = ';',
-   L_colon        = ':',
+   L_whitespace,
+   L_exec_open,
+   L_exec_close,
+   L_block_open,
+   L_block_close,
+   L_term_open,
+   L_term_close,
+   L_equal,
+   L_Dquote,
+   L_quote,
+   L_semicolon,
+   L_colon,
 };
 
 enum lexem_type lex_type(wchar_t c)

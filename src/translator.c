@@ -120,8 +120,9 @@ enum identifier_type {
 
 enum lexem_type {
    L_EOF,
-   L_unspecified,
    L_whitespace,
+   L_identifier,
+   L_number,
    L_exec_open,
    L_exec_close,
    L_block_open,
@@ -150,7 +151,8 @@ enum lexem_type lex_type(wchar_t c)
       case '\'':  return L_quote;
       case ';':   return L_semicolon;
       case ':':   return L_colon;
-      default:    return L_unspecified;
+      case '0'...'9': return L_number;
+      default:    return L_identifier;
    }
 }
 
@@ -277,7 +279,7 @@ void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
    lex->id_begin = wstr_append(&vm->id, chr);
    while (1) {
       chr = lexer_next_char(lex);
-      if (lex_type(chr) != L_unspecified)
+      if (lex_type(chr) != L_identifier && lex_type(chr) != L_number)
          return;
       ++lex->pos;
       if (!(imports < 0))
@@ -330,7 +332,7 @@ local:   lex->node = pattern ? rtrie_insert_next(ids, lex->ident, idc)
    }
    while (1) {
 tail: chr = lexer_next_char(lex);
-      if (lex_type(chr) != L_unspecified)
+      if (lex_type(chr) != L_identifier && lex_type(chr) != L_number)
          return;
       ++lex->pos;
       lex->node = imports ? rtrie_find_next(ids, lex->node, chr)
@@ -650,59 +652,30 @@ next_lexem: ;
    case L_EOF: goto complete;
    case L_whitespace: assert(0); goto next_lexem;
 
-   case L_unspecified: switch (lexer_char(&lex)) {
-
-      // Начало целого числа, либо продолжение идентификатора.
-      case '0'...'9':
-         switch (semantic) {
-         case ss_source:
-            error = "числа допустимы только в выражениях";
-            goto cleanup;
-         case ss_import:
-            goto error_incorrect_import;
-         case ss_identifier:
+   case L_identifier:
+      switch (semantic) {
+      case ss_import:
+         lexem_identifier(&lex, ids, module, imports, &import_node, vm, st);
+         goto lexem_identifier_complete;
+      case ss_source:
+         lexem_identifier(&lex, ids, module, -1, &import_node, vm, st);
+         goto lexem_identifier_complete;
+      case ss_identifier:
 #define DEFINE_SIMPLE_FUNCTION                           \
-            assert(function_block == 0);                 \
-            if (ids->n[lex.ident].val.tag != rft_undefined)  \
-               goto error_identifier_already_defined;    \
-            ids->n[lex.ident].val.value = vm->free;          \
-            ids->n[lex.ident].val.tag   = rft_byte_code;
+         assert(function_block == 0);                 \
+         if (ids->n[lex.ident].val.tag != rft_undefined)  \
+            goto error_identifier_already_defined;    \
+         ids->n[lex.ident].val.value = vm->free;          \
+         ids->n[lex.ident].val.tag   = rft_byte_code;
 
-            DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-            semantic = ss_pattern;
-         case ss_pattern:
-         case ss_expression:
-            lexem_number(&lex, vm, st);
-            if (lex_type(lexer_next_char(&lex)) != L_whitespace && lex_type(lexer_next_char(&lex)) == L_unspecified)
-               warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos + 1, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
-            goto next_lexem;
-         }
-
-      // Оставшиеся символы считаются допустимыми для идентификаторов.
-      default:
-         switch (semantic) {
-         case ss_import:
-            lexem_identifier(&lex, ids, module, imports, &import_node, vm, st);
-            goto lexem_identifier_complete;
-         case ss_source:
-            lexem_identifier(&lex, ids, module, -1, &import_node, vm, st);
-            goto lexem_identifier_complete;
-         case ss_identifier:
-            DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-            semantic = ss_pattern;
-         case ss_pattern:
-            lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
-            goto lexem_identifier_complete;
-         case ss_expression:
-            lexem_identifier_exp(&lex, ids, module, imports, idc, 0, vm, st);
-            goto lexem_identifier_complete;
-         }
-      }
-
-         // Ветка определяет идентификатор, а обработку текущего символа
-         // производит последующим переходом на current_char.
+         DEFINE_SIMPLE_FUNCTION;
+         rf_alloc_value(vm, lex.id_begin, rf_nop_name);
+         semantic = ss_pattern;
+      case ss_pattern:
+         lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
+         goto lexem_identifier_complete;
+      case ss_expression:
+         lexem_identifier_exp(&lex, ids, module, imports, idc, 0, vm, st);
 lexem_identifier_complete:
          switch (semantic) {
          case ss_identifier:  // TODO 2 идентификатора подряд?
@@ -843,7 +816,27 @@ lexem_identifier_undefined:
                rf_alloc_value(vm, lex.line, rf_undefined);
             }
             goto next_lexem;
-         } // case lex_identifier: switch (semantic)
+         }
+      } // case lex_identifier: switch (semantic)
+
+   case L_number:
+      switch (semantic) {
+      case ss_source:
+         error = "числа допустимы только в выражениях";
+         goto cleanup;
+      case ss_import:
+         goto error_incorrect_import;
+      case ss_identifier:
+         DEFINE_SIMPLE_FUNCTION;
+         rf_alloc_value(vm, lex.id_begin, rf_nop_name);
+         semantic = ss_pattern;
+      case ss_pattern:
+      case ss_expression:
+         lexem_number(&lex, vm, st);
+         if (lex_type(lexer_next_char(&lex)) != L_whitespace && lex_type(lexer_next_char(&lex)) == L_identifier)
+            warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos + 1, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
+         goto next_lexem;
+      }
 
    ///\section    Спец           Специальные знаки
    ///\subsection Замена

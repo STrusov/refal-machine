@@ -279,8 +279,10 @@ void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
    lex->id_begin = wstr_append(&vm->id, chr);
    while (1) {
       chr = lexer_next_char(lex);
-      if (lex_type(chr) != L_identifier && lex_type(chr) != L_number)
+      if (lex_type(chr) != L_identifier && lex_type(chr) != L_number) {
+         wstr_append(&vm->id, L'\0');
          return;
+      }
       ++lex->pos;
       if (!(imports < 0))
          *import_node = rtrie_find_next(ids, *import_node, chr);
@@ -627,9 +629,6 @@ int refal_translate_istream_to_bytecode(
       // Следом идёт выражение-образец, блок {}, список импорта (после :)
       // либо определение пустой функции (сразу ;).
       ss_identifier,
-      // Определён идентификатор модуля (для стандартной библиотеки — пустой).
-      // Следует перечень импортируемых идентификаторов.
-      ss_import,
       // Выражение-образец (левая часть предложения до =).
       // Следует общее выражение (результат).
       ss_pattern,
@@ -637,29 +636,136 @@ int refal_translate_istream_to_bytecode(
       // ; альтернативное предложение функции (исполняется при неудаче текущего)
       // } конец блока (функции).
       ss_expression,
-   } semantic = ss_source;
+   } semantic;
 
    struct lexer lex;
    lexer_init(&lex, src);
    if (!wstr_check(&lex.buf, st))
       goto cleanup;
 
-next_lexem: ;
-   enum lexem_type t = lexer_next_lexem(&lex, st);
+// На верхнем уровне исходного текста возможны три варианта:
+// : Print Prout;       // импорт из глобального пространства имён.
+// Module: id1 id2;     // импорт из файла-модуля.
+// identifier;          // определение функции.
+// identifier ... = ;
+// identifier { ... };
+definition: ;
+   semantic = ss_source;
+   enum lexem_type lexeme;
+   while (L_EOF != (lexeme = lexer_next_lexem(&lex, st))) {
+      switch (lexeme) {
+      case L_EOF: goto complete;
+      case L_whitespace: assert(0); continue;
+      default: error = "ожидается идентификатор модуля или функции"; goto cleanup;
+      // Импорт из глобального пространства имён.
+      case L_colon:
+         imports = 0;
+         goto importlist;
+      // Определение функции либо импорт модуля.
+      case L_identifier:
+         lexem_identifier(&lex, ids, module, -1, &import_node, vm, st);
+         semantic = ss_identifier;
+         lex.ident = lex.node;
+         switch (lexeme = lexer_next_lexem(&lex, st)) {
+         // Импорт модуля.
+         // Если происходит впервые, транслируем файл с соответствующим именем.
+         // Следом просматриваем список импортируемых идентификаторов до ;
+         // и вносим имеющиеся в действующую область видимости.
+         case L_colon:
+            switch (ids->n[lex.node].val.tag) {
+            case rft_machine_code: error = "имя модуля определено ранее как встроенная функция";
+               goto cleanup;
+            case rft_byte_code: error = "имя модуля определено ранее как вычислимая функция";
+               goto cleanup;
+            case rft_enum: if (ids->n[lex.node].val.value) {
+                  error = "имя модуля определено ранее как невычислимая функция (ENUM)";
+                  goto cleanup;
+               }
+               // Если идентификатор определён со значением 0, значит трансляция
+               // модуля уже выполнена. Импортируем идентификаторы.
+               imports = rtrie_find_next(ids, lex.node, ' ');
+               assert(!(imports < 0));
+               break;
+            case rft_undefined:
+               ids->n[lex.node].val.tag   = rft_enum;
+               ids->n[lex.node].val.value = 0;
+               // Поскольку другие модули могут импортировать такой же модуль,
+               // необходимо обеспечить идентичность идентификаторов, а так же
+               // нет смысла повторно транслировать уже импортированный модуль.
+               // Обе задачи решаются импортом всех модулей в одну (глобальную)
+               // область видимости.
+               //
+               // Про включении модуля в другой модуль, имя включаемого
+               // дублируем в глобальном пространстве и в узел "пробел" копируем
+               // соответствующий ему из пространства модуля, что обеспечит
+               // единообразный импорт идентификаторов модуля.
+               imports = rtrie_insert_next(ids, lex.node, ' ');
+               if (module) {
+                  const wchar_t *mn = &vm->id.s[lex.id_begin];
+                  lex.node = rtrie_insert_at(ids, 0, *mn);
+                  while (*(++mn))
+                     lex.node = rtrie_insert_next(ids, lex.node, *mn);
+                  lex.node = rtrie_find_next(ids, lex.node, ' ');
+                  if (lex.node > 0) {
+                     ids->n[imports] = ids->n[lex.node];
+                     break;
+                  }
+                  //TODO Сейчас это мёртвая ветка.
+                  assert(0);
+                  lex.node = rtrie_insert_next(ids, lex.node, ' ');
+               }
+               int r = refal_translate_module_to_bytecode(cfg, vm, ids, imports,
+                                                    &vm->id.s[lex.id_begin], st);
+               //TODO пока ошибки трансляции модуля не учитываются
+               if (r < 0) {
+                  error = "исходный текст модуля недоступен";
+                  goto cleanup;
+               }
+            }//switch (ids->n[lex.node].val.tag)
+            // Список импорта
+importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
+               switch(lexeme) {
+               case L_EOF: error = "список импорта должен завершаться ;";
+                  goto cleanup;
+               default: error = "ожидается идентификатор в списке импорта"; goto cleanup;
+               case L_identifier:
+                  lexem_identifier(&lex, ids, module, imports, &import_node, vm, st);
+                  if (import_node < 0) {
+                     error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
+                     goto cleanup;
+                  }
+                  if (ids->n[lex.node].val.tag != rft_undefined) {
+                     //TODO допустить повторный импорт в уместном случае.
+                     error = "импортируемый идентификатор уже определён";
+                     goto cleanup;
+                  }
+                  ids->n[lex.node].val = ids->n[import_node].val;
+                  continue;
+               }
+            }//importlist
+            imports = 0;
+            continue;
 
-   switch (t) {
+         // Идентификатор предполагает определение функции.
+         default:
+            local = cmd_sentence = 0;
+            goto current_lexem;
+         }
+      }
+   }// цикл верхнего уровня
+
+next_lexem: ;
+   lexeme = lexer_next_lexem(&lex, st);
+current_lexem:
+   switch (lexeme) {
 
    case L_EOF: goto complete;
    case L_whitespace: assert(0); goto next_lexem;
 
    case L_identifier:
       switch (semantic) {
-      case ss_import:
-         lexem_identifier(&lex, ids, module, imports, &import_node, vm, st);
-         goto lexem_identifier_complete;
       case ss_source:
-         lexem_identifier(&lex, ids, module, -1, &import_node, vm, st);
-         goto lexem_identifier_complete;
+         assert(0);
       case ss_identifier:
 #define DEFINE_SIMPLE_FUNCTION                           \
          assert(function_block == 0);                 \
@@ -680,29 +786,7 @@ lexem_identifier_complete:
          switch (semantic) {
          case ss_identifier:  // TODO 2 идентификатора подряд?
             assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
-         case ss_source:
-            wstr_append(&vm->id, L'\0');
-            semantic = ss_identifier;
-            lex.ident = lex.node;
-            // Функции определяются во множестве мест, вынесено сюда.
-            // Производить определение функций здесь возможно, но придётся
-            // распознавать ситуацию с импортом модуля, идентификатор которого
-            // может встречаться на верхнем уровне многократно.
-            local = 0;
-            cmd_sentence = 0;
-            goto next_lexem;
-         case ss_import:
-            wstr_append(&vm->id, L'\0');
-            if (import_node < 0) {
-               error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
-               goto cleanup;
-            }
-            if (ids->n[lex.node].val.tag != rft_undefined) {
-               error = "импортируемый идентификатор уже определён";
-               goto cleanup;
-            }
-            ids->n[lex.node].val = ids->n[import_node].val;
-            goto next_lexem;
+         case ss_source: assert(0);
          case ss_pattern:
             assert(!cmd_exec[ep]);
             switch (lex.id_type) {
@@ -824,8 +908,6 @@ lexem_identifier_undefined:
       case ss_source:
          error = "числа допустимы только в выражениях";
          goto cleanup;
-      case ss_import:
-         goto error_incorrect_import;
       case ss_identifier:
          DEFINE_SIMPLE_FUNCTION;
          rf_alloc_value(vm, lex.id_begin, rf_nop_name);
@@ -853,8 +935,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
             // Содержит ссылку на таблицу атомов.
@@ -895,8 +975,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            goto error_incorrect_import;
          case ss_identifier:
             assert(function_block == 0);
             if (ids->n[lex.node].val.tag != rft_undefined) {
@@ -928,8 +1006,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          // После последнего предложения ; может отсутствовать.
@@ -950,8 +1026,7 @@ lexem_identifier_undefined:
                goto cleanup;
             }
             vm->u[cmd_sentence].tag = rf_complete;
-            semantic = ss_source;
-            goto next_lexem;
+            goto definition;
          }
 
    ///\subsection Вычисление     Вычислительные скобки
@@ -977,8 +1052,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          case ss_pattern:
@@ -1000,8 +1073,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          case ss_pattern:
@@ -1041,8 +1112,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
             rf_alloc_value(vm, lex.id_begin, rf_nop_name);
@@ -1061,8 +1130,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            goto error_incorrect_import;
          case ss_identifier:
             goto error_incorrect_function_definition;
          case ss_pattern:
@@ -1088,10 +1155,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            semantic = ss_source;
-            imports = 0;
-            goto next_lexem;
          // Идентификатор пустой функции (ENUM в Refal-05).
          case ss_identifier:
             if (ids->n[lex.node].val.tag != rft_undefined) {
@@ -1099,8 +1162,7 @@ lexem_identifier_undefined:
             }
             ids->n[lex.node].val.tag   = rft_enum;
             ids->n[lex.node].val.value = lex.id_begin;
-            semantic = ss_source;
-            goto next_lexem;
+            goto definition;
          case ss_pattern:
             error = "образец без общего выражения (пропущено = ?)";
             goto cleanup;
@@ -1145,6 +1207,8 @@ sentence_complete:
             if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
                vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
             }
+            if (semantic == ss_source)
+               goto definition;
             goto next_lexem;
          }
 
@@ -1159,72 +1223,10 @@ sentence_complete:
          switch (semantic) {
          // Импорт из глобального пространства имён.
          case ss_source:
-            imports = 0;
-            semantic = ss_import;
-            goto next_lexem;
-         case ss_import:
-            goto error_incorrect_import;
+            assert(0);
          // Идентификатор внешнего модуля.
          case ss_identifier:
-            switch (ids->n[lex.node].val.tag) {
-            case rft_machine_code:
-            case rft_byte_code:
-               goto error_identifier_already_defined;
-            case rft_enum:
-               if (ids->n[lex.node].val.value)
-                  goto error_identifier_already_defined;
-               // Если идентификатор определён со значением 0, значит трансляция
-               // модуля уже выполнена. Импортируем идентификаторы.
-               imports = rtrie_find_next(ids, lex.node, ' ');
-               assert(!(imports < 0));
-               semantic = ss_import;
-               goto next_lexem;
-            case rft_undefined:
-               break;
-            }
-            ids->n[lex.node].val.tag   = rft_enum;
-            ids->n[lex.node].val.value = 0;
-            // Имя модуля внесено в текущее пространство имён, что гарантирует
-            // отсутствие иного одноимённого идентификатора и даёт возможность
-            // квалифицированного (именем модуля) поиска идентификаторов.
-            //
-            // Поскольку другие модули могут импортировать этот же модуль,
-            // необходимо обеспечить идентичность идентификаторов, а так же нет
-            // смысла повторно транслировать уже импортированный модуль.
-            // Обе задачи решаются импортом всех модулей в одну (глобальную)
-            // область видимости.
-
-            // При включении модуля в исходный файл, имя модуля внесено
-            // в глобальное пространство, а идентификаторы модуля - в своё.
-
-            // Про включении модуля в другой модуль, имя включаемого
-            // дублируется в глобальном пространстве и в узел "пробел" копируется
-            // соответствующий ему из пространства модуля, что обеспечит
-            // единообразный импорт идентификаторов модуля.
-            imports = rtrie_insert_next(ids, lex.node, ' ');
-            if (module) {
-               const wchar_t *mn = &vm->id.s[lex.id_begin];
-               lex.node = rtrie_insert_at(ids, 0, *mn);
-               while (*(++mn))
-                  lex.node = rtrie_insert_next(ids, lex.node, *mn);
-               lex.node = rtrie_find_next(ids, lex.node, ' ');
-               if (lex.node > 0) {
-                  semantic = ss_import;
-                  ids->n[imports] = ids->n[lex.node];
-                  goto next_lexem;
-               }
-               // Сейчас это мёртвая ветка.
-               lex.node = rtrie_insert_next(ids, lex.node, ' ');
-            }
-            int r = refal_translate_module_to_bytecode(cfg, vm, ids, imports,
-                                                      &vm->id.s[lex.id_begin], st);
-            if (r < 0) {
-               error = "исходный текст модуля недоступен";
-               goto cleanup;
-            } else { //TODO пока ошибки трансляции модуля не учитываются
-               semantic = ss_import;
-               goto next_lexem;
-            }
+            assert(0);
          case ss_pattern:
          case ss_expression:
             error = "условия не поддерживаются";
@@ -1237,8 +1239,6 @@ sentence_complete:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_import:
-            goto error_incorrect_import;
          case ss_identifier:
             DEFINE_SIMPLE_FUNCTION;
             rf_alloc_value(vm, lex.id_begin, rf_nop_name);
@@ -1357,10 +1357,6 @@ error_no_identifier_in_module:
 error_identifier_already_defined:
    // TODO надо бы отобразить прежнее определение
    error = "повторное определение идентификатора";
-   goto cleanup;
-
-error_incorrect_import:
-   error = "некорректное описание импорта (пропущено ; ?)";
    goto cleanup;
 
 error_incorrect_function_definition:

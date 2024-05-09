@@ -695,17 +695,16 @@ definition: ;
                imports = rtrie_insert_next(ids, lex.node, ' ');
                if (module) {
                   const wchar_t *mn = &vm->id.s[lex.id_begin];
-                  lex.node = rtrie_insert_at(ids, 0, *mn);
+                  rtrie_index node = rtrie_insert_at(ids, 0, *mn);
                   while (*(++mn))
-                     lex.node = rtrie_insert_next(ids, lex.node, *mn);
-                  lex.node = rtrie_find_next(ids, lex.node, ' ');
-                  if (lex.node > 0) {
-                     ids->n[imports] = ids->n[lex.node];
+                     node = rtrie_insert_next(ids, node, *mn);
+                  rtrie_index already = rtrie_find_next(ids, node, ' ');
+                  if (already > 0) {
+                     ids->n[imports] = ids->n[already];
                      break;
                   }
-                  //TODO Сейчас это мёртвая ветка.
-                  assert(0);
-                  lex.node = rtrie_insert_next(ids, lex.node, ' ');
+                  node = rtrie_insert_next(ids, node, ' ');
+                  ids->n[imports] = ids->n[node];
                }
                int r = refal_translate_module_to_bytecode(cfg, vm, ids, imports,
                                                     &vm->id.s[lex.id_begin], st);
@@ -721,7 +720,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                case L_EOF: error = "список импорта должен завершаться ;";
                   goto cleanup;
                default: error = "ожидается идентификатор в списке импорта"; goto cleanup;
-               case L_identifier:
+               case L_identifier: ;
                   rtrie_index import_node = rtrie_find_at(ids, imports, lexer_char(&lex));
                   lexem_identifier(&lex, ids, module, &import_node, vm, st);
                   if (import_node < 0) {

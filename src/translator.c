@@ -264,17 +264,13 @@ wchar_t lexer_next_char(const struct lexer *lex)
 
 static inline
 void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
-      rtrie_index module, rtrie_index imports, rtrie_index *import_node,
+      rtrie_index module, rtrie_index *import_node,
       struct refal_vm *vm, struct refal_message *st)
 {
    lex->id_line = lex->line;
    lex->id_pos  = lex->pos;
    lex->id_line_num = lex->line_num;
    wchar_t chr = lexer_char(lex);
-   // Перечисленные после имени модуля идентификаторы импортируются,
-   // для чего ищутся в модуле и определяются в текущей области видимости.
-   if (!(imports < 0))
-      *import_node = rtrie_find_at(ids, imports, chr);
    lex->node = rtrie_insert_at(ids, module, chr);
    lex->id_begin = wstr_append(&vm->id, chr);
    while (1) {
@@ -284,7 +280,8 @@ void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
          return;
       }
       ++lex->pos;
-      if (!(imports < 0))
+      // Определение идентификатора может быть импортом из другого модуля.
+      if (import_node)
          *import_node = rtrie_find_next(ids, *import_node, chr);
       lex->node = rtrie_insert_next(ids, lex->node, chr);
       wstr_append(&vm->id, chr);
@@ -546,10 +543,6 @@ int refal_translate_istream_to_bytecode(
    // Для вывода предупреждений об идентификаторах модулей.
    const char *redundant_module_id = "идентификатор модуля без функции не имеет смысла";
 
-   // При импорте идентификаторов параллельно с определением в текущей
-   // области видимости происходит поиск в пространстве имён модуля.
-   rtrie_index import_node = 0;
-
    // Пустым функциям (ENUM в Refal-05) для возможности сопоставления
    // присваивается уникальное значение.
    // Значение 0 используется для идентификаторов модулей (при разрешении имён)
@@ -663,7 +656,7 @@ definition: ;
          goto importlist;
       // Определение функции либо импорт модуля.
       case L_identifier:
-         lexem_identifier(&lex, ids, module, -1, &import_node, vm, st);
+         lexem_identifier(&lex, ids, module, NULL, vm, st);
          semantic = ss_identifier;
          lex.ident = lex.node;
          switch (lexeme = lexer_next_lexem(&lex, st)) {
@@ -729,7 +722,8 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                   goto cleanup;
                default: error = "ожидается идентификатор в списке импорта"; goto cleanup;
                case L_identifier:
-                  lexem_identifier(&lex, ids, module, imports, &import_node, vm, st);
+                  rtrie_index import_node = rtrie_find_at(ids, imports, lexer_char(&lex));
+                  lexem_identifier(&lex, ids, module, &import_node, vm, st);
                   if (import_node < 0) {
                      error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
                      goto cleanup;

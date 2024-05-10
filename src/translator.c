@@ -170,10 +170,11 @@ struct lexer {
    // текста. Здесь хранится текущий добавленный в префиксное дерево узел.
    rtrie_index node;
 
-   // Последний узел глобального идентификатора (текущей функции).
+   // Последний узел глобального идентификатора (текущей функции или имени модуля).
    // Используется как корень для локальных (переменных)
    // и для возможности изменить тип функции (с пустой на вычислимую).
-   rtrie_index ident;
+   // В случае модуля является корнем пространства имён.
+   rtrie_index id_node;
 
    enum identifier_type id_type;
 
@@ -202,7 +203,7 @@ void lexer_init(struct lexer* lex, FILE *src)
 {
    lex->node     = 0;
    lex->id_type  = id_global;
-   lex->ident    = 0;
+   lex->id_node  = 0;
    lex->id_begin = 0;
    lex->id_line  = 0;
    lex->id_pos   = 0;
@@ -262,6 +263,12 @@ wchar_t lexer_next_char(const struct lexer *lex)
 /// специальных знаков РЕФАЛ), тире и подчёркивание различаются (пока?).
 
 
+/**
+ * Заносит в префиксное дерево идентификатор, читая имя из исходного текста.
+ * Для корневых (определения функций) устанавливает \c lex->id_node.
+ *
+ * \param import_node   Указывается для идентификаторов в списке импорта.
+ */
 static inline
 void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
       rtrie_index module, rtrie_index *import_node,
@@ -277,6 +284,8 @@ void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
       chr = lexer_next_char(lex);
       if (lex_type(chr) != L_identifier && lex_type(chr) != L_number) {
          wstr_append(&vm->id, L'\0');
+         if (!import_node)
+            lex->id_node = lex->node;
          return;
       }
       ++lex->pos;
@@ -317,8 +326,8 @@ void lexem_identifier_exp(struct lexer *lex, struct refal_trie *ids,
 check_local:
       if (lexer_next_char(lex) == '.') {
         ++lex->pos;
-local:   lex->node = pattern ? rtrie_insert_next(ids, lex->ident, idc)
-                             : rtrie_find_next(ids, lex->ident, idc);
+local:   lex->node = pattern ? rtrie_insert_next(ids, lex->id_node, idc)
+                             : rtrie_find_next(ids, lex->id_node, idc);
          lex->node = pattern ? rtrie_insert_next(ids, lex->node, chr)
                              : rtrie_find_next(ids, lex->node, chr);
          goto tail;
@@ -536,7 +545,7 @@ int refal_translate_istream_to_bytecode(
    const char *error = NULL;
 
    // Пространство имён текущего импортируемого модуля.
-   // Кроме того, идентификатор модуля может встречаться и в выражениях,
+   // Идентификатор модуля может встречаться в выражениях,
    // определяя область поиска следующего за ним идентификатора.
    rtrie_index imports = 0;
 
@@ -618,10 +627,6 @@ int refal_translate_istream_to_bytecode(
    enum {
       // Верхний уровень синтаксиса. Происходит определение идентификаторов.
       ss_source,
-      // Определён идентификатор функции или модуля.
-      // Следом идёт выражение-образец, блок {}, список импорта (после :)
-      // либо определение пустой функции (сразу ;).
-      ss_identifier,
       // Выражение-образец (левая часть предложения до =).
       // Следует общее выражение (результат).
       ss_pattern,
@@ -651,21 +656,18 @@ definition: ;
       case L_whitespace: assert(0); continue;
       default: error = "ожидается идентификатор модуля или функции"; goto cleanup;
       // Импорт из глобального пространства имён.
-      case L_colon:
-         imports = 0;
-         goto importlist;
+      case L_colon: lex.id_node = 0; goto importlist;
       // Определение функции либо импорт модуля.
       case L_identifier:
          lexem_identifier(&lex, ids, module, NULL, vm, st);
-         semantic = ss_identifier;
-         lex.ident = lex.node;
          switch (lexeme = lexer_next_lexem(&lex, st)) {
+         case L_EOF: goto complete; //TODO ошибка выводится и должна.
          // Импорт модуля.
          // Если происходит впервые, транслируем файл с соответствующим именем.
          // Следом просматриваем список импортируемых идентификаторов до ;
          // и вносим имеющиеся в действующую область видимости.
          case L_colon:
-            switch (ids->n[lex.node].val.tag) {
+            switch (ids->n[lex.id_node].val.tag) {
             case rft_machine_code: error = "имя модуля определено ранее как встроенная функция";
                goto cleanup;
             case rft_byte_code: error = "имя модуля определено ранее как вычислимая функция";
@@ -676,12 +678,11 @@ definition: ;
                }
                // Если идентификатор определён со значением 0, значит трансляция
                // модуля уже выполнена. Импортируем идентификаторы.
-               imports = rtrie_find_next(ids, lex.node, ' ');
-               assert(!(imports < 0));
+               lex.id_node = rtrie_find_next(ids, lex.id_node, ' ');
+               assert(!(lex.id_node < 0));
                break;
             case rft_undefined:
-               ids->n[lex.node].val.tag   = rft_enum;
-               ids->n[lex.node].val.value = 0;
+               ids->n[lex.id_node].val = (struct rtrie_val) { rft_enum, 0 };
                // Поскольку другие модули могут импортировать такой же модуль,
                // необходимо обеспечить идентичность идентификаторов, а так же
                // нет смысла повторно транслировать уже импортированный модуль.
@@ -692,7 +693,7 @@ definition: ;
                // дублируем в глобальном пространстве и в узел "пробел" копируем
                // соответствующий ему из пространства модуля, что обеспечит
                // единообразный импорт идентификаторов модуля.
-               imports = rtrie_insert_next(ids, lex.node, ' ');
+               lex.id_node = rtrie_insert_next(ids, lex.id_node, ' ');
                if (module) {
                   const wchar_t *mn = &vm->id.s[lex.id_begin];
                   rtrie_index node = rtrie_insert_at(ids, 0, *mn);
@@ -700,13 +701,13 @@ definition: ;
                      node = rtrie_insert_next(ids, node, *mn);
                   rtrie_index already = rtrie_find_next(ids, node, ' ');
                   if (already > 0) {
-                     ids->n[imports] = ids->n[already];
+                     ids->n[lex.id_node] = ids->n[already];
                      break;
                   }
                   node = rtrie_insert_next(ids, node, ' ');
-                  ids->n[imports] = ids->n[node];
+                  ids->n[lex.id_node] = ids->n[node];
                }
-               int r = refal_translate_module_to_bytecode(cfg, vm, ids, imports,
+               int r = refal_translate_module_to_bytecode(cfg, vm, ids, lex.id_node,
                                                     &vm->id.s[lex.id_begin], st);
                //TODO пока ошибки трансляции модуля не учитываются
                if (r < 0) {
@@ -721,7 +722,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                   goto cleanup;
                default: error = "ожидается идентификатор в списке импорта"; goto cleanup;
                case L_identifier: ;
-                  rtrie_index import_node = rtrie_find_at(ids, imports, lexer_char(&lex));
+                  rtrie_index import_node = rtrie_find_at(ids, lex.id_node, lexer_char(&lex));
                   lexem_identifier(&lex, ids, module, &import_node, vm, st);
                   if (import_node < 0) {
                      error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
@@ -736,13 +737,50 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                   continue;
                }
             }//importlist
-            imports = 0;
             continue;
 
-         // Идентификатор предполагает определение функции.
+         //TODO убрать, поскольку дублируют ошибки в образце.
+         case L_block_close: error = "некорректное определение функции - пропущена {";
+            goto cleanup;
+         case L_exec_close: case L_exec_open: goto error_executor_in_pattern;
+         case L_term_close: error = "непарная структурная скобка"; goto cleanup;
+
+         // Идентификатор предполагает последующее определение функции.
          default:
+            assert(lex.id_node == lex.node);
+            assert(function_block == 0);
             local = cmd_sentence = 0;
-            goto current_lexem;
+            //TODO Рефал-5 позволяет переопределить встроенные функции.
+            if (ids->n[lex.id_node].val.tag != rft_undefined)
+               goto error_identifier_already_defined;
+            ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->free };
+            switch (lexeme) {
+            case L_semicolon:
+               ids->n[lex.id_node].val = (struct rtrie_val) { rft_enum, lex.id_begin };
+               goto definition;
+            case L_equal:
+               // Содержит ссылку на таблицу атомов.
+               rf_alloc_value(vm, lex.id_begin, rf_equal);
+               semantic = ss_expression;
+               goto next_lexem;
+            default:
+               rf_alloc_value(vm, lex.id_begin, rf_nop_name);
+               semantic = ss_pattern;
+               goto current_lexem;
+            case L_block_open:
+               // Предварительно считаем функцию невычислимой.
+               // При наличии предложений сменим тип и значение.
+               // Такой подход приводит к расходу двух лишних ячеек, однако,
+               // вряд ли стоит переусложнять код - кому нужны пустые функции,
+               // наверняка предпочтёт краткую запись: ид;
+               ids->n[lex.id_node].val = (struct rtrie_val) { rft_enum, lex.id_begin };
+               rf_alloc_value(vm, lex.id_begin, rf_nop_name);
+               cmd_sentence = rf_alloc_command(vm, rf_sentence);
+               semantic = ss_pattern;
+               ++idc;
+               ++function_block;
+               goto next_lexem;
+            }
          }
       }
    }// цикл верхнего уровня
@@ -759,17 +797,6 @@ current_lexem:
       switch (semantic) {
       case ss_source:
          assert(0);
-      case ss_identifier:
-#define DEFINE_SIMPLE_FUNCTION                           \
-         assert(function_block == 0);                 \
-         if (ids->n[lex.ident].val.tag != rft_undefined)  \
-            goto error_identifier_already_defined;    \
-         ids->n[lex.ident].val.value = vm->free;          \
-         ids->n[lex.ident].val.tag   = rft_byte_code;
-
-         DEFINE_SIMPLE_FUNCTION;
-         rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-         semantic = ss_pattern;
       case ss_pattern:
          lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
          goto lexem_identifier_complete;
@@ -777,8 +804,6 @@ current_lexem:
          lexem_identifier_exp(&lex, ids, module, imports, idc, 0, vm, st);
 lexem_identifier_complete:
          switch (semantic) {
-         case ss_identifier:  // TODO 2 идентификатора подряд?
-            assert(0);        // Д.б обработано при появлении 2го в error_identifier_odd
          case ss_source: assert(0);
          case ss_pattern:
             assert(!cmd_exec[ep]);
@@ -901,10 +926,6 @@ lexem_identifier_undefined:
       case ss_source:
          error = "числа допустимы только в выражениях";
          goto cleanup;
-      case ss_identifier:
-         DEFINE_SIMPLE_FUNCTION;
-         rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-         semantic = ss_pattern;
       case ss_pattern:
       case ss_expression:
          lexem_number(&lex, vm, st);
@@ -928,12 +949,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_identifier:
-            DEFINE_SIMPLE_FUNCTION;
-            // Содержит ссылку на таблицу атомов.
-            rf_alloc_value(vm, lex.id_begin, rf_equal);
-            semantic = ss_expression;
-            goto next_lexem;
          case ss_pattern:
             if (bp) {
                error = "не закрыта структурная скобка";
@@ -943,10 +958,9 @@ lexem_identifier_undefined:
                warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
                imports = 0;
             }
-            if (ids->n[lex.ident].val.tag == rft_enum) {
+            if (ids->n[lex.id_node].val.tag == rft_enum) {
                assert(cmd_sentence);
-               ids->n[lex.ident].val.tag   = rft_byte_code;
-               ids->n[lex.ident].val.value = vm->u[cmd_sentence].prev;
+               ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->u[cmd_sentence].prev };
             }
             // TODO проверить скобки ().
             rf_alloc_command(vm, rf_equal);
@@ -968,25 +982,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_identifier:
-            assert(function_block == 0);
-            if (ids->n[lex.node].val.tag != rft_undefined) {
-               goto error_identifier_already_defined;
-            }
-            // Предварительно считаем функцию невычислимой.
-            // При наличии предложений сменим тип и значение.
-            // Такой подход приводит к расходу двух лишних ячеек, однако,
-            // вряд ли стоит переусложнять код - кому нужны пустые функции,
-            // наверняка предпочтёт краткую запись: ид;
-            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-            cmd_sentence = rf_alloc_command(vm, rf_sentence);
-            assert(lex.ident == lex.node);
-            ids->n[lex.node].val.tag   = rft_enum;
-            ids->n[lex.node].val.value = lex.id_begin;
-            semantic = ss_pattern;
-            ++idc;
-            ++function_block;
-            goto next_lexem;
          case ss_pattern:
             error = "блок недопустим в выражении (пропущено = ?)";
             goto cleanup;
@@ -999,8 +994,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_identifier:
-            goto error_incorrect_function_definition;
          // После последнего предложения ; может отсутствовать.
          case ss_expression:
             assert(cmd_sentence);
@@ -1045,8 +1038,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_identifier:
-            goto error_incorrect_function_definition;
          case ss_pattern:
             goto error_executor_in_pattern;
          case ss_expression:
@@ -1066,8 +1057,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_identifier:
-            goto error_incorrect_function_definition;
          case ss_pattern:
             goto error_executor_in_pattern;
          case ss_expression:
@@ -1105,10 +1094,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_identifier:
-            DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-            semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
             if (!(bp < bracket_max)) {
@@ -1123,8 +1108,6 @@ lexem_identifier_undefined:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_identifier:
-            goto error_incorrect_function_definition;
          case ss_pattern:
          case ss_expression:
             if (!bp) {
@@ -1149,13 +1132,6 @@ lexem_identifier_undefined:
          case ss_source:
             goto error_identifier_missing;
          // Идентификатор пустой функции (ENUM в Refal-05).
-         case ss_identifier:
-            if (ids->n[lex.node].val.tag != rft_undefined) {
-               goto error_identifier_already_defined;
-            }
-            ids->n[lex.node].val.tag   = rft_enum;
-            ids->n[lex.node].val.value = lex.id_begin;
-            goto definition;
          case ss_pattern:
             error = "образец без общего выражения (пропущено = ?)";
             goto cleanup;
@@ -1217,9 +1193,6 @@ sentence_complete:
          // Импорт из глобального пространства имён.
          case ss_source:
             assert(0);
-         // Идентификатор внешнего модуля.
-         case ss_identifier:
-            assert(0);
          case ss_pattern:
          case ss_expression:
             error = "условия не поддерживаются";
@@ -1232,10 +1205,6 @@ sentence_complete:
          switch (semantic) {
          case ss_source:
             goto error_identifier_missing;
-         case ss_identifier:
-            DEFINE_SIMPLE_FUNCTION;
-            rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-            semantic = ss_pattern;
          case ss_pattern:
          case ss_expression:
             lexem_string(&lex, vm, st);

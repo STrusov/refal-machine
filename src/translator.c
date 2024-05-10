@@ -727,8 +727,8 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                      error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
                      goto cleanup;
                   }
-                  if (ids->n[lex.node].val.tag != rft_undefined) {
-                     //TODO допустить повторный импорт в уместном случае.
+                  if (ids->n[lex.node].val.tag != rft_undefined
+                   && ids->n[lex.node].val.value != ids->n[import_node].val.value) {
                      error = "импортируемый идентификатор уже определён";
                      goto cleanup;
                   }

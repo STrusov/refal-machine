@@ -130,8 +130,7 @@ enum lexem_type {
    L_term_open,
    L_term_close,
    L_equal,
-   L_Dquote,
-   L_quote,
+   L_string,
    L_semicolon,
    L_colon,
 };
@@ -147,8 +146,8 @@ enum lexem_type lex_type(wchar_t c)
       case '(':   return L_term_open;
       case ')':   return L_term_close;
       case '=':   return L_equal;
-      case '"':   return L_Dquote;
-      case '\'':  return L_quote;
+      case '"':   return L_string;
+      case '\'':  return L_string;
       case ';':   return L_semicolon;
       case ':':   return L_colon;
       case '0'...'9': return L_number;
@@ -1159,8 +1158,7 @@ sentence_complete:
             goto cleanup;
 
    // Начинает и заканчивает строку знаковых символов.
-   case L_Dquote:
-   case L_quote:
+   case L_string:
             lexem_string(&lex, vm, st);
             goto next_lexem;
    }

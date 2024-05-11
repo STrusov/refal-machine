@@ -625,8 +625,6 @@ int refal_translate_istream_to_bytecode(
 
    // Состояние семантического анализатора.
    enum {
-      // Верхний уровень синтаксиса. Происходит определение идентификаторов.
-      ss_source,
       // Выражение-образец (левая часть предложения до =).
       // Следует общее выражение (результат).
       ss_pattern,
@@ -648,7 +646,7 @@ int refal_translate_istream_to_bytecode(
 // identifier ... = ;
 // identifier { ... };
 definition: ;
-   semantic = ss_source;
+   bool definition_incomplete = false;
    enum lexem_type lexeme;
    while (L_EOF != (lexeme = lexer_next_lexem(&lex, st))) {
       switch (lexeme) {
@@ -660,6 +658,7 @@ definition: ;
       // Определение функции либо импорт модуля.
       case L_identifier:
          lexem_identifier(&lex, ids, module, NULL, vm, st);
+         definition_incomplete = true;
          switch (lexeme = lexer_next_lexem(&lex, st)) {
          case L_EOF: goto complete; //TODO ошибка выводится и должна.
          // Импорт модуля.
@@ -795,8 +794,6 @@ current_lexem:
 
    case L_identifier:
       switch (semantic) {
-      case ss_source:
-         assert(0);
       case ss_pattern:
          lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
          goto lexem_identifier_complete;
@@ -804,7 +801,6 @@ current_lexem:
          lexem_identifier_exp(&lex, ids, module, imports, idc, 0, vm, st);
 lexem_identifier_complete:
          switch (semantic) {
-         case ss_source: assert(0);
          case ss_pattern:
             assert(!cmd_exec[ep]);
             switch (lex.id_type) {
@@ -922,17 +918,10 @@ lexem_identifier_undefined:
       } // case lex_identifier: switch (semantic)
 
    case L_number:
-      switch (semantic) {
-      case ss_source:
-         error = "числа допустимы только в выражениях";
-         goto cleanup;
-      case ss_pattern:
-      case ss_expression:
          lexem_number(&lex, vm, st);
          if (lex_type(lexer_next_char(&lex)) != L_whitespace && lex_type(lexer_next_char(&lex)) == L_identifier)
             warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos + 1, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
          goto next_lexem;
-      }
 
    ///\section    Спец           Специальные знаки
    ///\subsection Замена
@@ -947,8 +936,6 @@ lexem_identifier_undefined:
 
    case L_equal:
          switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
          case ss_pattern:
             if (bp) {
                error = "не закрыта структурная скобка";
@@ -980,8 +967,6 @@ lexem_identifier_undefined:
    // Начинает блок (перечень предложений) функции.
    case L_block_open:
          switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
          case ss_pattern:
             error = "блок недопустим в выражении (пропущено = ?)";
             goto cleanup;
@@ -992,8 +977,6 @@ lexem_identifier_undefined:
 
    case L_block_close:
          switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
          // После последнего предложения ; может отсутствовать.
          case ss_expression:
             assert(cmd_sentence);
@@ -1036,8 +1019,6 @@ lexem_identifier_undefined:
 
    case L_exec_open:
          switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
          case ss_pattern:
             goto error_executor_in_pattern;
          case ss_expression:
@@ -1055,8 +1036,6 @@ lexem_identifier_undefined:
 
    case L_exec_close:
          switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
          case ss_pattern:
             goto error_executor_in_pattern;
          case ss_expression:
@@ -1091,32 +1070,20 @@ lexem_identifier_undefined:
    /// рассматриваться как единое целое, или _терм_.
 
    case L_term_open:
-         switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
-         case ss_pattern:
-         case ss_expression:
             if (!(bp < bracket_max)) {
                error = "превышен лимит вложенности структурных скобок";
                goto cleanup;
             }
             bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
             goto next_lexem;
-         }
 
    case L_term_close:
-         switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
-         case ss_pattern:
-         case ss_expression:
             if (!bp) {
                error = "непарная структурная скобка";
                goto cleanup;
             }
             rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
             goto next_lexem;
-         }
 
    ///\subsection Иначе
    ///
@@ -1129,8 +1096,6 @@ lexem_identifier_undefined:
 
    case L_semicolon:
          switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
          // Идентификатор пустой функции (ENUM в Refal-05).
          case ss_pattern:
             error = "образец без общего выражения (пропущено = ?)";
@@ -1150,6 +1115,7 @@ sentence_complete:
                imports = 0;
             }
             rf_index sentence_complete;
+            bool function_complete = false;
             // В функциях с блоком сохраняем в маркере текущего предложения
             // ссылку на данные следующего и размещаем новый маркер.
             if (function_block && cmd_sentence) {
@@ -1163,20 +1129,20 @@ sentence_complete:
                assert(0);
                sentence_complete = rf_alloc_command(vm, rf_complete);
                vm->u[cmd_sentence].data = sentence_complete;
-               semantic = ss_source;
+               function_complete = true;
             } else {
                // См. переход сюда из case '}' где подразумевается данный опкод.
                // Может показаться, что достаточно проверять function_block на 0,
                // но планируется поддержка вложенных блоков.
                sentence_complete = rf_alloc_command(vm, rf_complete);
-               semantic = ss_source;
+               function_complete = true;
             }
             // При хвостовых вызовах нет смысла в парном сохранении и
             // восстановление контекста функции. Обозначим такие интерпретатору.
             if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
                vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
             }
-            if (semantic == ss_source)
+            if (function_complete)
                goto definition;
             goto next_lexem;
          }
@@ -1189,32 +1155,19 @@ sentence_complete:
    ///
    ///     ИмяМодуля: функция1 функция2;
    case L_colon:
-         switch (semantic) {
-         // Импорт из глобального пространства имён.
-         case ss_source:
-            assert(0);
-         case ss_pattern:
-         case ss_expression:
             error = "условия не поддерживаются";
             goto cleanup;
-         }
 
    // Начинает и заканчивает строку знаковых символов.
    case L_Dquote:
    case L_quote:
-         switch (semantic) {
-         case ss_source:
-            goto error_identifier_missing;
-         case ss_pattern:
-         case ss_expression:
             lexem_string(&lex, vm, st);
             goto next_lexem;
-         }
    }
    assert(0);
 
 complete:
-   if (semantic != ss_source) {
+   if (definition_incomplete) {
       if (function_block)
          error = "не завершено определение функции (пропущена } ?)";
       else
@@ -1323,10 +1276,6 @@ error_identifier_already_defined:
 
 error_incorrect_function_definition:
    error = "некорректное определение функции (пропущено = или { ?)";
-   goto cleanup;
-
-error_identifier_missing:
-   error = "пропущено имя функции";
    goto cleanup;
 
 error_identifier_odd:

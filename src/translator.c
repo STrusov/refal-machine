@@ -638,16 +638,14 @@ int refal_translate_istream_to_bytecode(
    if (!wstr_check(&lex.buf, st))
       goto cleanup;
 
-// На верхнем уровне исходного текста возможны три варианта:
-// : Print Prout;       // импорт из глобального пространства имён.
-// Module: id1 id2;     // импорт из файла-модуля.
-// identifier;          // определение функции.
-// identifier ... = ;
-// identifier { ... };
-definition: ;
-   enum lexem_type lexeme;
-   while (true) {
-      lexeme = lexer_next_lexem(&lex, st);
+   // На верхнем уровне исходного текста возможны три варианта:
+   // : Print Prout;       // импорт из глобального пространства имён.
+   // Module: id1 id2;     // импорт из файла-модуля.
+   // identifier;          // определение функции.
+   // identifier ... = ;
+   // identifier { ... };
+   while (true) {//TODO L_EOF вернуть в условие
+      enum lexem_type lexeme = lexer_next_lexem(&lex, st);
       switch (lexeme) {
       case L_EOF: goto complete;
       case L_whitespace: assert(0); continue;
@@ -745,6 +743,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
 
          // Идентификатор предполагает последующее определение функции.
          default:
+            bool function_complete = false;
             assert(lex.id_node == lex.node);
             assert(function_block == 0);
             local = cmd_sentence = 0;
@@ -782,7 +781,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
 
 next_lexem:
             // Тело функции.
-            while (true) {
+            while (!function_complete) {
                lexeme = lexer_next_lexem(&lex, st);
 current_lexem: switch(lexeme) {
                case L_EOF: error = function_block ? "не завершено определение функции (пропущена } ?)"
@@ -866,7 +865,8 @@ incomplete:       lex.line = lex.id_line;
                         goto cleanup;
                      }
                      vm->u[cmd_sentence].tag = rf_complete;
-                     goto definition;
+                     function_complete = true;
+                     continue;
                   }
 
                ///\subsection Вычисление     Вычислительные скобки
@@ -975,7 +975,6 @@ sentence_complete:   if (ep) {
                         imports = 0;
                      }
                      rf_index sentence_complete;
-                     bool function_complete = false;
                      // В функциях с блоком сохраняем в маркере текущего предложения
                      // ссылку на данные следующего и размещаем новый маркер.
                      if (function_block && cmd_sentence) {
@@ -1002,8 +1001,6 @@ sentence_complete:   if (ep) {
                      if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
                         vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
                      }
-                     if (function_complete)
-                        goto definition;
                      continue;
                   }
 

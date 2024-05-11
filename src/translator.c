@@ -644,10 +644,8 @@ int refal_translate_istream_to_bytecode(
    // identifier;          // определение функции.
    // identifier ... = ;
    // identifier { ... };
-   while (true) {//TODO L_EOF вернуть в условие
-      enum lexem_type lexeme = lexer_next_lexem(&lex, st);
+   for (enum lexem_type lexeme; L_EOF != (lexeme = lexer_next_lexem(&lex, st)); ) {//TODO L_EOF вернуть в условие
       switch (lexeme) {
-      case L_EOF: goto complete;
       case L_whitespace: assert(0); continue;
       default: error = "ожидается идентификатор модуля или функции"; goto cleanup;
       // Импорт из глобального пространства имён.
@@ -779,7 +777,6 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                goto current_lexem;
             }
 
-next_lexem:
             // Тело функции.
             while (!function_complete) {
                lexeme = lexer_next_lexem(&lex, st);
@@ -1013,142 +1010,130 @@ sentence_complete:   if (ep) {
                ///     ИмяМодуля: функция1 функция2;
                case L_colon: error = "условия не поддерживаются"; goto cleanup;
 
-               default: goto legacy;
-               }
+               case L_identifier:
+                  switch (semantic) {
+                  case ss_pattern:
+                     lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
+                     assert(!cmd_exec[ep]);
+                     switch (lex.id_type) {
+                     case id_svar:
+                     case id_tvar:
+                     case id_evar:
+                        if (local == local_max) {
+                           error = "превышен лимит переменных";
+                           goto cleanup;
+                        }
+                        if (ids->n[lex.node].val.tag == rft_undefined) {
+                           var[local].opcode = 0;
+                           ids->n[lex.node].val.tag   = rft_enum;
+                           ids->n[lex.node].val.value = local++;
+                        }
+                        rf_alloc_value(vm, ids->n[lex.node].val.value, lex.id_type);
+                        continue;
+                     case id_global:
+                        goto lexem_identifier_complete_global;
+                     }
+                  case ss_expression:
+                     lexem_identifier_exp(&lex, ids, module, imports, idc, 0, vm, st);
+                     switch (lex.id_type) {
+                     case id_svar:
+                     case id_tvar:
+                     case id_evar:
+                        if (ids->n[lex.node].val.tag == rft_undefined) {
+                           goto error_identifier_undefined;
+                        }
+                        // При первом вхождении создаём переменную и запоминаем её индекс.
+                        // При следующем вхождении устанавливаем значение tag2 по
+                        // сохранённому индексу, а индекс заменяем на текущий.
+                        rf_index id = ids->n[lex.node].val.value;
+                        if (lex.id_type != id_svar && var[id].opcode) {
+                           vm->u[var[id].opcode].tag2 = 1;
+#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
+                           if (cfg && cfg->notice_copy) {
+                              performance(st, "создаётся копия переменной", var[id].line,
+                                              var[id].pos, &lex.buf.s[var[id].src], &lex.buf.s[lex.buf.free]);
+                           }
+#endif
+                        }
+                        var[id].opcode = rf_alloc_value(vm, id, lex.id_type);
+#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
+                        var[id].src  = lex.line;
+                        var[id].line = lex.line_num;
+                        var[id].pos  = lex.pos;
+#endif
+                        continue;
+                     case id_global:
+                        break;
+                     }
+lexem_identifier_complete_global:
+                     if (lex.node < 0) {
+                        assert(imports);
+                        goto error_no_identifier_in_module;
+                     }
+                     if (ids->n[lex.node].val.tag != rft_undefined) {
+                        // Если открыта вычислительная скобка, задаём ей адрес
+                        // первой вычислимой функции из выражения.
+                        if (ids->n[lex.node].val.tag != rft_enum && cmd_exec[ep]
+                        && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
+                           // Если в поле действия данной скобки встретился идентификатор,
+                           // который на данный момент не определён, не известно,
+                           // вычислим ли он. Возможно, именно определённая для него
+                           // функция и должна быть вызвана скобкой. В таком случае
+                           // откладываем решение до этапа, когда разрешаются
+                           // неопределённые на данном проходе идентификаторы.
+                           if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).value)
+                              goto lexem_identifier_undefined;
+                           vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[lex.node].val);
+                           imports = 0;
+                        }
+                        // rft_enum и нулевое значение означают идентификатор модуля.
+                        // Используем соответствующую ветку для поиска следующего идентификатора.
+                        else if (ids->n[lex.node].val.tag == rft_enum && !ids->n[lex.node].val.value) {
+                           assert(!imports);
+                           imports = rtrie_find_next(ids, lex.node, ' ');
+                           lex.id_line = lex.line;
+                           lex.id_pos  = lex.pos;
+                           lex.id_line_num = lex.line_num;
+                           assert(imports > 0);
+                        } else {
+                           rf_alloc_value(vm, rtrie_val_to_raw(ids->n[lex.node].val), rf_identifier);
+                           imports = 0;
+                        }
+                     } else {
+lexem_identifier_undefined:
+                        if (imports) {
+                           goto error_no_identifier_in_module;
+                        }
+                        // После первого прохода поищем, не появилось ли определение.
+                        rf_alloc_value(vm, lex.node, rf_undefined);
+                        rf_index l = rf_alloc_value(vm, 0, rf_undefined);
+                        if (!undefined_fist)
+                           undefined_fist = l;
+                        if (undefined_last)
+                           vm->u[undefined_last].link = l;
+                        undefined_last = l;
+                        // Если открыта скобка и функция ей не присвоена, добавим
+                        // rf_execute, а скобке зададим фиктивное значение, что бы при
+                        // проверке в закрывающей скобке отличить неопределённые
+                        // идентификаторы от отсутствия таковых.
+                        if (cmd_exec[ep] && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
+                           rf_alloc_value(vm, cmd_exec[ep], rf_open_function);
+                           struct rtrie_val f = { .tag = rft_undefined, .value = 1 };
+                           vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(f);
+                        }
+                        // На случай ошибки.
+                        rf_alloc_value(vm, lex.line_num, rf_undefined);
+                        rf_alloc_value(vm, lex.pos, rf_undefined);
+                        rf_alloc_value(vm, lex.line, rf_undefined);
+                     }
+                     continue;
+                  }
+               }// case L_identifier
             }// тело функции.
-
          }
       }
    }// цикл верхнего уровня
 
-legacy:
-      switch (semantic) {
-      case ss_pattern:
-         lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
-         goto lexem_identifier_complete;
-      case ss_expression:
-         lexem_identifier_exp(&lex, ids, module, imports, idc, 0, vm, st);
-lexem_identifier_complete:
-         switch (semantic) {
-         case ss_pattern:
-            assert(!cmd_exec[ep]);
-            switch (lex.id_type) {
-            case id_svar:
-            case id_tvar:
-            case id_evar:
-               if (local == local_max) {
-                  error = "превышен лимит переменных";
-                  goto cleanup;
-               }
-               if (ids->n[lex.node].val.tag == rft_undefined) {
-                  var[local].opcode = 0;
-                  ids->n[lex.node].val.tag   = rft_enum;
-                  ids->n[lex.node].val.value = local++;
-               }
-               rf_alloc_value(vm, ids->n[lex.node].val.value, lex.id_type);
-               goto next_lexem;
-            case id_global:
-               goto lexem_identifier_complete_global;
-            }
-         case ss_expression:
-            switch (lex.id_type) {
-            case id_svar:
-            case id_tvar:
-            case id_evar:
-               if (ids->n[lex.node].val.tag == rft_undefined) {
-                  goto error_identifier_undefined;
-               }
-               // При первом вхождении создаём переменную и запоминаем её индекс.
-               // При следующем вхождении устанавливаем значение tag2 по
-               // сохранённому индексу, а индекс заменяем на текущий.
-               rf_index id = ids->n[lex.node].val.value;
-               if (lex.id_type != id_svar && var[id].opcode) {
-                  vm->u[var[id].opcode].tag2 = 1;
-#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
-                  if (cfg && cfg->notice_copy) {
-                     performance(st, "создаётся копия переменной", var[id].line,
-                                     var[id].pos, &lex.buf.s[var[id].src], &lex.buf.s[lex.buf.free]);
-                  }
-#endif
-               }
-               var[id].opcode = rf_alloc_value(vm, id, lex.id_type);
-#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
-               var[id].src  = lex.line;
-               var[id].line = lex.line_num;
-               var[id].pos  = lex.pos;
-#endif
-               goto next_lexem;
-            case id_global:
-               break;
-            }
-lexem_identifier_complete_global:
-            if (lex.node < 0) {
-               assert(imports);
-               goto error_no_identifier_in_module;
-            }
-            if (ids->n[lex.node].val.tag != rft_undefined) {
-               // Если открыта вычислительная скобка, задаём ей адрес
-               // первой вычислимой функции из выражения.
-               if (ids->n[lex.node].val.tag != rft_enum && cmd_exec[ep]
-               && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
-                  // Если в поле действия данной скобки встретился идентификатор,
-                  // который на данный момент не определён, не известно,
-                  // вычислим ли он. Возможно, именно определённая для него
-                  // функция и должна быть вызвана скобкой. В таком случае
-                  // откладываем решение до этапа, когда разрешаются
-                  // неопределённые на данном проходе идентификаторы.
-                  if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).value)
-                     goto lexem_identifier_undefined;
-                  vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[lex.node].val);
-                  imports = 0;
-               }
-               // rft_enum и нулевое значение означают идентификатор модуля.
-               // Используем соответствующую ветку для поиска следующего идентификатора.
-               else if (ids->n[lex.node].val.tag == rft_enum && !ids->n[lex.node].val.value) {
-                  assert(!imports);
-                  imports = rtrie_find_next(ids, lex.node, ' ');
-                  lex.id_line = lex.line;
-                  lex.id_pos  = lex.pos;
-                  lex.id_line_num = lex.line_num;
-                  assert(imports > 0);
-               } else {
-                  rf_alloc_value(vm, rtrie_val_to_raw(ids->n[lex.node].val), rf_identifier);
-                  imports = 0;
-               }
-            } else {
-lexem_identifier_undefined:
-               if (imports) {
-                  goto error_no_identifier_in_module;
-               }
-               // После первого прохода поищем, не появилось ли определение.
-               rf_alloc_value(vm, lex.node, rf_undefined);
-               rf_index l = rf_alloc_value(vm, 0, rf_undefined);
-               if (!undefined_fist)
-                  undefined_fist = l;
-               if (undefined_last)
-                  vm->u[undefined_last].link = l;
-               undefined_last = l;
-               // Если открыта скобка и функция ей не присвоена, добавим
-               // rf_execute, а скобке зададим фиктивное значение, что бы при
-               // проверке в закрывающей скобке отличить неопределённые
-               // идентификаторы от отсутствия таковых.
-               if (cmd_exec[ep] && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
-                  rf_alloc_value(vm, cmd_exec[ep], rf_open_function);
-                  struct rtrie_val f = { .tag = rft_undefined, .value = 1 };
-                  vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(f);
-               }
-               // На случай ошибки.
-               rf_alloc_value(vm, lex.line_num, rf_undefined);
-               rf_alloc_value(vm, lex.pos, rf_undefined);
-               rf_alloc_value(vm, lex.line, rf_undefined);
-            }
-            goto next_lexem;
-         }
-      } // case lex_identifier: switch (semantic)
-
-   assert(0);
-
-complete:
    // Ищем, не появилось ли определение идентификаторов.
    // На первой итерации проверяем только идентификаторы внутри скобок,
    // что бы присвоить адрес вычислимой функции. Подходящий идентификатор

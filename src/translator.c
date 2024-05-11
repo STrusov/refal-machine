@@ -645,9 +645,9 @@ int refal_translate_istream_to_bytecode(
 // identifier ... = ;
 // identifier { ... };
 definition: ;
-   bool definition_incomplete = false;
    enum lexem_type lexeme;
-   while (L_EOF != (lexeme = lexer_next_lexem(&lex, st))) {
+   while (true) {
+      lexeme = lexer_next_lexem(&lex, st);
       switch (lexeme) {
       case L_EOF: goto complete;
       case L_whitespace: assert(0); continue;
@@ -657,9 +657,9 @@ definition: ;
       // Определение функции либо импорт модуля.
       case L_identifier:
          lexem_identifier(&lex, ids, module, NULL, vm, st);
-         definition_incomplete = true;
          switch (lexeme = lexer_next_lexem(&lex, st)) {
-         case L_EOF: goto complete; //TODO ошибка выводится и должна.
+         case L_EOF: error = "не завершено определение функции или импорта";
+            goto incomplete;
          // Импорт модуля.
          // Если происходит впервые, транслируем файл с соответствующим именем.
          // Следом просматриваем список импортируемых идентификаторов до ;
@@ -755,16 +755,12 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             switch (lexeme) {
             case L_semicolon:
                ids->n[lex.id_node].val = (struct rtrie_val) { rft_enum, lex.id_begin };
-               goto definition;
+               continue;
             case L_equal:
                // Содержит ссылку на таблицу атомов.
                rf_alloc_value(vm, lex.id_begin, rf_equal);
                semantic = ss_expression;
-               goto next_lexem;
-            default:
-               rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-               semantic = ss_pattern;
-               goto current_lexem;
+               break;
             case L_block_open:
                // Предварительно считаем функцию невычислимой.
                // При наличии предложений сменим тип и значение.
@@ -777,21 +773,258 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                semantic = ss_pattern;
                ++idc;
                ++function_block;
-               goto next_lexem;
+               break;
+            default:
+               rf_alloc_value(vm, lex.id_begin, rf_nop_name);
+               semantic = ss_pattern;
+               goto current_lexem;
             }
+
+next_lexem:
+            // Тело функции.
+            while (true) {
+               lexeme = lexer_next_lexem(&lex, st);
+current_lexem: switch(lexeme) {
+               case L_EOF: error = function_block ? "не завершено определение функции (пропущена } ?)"
+                                                  : "не завершено определение функции (пропущена ; ?)";
+incomplete:       lex.line = lex.id_line;
+                  lex.pos  = lex.id_pos;
+                  lex.line_num = lex.id_line_num;
+                  goto cleanup;
+               case L_whitespace: assert(0); continue;
+
+               case L_string: lexem_string(&lex, vm, st); continue;
+               case L_number: lexem_number(&lex, vm, st);
+                  if (lex_type(lexer_next_char(&lex)) != L_whitespace && lex_type(lexer_next_char(&lex)) == L_identifier)
+                     warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos + 1, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
+                  continue;
+
+               ///\section    Спец           Специальные знаки
+               ///\subsection Замена
+               ///
+               /// Знак равенства `=` означает операцию замены.
+               /// В _предложении_ РЕФАЛ-5 отделяет _образец_ (слева) от _общего выражения_
+               /// (справа), так же называемого _результатом_. Если РЕФАЛ-машина успешно
+               /// сопоставляет поле зрения с образцом, происходит замена на результат.
+               ///
+               /// В данной реализации может стоять сразу после идентификатора, определяя
+               /// _простую функцию_ (не имеет альтернативных предложений).
+               case L_equal:
+                  switch (semantic) {
+                  case ss_pattern:
+                     if (bp) {
+                        error = "не закрыта структурная скобка";
+                        goto cleanup;
+                     }
+                     if (imports) {
+                        warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                        imports = 0;
+                     }
+                     if (ids->n[lex.id_node].val.tag == rft_enum) {
+                        assert(cmd_sentence);
+                        ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->u[cmd_sentence].prev };
+                     }
+                     rf_alloc_command(vm, rf_equal);
+                     semantic = ss_expression;
+                     continue;
+                  case ss_expression:
+                     error = "недопустимый оператор в выражении (пропущена ; ?)";
+                     goto cleanup;
+                  }
+
+               ///\subsection Блок           Начало и конец
+               ///
+               /// Фигурные скобки `{` и `}` означают начало и конец _блока_ (тела) функции.
+               /// Блок может включать произвольное количество предложений.
+               /// Пустой блок определяет невычислимую функцию.
+               case L_block_open:
+                  switch (semantic) {
+                  case ss_pattern:
+                     error = "блок недопустим в выражении (пропущено = ?)";
+                     goto cleanup;
+                  case ss_expression:
+                     error = "вложенные блоки {} пока не поддерживаются";
+                     goto cleanup;
+                  }
+               case L_block_close:
+                  switch (semantic) {
+                  // После последнего предложения ; может отсутствовать.
+                  case ss_expression:
+                     assert(cmd_sentence);
+                     assert(function_block > 0);
+                     --function_block;
+                     // Код операции rf_complete размещается в sentence_complete.
+                     vm->u[cmd_sentence].data = vm->free;
+                     cmd_sentence = 0;
+                     goto sentence_complete;
+                  // ; начинает предложение-образец, пустой в случае завершения функции.
+                  case ss_pattern:
+                     assert(function_block > 0);
+                     --function_block;
+                     if (!rf_is_evar_empty(vm, cmd_sentence, vm->free)) {
+                        error = "образец без общего выражения (пропущено = ?)";
+                        goto cleanup;
+                     }
+                     vm->u[cmd_sentence].tag = rf_complete;
+                     goto definition;
+                  }
+
+               ///\subsection Вычисление     Вычислительные скобки
+               ///
+               /// Функциональные, или вычислительные скобки `<` и `>` определяют
+               /// _активное выражение_. При замене образца на результат, содержащий
+               /// такое выражение, вызывается вычислимая функция, определяемая первым
+               /// идентификатором внутри скобок. Остальное содержимое скобок передаётся
+               /// в качестве поля зрения (но если оно содержит другое активное выражение,
+               /// то предварительно вычисляется вложенное). В РЕФАЛ-5 такой идентификатор
+               /// должен идти непосредственно после скобки:
+               ///
+               ///   Go { = <Prout "Вывод.">; }
+               ///
+               /// Здесь порядок свободный; так, выражения:
+               ///
+               ///   Go = <"Вывод." Prout>;
+               ///
+               ///   Go = <"Вы" Prout "вод.">;
+               /// эквивалентны.
+               case L_exec_open:
+                  switch (semantic) {
+                  case ss_pattern: goto error_executor_in_pattern;
+                  case ss_expression:
+                     if (!(++ep < exec_max)) {
+                        error = "превышен лимит вложенности вычислительных скобок";
+                        goto cleanup;
+                     }
+                     if (imports) {
+                        warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                        imports = 0;
+                     }
+                     cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
+                     continue;
+                  }
+               case L_exec_close:
+                  switch (semantic) {
+                  case ss_pattern: goto error_executor_in_pattern;
+                  case ss_expression:
+                     if (!ep) {
+                        error = "непарная вычислительная скобка";
+                        goto cleanup;
+                     }
+                     if (imports) {
+                        warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                        imports = 0;
+                     }
+                     assert(ep > 0);
+                     // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
+                     // Если функция не определена, но между скобок содержатся
+                     // идентификаторы (.value == 1) задаём открывающей скобке ссылку на эту.
+                     rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute);
+                     struct rtrie_val f = rtrie_val_from_raw(vm->u[cmd_exec[ep]].data);
+                     if (f.tag == rft_undefined) {
+                        if (!f.value) {
+                           error = "активное выражение должно содержать имя вычислимой функции";
+                           goto cleanup;
+                        }
+                        vm->u[cmd_exec[ep]].data = ec;
+                     }
+                     cmd_exec[ep--] = 0;
+                     continue;
+                  }
+
+               ///\subsection Структуры   Структурные скобки
+               ///
+               /// Круглые скобки `(` и `)` объединяют данные в группу, которая может
+               /// рассматриваться как единое целое, или _терм_.
+               case L_term_open: if (!(bp < bracket_max)) {
+                     error = "превышен лимит вложенности структурных скобок";
+                     goto cleanup;
+                  }
+                  bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
+                  continue;
+               case L_term_close: if (!bp) {
+                     error = "непарная структурная скобка";
+                     goto cleanup;
+                  }
+                  rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
+                  continue;
+
+               ///\subsection Иначе
+               ///
+               /// Точка с запятой `;` разделяет предложения в блоке. Если РЕФАЛ-машина
+               /// не распознаёт образец в текущем (первом) предложении блока, пробуется
+               /// следующее.
+               ///
+               /// В данной реализации точка с запятой может идти непосредственно после
+               /// идентификатора, определяя пустую функцию.
+               case L_semicolon:
+                  switch (semantic) {
+                  // Идентификатор пустой функции (ENUM в Refal-05).
+                  case ss_pattern: error = "образец без общего выражения (пропущено = ?)";
+                     goto cleanup;
+                  case ss_expression:
+sentence_complete:   if (ep) {
+                        error = "не закрыта вычислительная скобка";
+                        goto cleanup;
+                     }
+                     if (bp) {
+                        error = "не закрыта структурная скобка";
+                        goto cleanup;
+                     }
+                     if (imports) {
+                        warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                        imports = 0;
+                     }
+                     rf_index sentence_complete;
+                     bool function_complete = false;
+                     // В функциях с блоком сохраняем в маркере текущего предложения
+                     // ссылку на данные следующего и размещаем новый маркер.
+                     if (function_block && cmd_sentence) {
+                        sentence_complete = rf_alloc_command(vm, rf_sentence);
+                        vm->u[cmd_sentence].data = sentence_complete;
+                        cmd_sentence = sentence_complete;
+                        semantic = ss_pattern;
+                        local = 0;
+                        ++idc;
+                     } else if (cmd_sentence) {
+                        assert(0);
+                        sentence_complete = rf_alloc_command(vm, rf_complete);
+                        vm->u[cmd_sentence].data = sentence_complete;
+                        function_complete = true;
+                     } else {
+                        // См. переход сюда из case '}' где подразумевается данный опкод.
+                        // Может показаться, что достаточно проверять function_block на 0,
+                        // но планируется поддержка вложенных блоков.
+                        sentence_complete = rf_alloc_command(vm, rf_complete);
+                        function_complete = true;
+                     }
+                     // При хвостовых вызовах нет смысла в парном сохранении и
+                     // восстановление контекста функции. Обозначим такие интерпретатору.
+                     if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
+                        vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
+                     }
+                     if (function_complete)
+                        goto definition;
+                     continue;
+                  }
+
+               ///\subsection Является
+               ///
+               /// Двоеточие `:` в Расширенном РЕФАЛ используется в условиях (не реализовано).
+               ///
+               /// Применяется для импорта модулей, как замена $EXTERN (и *$FROM Refal-05).
+               ///
+               ///     ИмяМодуля: функция1 функция2;
+               case L_colon: error = "условия не поддерживаются"; goto cleanup;
+
+               default: goto legacy;
+               }
+            }// тело функции.
+
          }
       }
    }// цикл верхнего уровня
 
-next_lexem: ;
-   lexeme = lexer_next_lexem(&lex, st);
-current_lexem:
-   switch (lexeme) {
-
-   case L_EOF: goto complete;
-   case L_whitespace: assert(0); goto next_lexem;
-
-   case L_identifier:
+legacy:
       switch (semantic) {
       case ss_pattern:
          lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
@@ -916,266 +1149,9 @@ lexem_identifier_undefined:
          }
       } // case lex_identifier: switch (semantic)
 
-   case L_number:
-         lexem_number(&lex, vm, st);
-         if (lex_type(lexer_next_char(&lex)) != L_whitespace && lex_type(lexer_next_char(&lex)) == L_identifier)
-            warning(st, "идентификаторы следует отделять от цифр пробелом", lex.line_num, lex.pos + 1, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
-         goto next_lexem;
-
-   ///\section    Спец           Специальные знаки
-   ///\subsection Замена
-   ///
-   /// Знак равенства `=` означает операцию замены.
-   /// В _предложении_ РЕФАЛ-5 отделяет _образец_ (слева) от _общего выражения_
-   /// (справа), так же называемого _результатом_. Если РЕФАЛ-машина успешно
-   /// сопоставляет поле зрения с образцом, происходит замена на результат.
-   ///
-   /// В данной реализации может стоять сразу после идентификатора, определяя
-   /// _простую функцию_ (не имеет альтернативных предложений).
-
-   case L_equal:
-         switch (semantic) {
-         case ss_pattern:
-            if (bp) {
-               error = "не закрыта структурная скобка";
-               goto cleanup;
-            }
-            if (imports) {
-               warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
-               imports = 0;
-            }
-            if (ids->n[lex.id_node].val.tag == rft_enum) {
-               assert(cmd_sentence);
-               ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->u[cmd_sentence].prev };
-            }
-            // TODO проверить скобки ().
-            rf_alloc_command(vm, rf_equal);
-            semantic = ss_expression;
-            goto next_lexem;
-         case ss_expression:
-            error = "недопустимый оператор в выражении (пропущена ; ?)";
-            goto cleanup;
-         }
-
-   ///\subsection Блок           Начало и конец
-   ///
-   /// Фигурные скобки `{` и `}` означают начало и конец _блока_ (тела) функции.
-   /// Блок может включать произвольное количество предложений.
-   /// Пустой блок определяет невычислимую функцию.
-
-   // Начинает блок (перечень предложений) функции.
-   case L_block_open:
-         switch (semantic) {
-         case ss_pattern:
-            error = "блок недопустим в выражении (пропущено = ?)";
-            goto cleanup;
-         case ss_expression:
-            error = "вложенные блоки {} пока не поддерживаются";
-            goto cleanup;
-         }
-
-   case L_block_close:
-         switch (semantic) {
-         // После последнего предложения ; может отсутствовать.
-         case ss_expression:
-            assert(cmd_sentence);
-            assert(function_block > 0);
-            --function_block;
-            // Код операции rf_complete размещается в sentence_complete.
-            vm->u[cmd_sentence].data = vm->free;
-            cmd_sentence = 0;
-            goto sentence_complete;
-         // ; начинает предложение-образец, пустой в случае завершения функции.
-         case ss_pattern:
-            assert(function_block > 0);
-            --function_block;
-            if (!rf_is_evar_empty(vm, cmd_sentence, vm->free)) {
-               error = "образец без общего выражения (пропущено = ?)";
-               goto cleanup;
-            }
-            vm->u[cmd_sentence].tag = rf_complete;
-            goto definition;
-         }
-
-   ///\subsection Вычисление     Вычислительные скобки
-   ///
-   /// Функциональные, или вычислительные скобки `<` и `>` определяют
-   /// _активное выражение_. При замене образца на результат, содержащий
-   /// такое выражение, вызывается вычислимая функция, определяемая первым
-   /// идентификатором внутри скобок. Остальное содержимое скобок передаётся
-   /// в качестве поля зрения (но если оно содержит другое активное выражение,
-   /// то предварительно вычисляется вложенное). В РЕФАЛ-5 такой идентификатор
-   /// должен идти непосредственно после скобки:
-   ///
-   ///   Go { = <Prout "Вывод.">; }
-   ///
-   /// Здесь порядок свободный; так, выражения:
-   ///
-   ///   Go = <"Вывод." Prout>;
-   ///
-   ///   Go = <"Вы" Prout "вод.">;
-   /// эквивалентны.
-
-   case L_exec_open:
-         switch (semantic) {
-         case ss_pattern:
-            goto error_executor_in_pattern;
-         case ss_expression:
-            if (!(++ep < exec_max)) {
-               error = "превышен лимит вложенности вычислительных скобок";
-               goto cleanup;
-            }
-            if (imports) {
-               warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
-               imports = 0;
-            }
-            cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
-            goto next_lexem;
-         }
-
-   case L_exec_close:
-         switch (semantic) {
-         case ss_pattern:
-            goto error_executor_in_pattern;
-         case ss_expression:
-            if (!ep) {
-               error = "непарная вычислительная скобка";
-               goto cleanup;
-            }
-            if (imports) {
-               warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
-               imports = 0;
-            }
-            assert(ep > 0);
-            // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
-            // Если функция не определена, но между скобок содержатся
-            // идентификаторы (.value == 1) задаём открывающей скобке ссылку на эту.
-            rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute);
-            struct rtrie_val f = rtrie_val_from_raw(vm->u[cmd_exec[ep]].data);
-            if (f.tag == rft_undefined) {
-               if (!f.value) {
-                  error = "активное выражение должно содержать имя вычислимой функции";
-                  goto cleanup;
-               }
-               vm->u[cmd_exec[ep]].data = ec;
-            }
-            cmd_exec[ep--] = 0;
-            goto next_lexem;
-         }
-
-   ///\subsection Структуры   Структурные скобки
-   ///
-   /// Круглые скобки `(` и `)` объединяют данные в группу, которая может
-   /// рассматриваться как единое целое, или _терм_.
-
-   case L_term_open:
-            if (!(bp < bracket_max)) {
-               error = "превышен лимит вложенности структурных скобок";
-               goto cleanup;
-            }
-            bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-            goto next_lexem;
-
-   case L_term_close:
-            if (!bp) {
-               error = "непарная структурная скобка";
-               goto cleanup;
-            }
-            rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
-            goto next_lexem;
-
-   ///\subsection Иначе
-   ///
-   /// Точка с запятой `;` разделяет предложения в блоке. Если РЕФАЛ-машина
-   /// не распознаёт образец в текущем (первом) предложении блока, пробуется
-   /// следующее.
-   ///
-   /// В данной реализации точка с запятой может идти непосредственно после
-   /// идентификатора, определяя пустую функцию.
-
-   case L_semicolon:
-         switch (semantic) {
-         // Идентификатор пустой функции (ENUM в Refal-05).
-         case ss_pattern:
-            error = "образец без общего выражения (пропущено = ?)";
-            goto cleanup;
-         case ss_expression:
-sentence_complete:
-            if (ep) {
-               error = "не закрыта вычислительная скобка";
-               goto cleanup;
-            }
-            if (bp) {
-               error = "не закрыта структурная скобка";
-               goto cleanup;
-            }
-            if (imports) {
-               warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
-               imports = 0;
-            }
-            rf_index sentence_complete;
-            bool function_complete = false;
-            // В функциях с блоком сохраняем в маркере текущего предложения
-            // ссылку на данные следующего и размещаем новый маркер.
-            if (function_block && cmd_sentence) {
-               sentence_complete = rf_alloc_command(vm, rf_sentence);
-               vm->u[cmd_sentence].data = sentence_complete;
-               cmd_sentence = sentence_complete;
-               semantic = ss_pattern;
-               local = 0;
-               ++idc;
-            } else if (cmd_sentence) {
-               assert(0);
-               sentence_complete = rf_alloc_command(vm, rf_complete);
-               vm->u[cmd_sentence].data = sentence_complete;
-               function_complete = true;
-            } else {
-               // См. переход сюда из case '}' где подразумевается данный опкод.
-               // Может показаться, что достаточно проверять function_block на 0,
-               // но планируется поддержка вложенных блоков.
-               sentence_complete = rf_alloc_command(vm, rf_complete);
-               function_complete = true;
-            }
-            // При хвостовых вызовах нет смысла в парном сохранении и
-            // восстановление контекста функции. Обозначим такие интерпретатору.
-            if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
-               vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
-            }
-            if (function_complete)
-               goto definition;
-            goto next_lexem;
-         }
-
-   ///\subsection Является
-   ///
-   /// Двоеточие `:` в Расширенном РЕФАЛ используется в условиях (не реализовано).
-   ///
-   /// Применяется для импорта модулей, как замена $EXTERN (и *$FROM Refal-05).
-   ///
-   ///     ИмяМодуля: функция1 функция2;
-   case L_colon:
-            error = "условия не поддерживаются";
-            goto cleanup;
-
-   // Начинает и заканчивает строку знаковых символов.
-   case L_string:
-            lexem_string(&lex, vm, st);
-            goto next_lexem;
-   }
    assert(0);
 
 complete:
-   if (definition_incomplete) {
-      if (function_block)
-         error = "не завершено определение функции (пропущена } ?)";
-      else
-         error = "не завершено определение функции (пропущена ; ?)";
-      lex.line = lex.id_line;
-      lex.pos  = lex.id_pos;
-      lex.line_num = lex.id_line_num;
-      goto cleanup;
-   }
-
    // Ищем, не появилось ли определение идентификаторов.
    // На первой итерации проверяем только идентификаторы внутри скобок,
    // что бы присвоить адрес вычислимой функции. Подходящий идентификатор

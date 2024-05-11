@@ -310,7 +310,7 @@ void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
  */
 static inline
 void lexem_identifier_exp(struct lexer *lex, struct refal_trie *ids,
-      rtrie_index module, rtrie_index imports, wchar_t idc, int pattern,
+      rtrie_index module, rtrie_index imports, wchar_t idc, bool expression,
       struct refal_vm *vm, struct refal_message *st)
 {
    wchar_t chr = lexer_char(lex);
@@ -325,10 +325,10 @@ void lexem_identifier_exp(struct lexer *lex, struct refal_trie *ids,
 check_local:
       if (lexer_next_char(lex) == '.') {
         ++lex->pos;
-local:   lex->node = pattern ? rtrie_insert_next(ids, lex->id_node, idc)
-                             : rtrie_find_next(ids, lex->id_node, idc);
-         lex->node = pattern ? rtrie_insert_next(ids, lex->node, chr)
-                             : rtrie_find_next(ids, lex->node, chr);
+local:   lex->node = expression ? rtrie_find_next(ids, lex->id_node, idc)
+                                : rtrie_insert_next(ids, lex->id_node, idc);
+         lex->node = expression ? rtrie_find_next(ids, lex->node, chr)
+                                : rtrie_insert_next(ids, lex->node, chr);
          goto tail;
       }
       [[fallthrough]];
@@ -622,17 +622,6 @@ int refal_translate_istream_to_bytecode(
    rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
    int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
 
-   // Состояние семантического анализатора.
-   enum {
-      // Выражение-образец (левая часть предложения до =).
-      // Следует общее выражение (результат).
-      ss_pattern,
-      // Общее выражение (результат). Далее:
-      // ; альтернативное предложение функции (исполняется при неудаче текущего)
-      // } конец блока (функции).
-      ss_expression,
-   } semantic;
-
    struct lexer lex;
    lexer_init(&lex, src);
    if (!wstr_check(&lex.buf, st))
@@ -644,7 +633,7 @@ int refal_translate_istream_to_bytecode(
    // identifier;          // определение функции.
    // identifier ... = ;
    // identifier { ... };
-   for (enum lexem_type lexeme; L_EOF != (lexeme = lexer_next_lexem(&lex, st)); ) {//TODO L_EOF вернуть в условие
+   for (enum lexem_type lexeme; L_EOF != (lexeme = lexer_next_lexem(&lex, st)); ) {
       switch (lexeme) {
       case L_whitespace: assert(0); continue;
       default: error = "ожидается идентификатор модуля или функции"; goto cleanup;
@@ -742,6 +731,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
          // Идентификатор предполагает последующее определение функции.
          default:
             bool function_complete = false;
+            bool expression = false;
             assert(lex.id_node == lex.node);
             assert(function_block == 0);
             local = cmd_sentence = 0;
@@ -756,7 +746,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             case L_equal:
                // Содержит ссылку на таблицу атомов.
                rf_alloc_value(vm, lex.id_begin, rf_equal);
-               semantic = ss_expression;
+               expression = true;
                break;
             case L_block_open:
                // Предварительно считаем функцию невычислимой.
@@ -767,13 +757,11 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                ids->n[lex.id_node].val = (struct rtrie_val) { rft_enum, lex.id_begin };
                rf_alloc_value(vm, lex.id_begin, rf_nop_name);
                cmd_sentence = rf_alloc_command(vm, rf_sentence);
-               semantic = ss_pattern;
                ++idc;
                ++function_block;
                break;
             default:
                rf_alloc_value(vm, lex.id_begin, rf_nop_name);
-               semantic = ss_pattern;
                goto current_lexem;
             }
 
@@ -806,27 +794,25 @@ incomplete:       lex.line = lex.id_line;
                /// В данной реализации может стоять сразу после идентификатора, определяя
                /// _простую функцию_ (не имеет альтернативных предложений).
                case L_equal:
-                  switch (semantic) {
-                  case ss_pattern:
-                     if (bp) {
-                        error = "не закрыта структурная скобка";
-                        goto cleanup;
-                     }
-                     if (imports) {
-                        warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
-                        imports = 0;
-                     }
-                     if (ids->n[lex.id_node].val.tag == rft_enum) {
-                        assert(cmd_sentence);
-                        ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->u[cmd_sentence].prev };
-                     }
-                     rf_alloc_command(vm, rf_equal);
-                     semantic = ss_expression;
-                     continue;
-                  case ss_expression:
+                  if (expression) {
                      error = "недопустимый оператор в выражении (пропущена ; ?)";
                      goto cleanup;
                   }
+                  if (bp) {
+                     error = "не закрыта структурная скобка";
+                     goto cleanup;
+                  }
+                  if (imports) {
+                     warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                     imports = 0;
+                  }
+                  if (ids->n[lex.id_node].val.tag == rft_enum) {
+                     assert(cmd_sentence);
+                     ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->u[cmd_sentence].prev };
+                  }
+                  rf_alloc_command(vm, rf_equal);
+                  expression = true;
+                  continue;
 
                ///\subsection Блок           Начало и конец
                ///
@@ -834,29 +820,22 @@ incomplete:       lex.line = lex.id_line;
                /// Блок может включать произвольное количество предложений.
                /// Пустой блок определяет невычислимую функцию.
                case L_block_open:
-                  switch (semantic) {
-                  case ss_pattern:
-                     error = "блок недопустим в выражении (пропущено = ?)";
-                     goto cleanup;
-                  case ss_expression:
-                     error = "вложенные блоки {} пока не поддерживаются";
-                     goto cleanup;
-                  }
+                  error = expression ? "вложенные блоки {} пока не поддерживаются"
+                                     : "блок недопустим в выражении (пропущено = ?)";
+                  goto cleanup;
+
                case L_block_close:
-                  switch (semantic) {
-                  // После последнего предложения ; может отсутствовать.
-                  case ss_expression:
+                  assert(function_block > 0);
+                  --function_block;
+                  if (expression) {
+                     // После последнего предложения ; может отсутствовать.
                      assert(cmd_sentence);
-                     assert(function_block > 0);
-                     --function_block;
                      // Код операции rf_complete размещается в sentence_complete.
                      vm->u[cmd_sentence].data = vm->free;
                      cmd_sentence = 0;
                      goto sentence_complete;
-                  // ; начинает предложение-образец, пустой в случае завершения функции.
-                  case ss_pattern:
-                     assert(function_block > 0);
-                     --function_block;
+                  } else {
+                     // ; начинает предложение-образец, пустой в случае завершения функции.
                      if (!rf_is_evar_empty(vm, cmd_sentence, vm->free)) {
                         error = "образец без общего выражения (пропущено = ?)";
                         goto cleanup;
@@ -885,48 +864,45 @@ incomplete:       lex.line = lex.id_line;
                ///   Go = <"Вы" Prout "вод.">;
                /// эквивалентны.
                case L_exec_open:
-                  switch (semantic) {
-                  case ss_pattern: goto error_executor_in_pattern;
-                  case ss_expression:
-                     if (!(++ep < exec_max)) {
-                        error = "превышен лимит вложенности вычислительных скобок";
-                        goto cleanup;
-                     }
-                     if (imports) {
-                        warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
-                        imports = 0;
-                     }
-                     cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
-                     continue;
+                  if (!expression)
+                     goto error_executor_in_pattern;
+                  if (!(++ep < exec_max)) {
+                     error = "превышен лимит вложенности вычислительных скобок";
+                     goto cleanup;
                   }
+                  if (imports) {
+                     warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                     imports = 0;
+                  }
+                  cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
+                  continue;
+
                case L_exec_close:
-                  switch (semantic) {
-                  case ss_pattern: goto error_executor_in_pattern;
-                  case ss_expression:
-                     if (!ep) {
-                        error = "непарная вычислительная скобка";
+                  if (!expression)
+                     goto error_executor_in_pattern;
+                  if (!ep) {
+                     error = "непарная вычислительная скобка";
+                     goto cleanup;
+                  }
+                  if (imports) {
+                     warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                     imports = 0;
+                  }
+                  assert(ep > 0);
+                  // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
+                  // Если функция не определена, но между скобок содержатся
+                  // идентификаторы (.value == 1) задаём открывающей скобке ссылку на эту.
+                  rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute);
+                  struct rtrie_val f = rtrie_val_from_raw(vm->u[cmd_exec[ep]].data);
+                  if (f.tag == rft_undefined) {
+                     if (!f.value) {
+                        error = "активное выражение должно содержать имя вычислимой функции";
                         goto cleanup;
                      }
-                     if (imports) {
-                        warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
-                        imports = 0;
-                     }
-                     assert(ep > 0);
-                     // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
-                     // Если функция не определена, но между скобок содержатся
-                     // идентификаторы (.value == 1) задаём открывающей скобке ссылку на эту.
-                     rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute);
-                     struct rtrie_val f = rtrie_val_from_raw(vm->u[cmd_exec[ep]].data);
-                     if (f.tag == rft_undefined) {
-                        if (!f.value) {
-                           error = "активное выражение должно содержать имя вычислимой функции";
-                           goto cleanup;
-                        }
-                        vm->u[cmd_exec[ep]].data = ec;
-                     }
-                     cmd_exec[ep--] = 0;
-                     continue;
+                     vm->u[cmd_exec[ep]].data = ec;
                   }
+                  cmd_exec[ep--] = 0;
+                  continue;
 
                ///\subsection Структуры   Структурные скобки
                ///
@@ -954,52 +930,51 @@ incomplete:       lex.line = lex.id_line;
                /// В данной реализации точка с запятой может идти непосредственно после
                /// идентификатора, определяя пустую функцию.
                case L_semicolon:
-                  switch (semantic) {
-                  // Идентификатор пустой функции (ENUM в Refal-05).
-                  case ss_pattern: error = "образец без общего выражения (пропущено = ?)";
-                     goto cleanup;
-                  case ss_expression:
-sentence_complete:   if (ep) {
-                        error = "не закрыта вычислительная скобка";
-                        goto cleanup;
-                     }
-                     if (bp) {
-                        error = "не закрыта структурная скобка";
-                        goto cleanup;
-                     }
-                     if (imports) {
-                        warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
-                        imports = 0;
-                     }
-                     rf_index sentence_complete;
-                     // В функциях с блоком сохраняем в маркере текущего предложения
-                     // ссылку на данные следующего и размещаем новый маркер.
-                     if (function_block && cmd_sentence) {
-                        sentence_complete = rf_alloc_command(vm, rf_sentence);
-                        vm->u[cmd_sentence].data = sentence_complete;
-                        cmd_sentence = sentence_complete;
-                        semantic = ss_pattern;
-                        local = 0;
-                        ++idc;
-                     } else if (cmd_sentence) {
-                        assert(0);
-                        sentence_complete = rf_alloc_command(vm, rf_complete);
-                        vm->u[cmd_sentence].data = sentence_complete;
-                        function_complete = true;
-                     } else {
-                        // См. переход сюда из case '}' где подразумевается данный опкод.
-                        // Может показаться, что достаточно проверять function_block на 0,
-                        // но планируется поддержка вложенных блоков.
-                        sentence_complete = rf_alloc_command(vm, rf_complete);
-                        function_complete = true;
-                     }
-                     // При хвостовых вызовах нет смысла в парном сохранении и
-                     // восстановление контекста функции. Обозначим такие интерпретатору.
-                     if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
-                        vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
-                     }
-                     continue;
+                  if (!expression) {
+                     //TODO обработано при определении функции. Обобщить, добавив ящики.
+                     assert(0);
                   }
+sentence_complete:
+                  if (ep) {
+                     error = "не закрыта вычислительная скобка";
+                     goto cleanup;
+                  }
+                  if (bp) {
+                     error = "не закрыта структурная скобка";
+                     goto cleanup;
+                  }
+                  if (imports) {
+                     warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                     imports = 0;
+                  }
+                  rf_index sentence_complete;
+                  // В функциях с блоком сохраняем в маркере текущего предложения
+                  // ссылку на данные следующего и размещаем новый маркер.
+                  if (function_block && cmd_sentence) {
+                     sentence_complete = rf_alloc_command(vm, rf_sentence);
+                     vm->u[cmd_sentence].data = sentence_complete;
+                     cmd_sentence = sentence_complete;
+                     expression = false;
+                     local = 0;
+                     ++idc;
+                  } else if (cmd_sentence) {
+                     assert(0);
+                     sentence_complete = rf_alloc_command(vm, rf_complete);
+                     vm->u[cmd_sentence].data = sentence_complete;
+                     function_complete = true;
+                  } else {
+                     // См. переход сюда из case '}' где подразумевается данный опкод.
+                     // Может показаться, что достаточно проверять function_block на 0,
+                     // но планируется поддержка вложенных блоков.
+                     sentence_complete = rf_alloc_command(vm, rf_complete);
+                     function_complete = true;
+                  }
+                  // При хвостовых вызовах нет смысла в парном сохранении и
+                  // восстановление контекста функции. Обозначим такие интерпретатору.
+                  if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
+                     vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
+                  }
+                  continue;
 
                ///\subsection Является
                ///
@@ -1011,61 +986,45 @@ sentence_complete:   if (ep) {
                case L_colon: error = "условия не поддерживаются"; goto cleanup;
 
                case L_identifier:
-                  switch (semantic) {
-                  case ss_pattern:
-                     lexem_identifier_exp(&lex, ids, module, imports, idc, 1, vm, st);
-                     assert(!cmd_exec[ep]);
-                     switch (lex.id_type) {
-                     case id_svar:
-                     case id_tvar:
-                     case id_evar:
-                        if (local == local_max) {
-                           error = "превышен лимит переменных";
-                           goto cleanup;
-                        }
-                        if (ids->n[lex.node].val.tag == rft_undefined) {
-                           var[local].opcode = 0;
-                           ids->n[lex.node].val.tag   = rft_enum;
-                           ids->n[lex.node].val.value = local++;
-                        }
+                  lexem_identifier_exp(&lex, ids, module, imports, idc, expression, vm, st);
+                  switch (lex.id_type) {
+                  case id_svar: case id_tvar: case id_evar:
+                     if (local == local_max) {
+                        error = "превышен лимит переменных";
+                        goto cleanup;
+                     }
+                     if (ids->n[lex.node].val.tag == rft_undefined) {
+                        assert(!(lex.node < 0));
+                        if (expression)
+                           goto error_identifier_undefined;
+                        var[local].opcode = 0;
+                        ids->n[lex.node].val = (struct rtrie_val) { rft_enum, local++ };
+                     }
+                     if (!expression) {
                         rf_alloc_value(vm, ids->n[lex.node].val.value, lex.id_type);
                         continue;
-                     case id_global:
-                        goto lexem_identifier_complete_global;
                      }
-                  case ss_expression:
-                     lexem_identifier_exp(&lex, ids, module, imports, idc, 0, vm, st);
-                     switch (lex.id_type) {
-                     case id_svar:
-                     case id_tvar:
-                     case id_evar:
-                        if (ids->n[lex.node].val.tag == rft_undefined) {
-                           goto error_identifier_undefined;
-                        }
-                        // При первом вхождении создаём переменную и запоминаем её индекс.
-                        // При следующем вхождении устанавливаем значение tag2 по
-                        // сохранённому индексу, а индекс заменяем на текущий.
-                        rf_index id = ids->n[lex.node].val.value;
-                        if (lex.id_type != id_svar && var[id].opcode) {
-                           vm->u[var[id].opcode].tag2 = 1;
+                     // При первом вхождении создаём переменную и запоминаем её индекс.
+                     // При следующем вхождении устанавливаем значение tag2 по
+                     // сохранённому индексу, а индекс заменяем на текущий.
+                     rf_index id = ids->n[lex.node].val.value;
+                     if (lex.id_type != id_svar && var[id].opcode) {
+                        vm->u[var[id].opcode].tag2 = 1;
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
-                           if (cfg && cfg->notice_copy) {
-                              performance(st, "создаётся копия переменной", var[id].line,
-                                              var[id].pos, &lex.buf.s[var[id].src], &lex.buf.s[lex.buf.free]);
-                           }
-#endif
+                        if (cfg && cfg->notice_copy) {
+                           performance(st, "создаётся копия переменной", var[id].line,
+                                           var[id].pos, &lex.buf.s[var[id].src], &lex.buf.s[lex.buf.free]);
                         }
-                        var[id].opcode = rf_alloc_value(vm, id, lex.id_type);
-#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
-                        var[id].src  = lex.line;
-                        var[id].line = lex.line_num;
-                        var[id].pos  = lex.pos;
 #endif
-                        continue;
-                     case id_global:
-                        break;
                      }
-lexem_identifier_complete_global:
+                     var[id].opcode = rf_alloc_value(vm, id, lex.id_type);
+#if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
+                     var[id].src  = lex.line;
+                     var[id].line = lex.line_num;
+                     var[id].pos  = lex.pos;
+#endif
+                     continue;
+                  case id_global:
                      if (lex.node < 0) {
                         assert(imports);
                         goto error_no_identifier_in_module;
@@ -1082,7 +1041,7 @@ lexem_identifier_complete_global:
                            // откладываем решение до этапа, когда разрешаются
                            // неопределённые на данном проходе идентификаторы.
                            if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).value)
-                              goto lexem_identifier_undefined;
+                              goto implicit_declaration;
                            vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[lex.node].val);
                            imports = 0;
                         }
@@ -1100,8 +1059,7 @@ lexem_identifier_complete_global:
                            imports = 0;
                         }
                      } else {
-lexem_identifier_undefined:
-                        if (imports) {
+implicit_declaration:   if (imports) {
                            goto error_no_identifier_in_module;
                         }
                         // После первого прохода поищем, не появилось ли определение.
@@ -1127,7 +1085,7 @@ lexem_identifier_undefined:
                         rf_alloc_value(vm, lex.line, rf_undefined);
                      }
                      continue;
-                  }
+                  }// switch (lex.id_type)
                }// case L_identifier
             }// тело функции.
          }

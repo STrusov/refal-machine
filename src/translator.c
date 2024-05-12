@@ -543,11 +543,6 @@ int refal_translate_istream_to_bytecode(
    // Сообщение об ошибке при завершении.
    const char *error = NULL;
 
-   // Пространство имён текущего импортируемого модуля.
-   // Идентификатор модуля может встречаться в выражениях,
-   // определяя область поиска следующего за ним идентификатора.
-   rtrie_index imports = 0;
-
    // Для вывода предупреждений об идентификаторах модулей.
    const char *redundant_module_id = "идентификатор модуля без функции не имеет смысла";
 
@@ -579,7 +574,6 @@ int refal_translate_istream_to_bytecode(
    // что гарантирует уникальность записей в таблице. Таким образом
    // объявление s.1 в первом предложении не будет видно в следующих.
    wchar_t idc = 1 + 0x10FFFF;   // отделяет локальный идентификатор от корневого.
-   rf_index local = 0;           // значение локального идентификатора.
    // Поскольку все кроме одного вхождения e-переменной в выражении-результате
    // приходится копировать, используем массив для отслеживания их компиляций.
    rf_index local_max = REFAL_TRANSLATOR_LOCALS_DEFAULT;
@@ -607,8 +601,6 @@ int refal_translate_istream_to_bytecode(
       exec_max = cfg->execs_limit;
    }
    rf_index cmd_exec[exec_max];
-   unsigned ep = 0;  // адресует последний занятый элемент,
-   cmd_exec[ep] = 0; // изначально пустой (используется не только при закрытии >)
 
    // Структурные скобки организованы в стек по той же причине.
    // Запоминается адрес открывающей, что бы связать с парной закрывающей.
@@ -617,10 +609,6 @@ int refal_translate_istream_to_bytecode(
       bracket_max = cfg->brackets_limit;
    }
    rf_index bracket[bracket_max];
-   unsigned bp = 0;  // адресует свободный элемент.
-
-   rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
-   int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
 
    struct lexer lex;
    lexer_init(&lex, src);
@@ -730,11 +718,17 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
 
          // Идентификатор предполагает последующее определение функции.
          default:
+            assert(lex.id_node == lex.node);
             bool function_complete = false;
             bool expression = false;
-            assert(lex.id_node == lex.node);
-            assert(function_block == 0);
-            local = cmd_sentence = 0;
+            rtrie_index imports = 0;   // корень для поиска идентификаторов модуля.
+            rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
+            int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
+            rf_index local = 0;
+            unsigned ep = 0;  // последний занятый элемент в массиве <>
+            cmd_exec[ep] = 0; // изначально пустой (используется как признак, а не только при закрытии >)
+            unsigned bp = 0;  // свободный элемент в массиве ()
+
             //TODO Рефал-5 позволяет переопределить встроенные функции.
             if (ids->n[lex.id_node].val.tag != rft_undefined)
                goto error_identifier_already_defined;

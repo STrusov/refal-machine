@@ -181,7 +181,8 @@ arguments:
 //         rtrie_free(&ids);
 
          if (entry.tag != rft_byte_code) {
-            critical_error(&status, "не определена функция Начало, Main или Go", entry.value, 0);
+            //TODO есть ли смысл проверять каждую на rft_enum?
+            critical_error(&status, "не определена вычислимая функция Начало, Main или Go", entry.value, 0);
          } else {
             // Имя интерпретатора не передаём среди аргументов.
             if (pass_args) {

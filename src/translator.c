@@ -710,12 +710,6 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             }//importlist
             continue;
 
-         //TODO убрать, поскольку дублируют ошибки в образце.
-         case L_block_close: error = "некорректное определение функции - пропущена {";
-            goto cleanup;
-         case L_exec_close: case L_exec_open: goto error_executor_in_pattern;
-         case L_term_close: error = "непарная структурная скобка"; goto cleanup;
-
          // Идентификатор предполагает последующее определение функции.
          default:
             assert(lex.id_node == lex.node);
@@ -730,8 +724,11 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             unsigned bp = 0;  // свободный элемент в массиве ()
 
             //TODO Рефал-5 позволяет переопределить встроенные функции.
-            if (ids->n[lex.id_node].val.tag != rft_undefined)
-               goto error_identifier_already_defined;
+            if (ids->n[lex.id_node].val.tag != rft_undefined) {
+               // TODO надо бы отобразить прежнее определение
+               error = "повторное определение идентификатора";
+               goto cleanup;
+            }
             ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->free };
             switch (lexeme) {
             case L_semicolon:
@@ -815,11 +812,14 @@ incomplete:       lex.line = lex.id_line;
                /// Пустой блок определяет невычислимую функцию.
                case L_block_open:
                   error = expression ? "вложенные блоки {} пока не поддерживаются"
-                                     : "блок недопустим в выражении (пропущено = ?)";
+                                     : "блок недопустим в выражении-образце";
                   goto cleanup;
 
                case L_block_close:
-                  assert(function_block > 0);
+                  if (!function_block) {
+                     error = "некорректное определение функции - пропущена {";
+                     goto cleanup;
+                  }
                   --function_block;
                   if (expression) {
                      // После последнего предложения ; может отсутствовать.
@@ -858,8 +858,10 @@ incomplete:       lex.line = lex.id_line;
                ///   Go = <"Вы" Prout "вод.">;
                /// эквивалентны.
                case L_exec_open:
-                  if (!expression)
-                     goto error_executor_in_pattern;
+                  if (!expression) {
+executor_in_pattern: error = "вычислительные скобки в образце не поддерживаются";
+                     goto cleanup;
+                  }
                   if (!(++ep < exec_max)) {
                      error = "превышен лимит вложенности вычислительных скобок";
                      goto cleanup;
@@ -873,7 +875,7 @@ incomplete:       lex.line = lex.id_line;
 
                case L_exec_close:
                   if (!expression)
-                     goto error_executor_in_pattern;
+                     goto executor_in_pattern;
                   if (!ep) {
                      error = "непарная вычислительная скобка";
                      goto cleanup;
@@ -989,8 +991,10 @@ sentence_complete:
                      }
                      if (ids->n[lex.node].val.tag == rft_undefined) {
                         assert(!(lex.node < 0));
-                        if (expression)
-                           goto error_identifier_undefined;
+                        if (expression) {
+                           error = "идентификатор не определён";
+                           goto cleanup;
+                        }
                         var[local].opcode = 0;
                         ids->n[lex.node].val = (struct rtrie_val) { rft_enum, local++ };
                      }
@@ -1021,7 +1025,7 @@ sentence_complete:
                   case id_global:
                      if (lex.node < 0) {
                         assert(imports);
-                        goto error_no_identifier_in_module;
+                        goto no_identifier_in_module;
                      }
                      if (ids->n[lex.node].val.tag != rft_undefined) {
                         // Если открыта вычислительная скобка, задаём ей адрес
@@ -1054,7 +1058,8 @@ sentence_complete:
                         }
                      } else {
 implicit_declaration:   if (imports) {
-                           goto error_no_identifier_in_module;
+no_identifier_in_module:   error = "идентификатор не определён в модуле";
+                           goto cleanup;
                         }
                         // После первого прохода поищем, не появилось ли определение.
                         rf_alloc_value(vm, lex.node, rf_undefined);
@@ -1172,29 +1177,4 @@ cleanup:
    lexer_free(&lex);
    //TODO количество ошибок не подсчитывается.
    return error ? 1 : 0;
-
-error_no_identifier_in_module:
-   error = "идентификатор не определён в модуле";
-   goto cleanup;
-
-error_identifier_already_defined:
-   // TODO надо бы отобразить прежнее определение
-   error = "повторное определение идентификатора";
-   goto cleanup;
-
-error_incorrect_function_definition:
-   error = "некорректное определение функции (пропущено = или { ?)";
-   goto cleanup;
-
-error_identifier_odd:
-   error = "лишний идентификатор (пропущено = или { в определении функции?)";
-   goto cleanup;
-
-error_identifier_undefined:
-   error = "идентификатор не определён";
-   goto cleanup;
-
-error_executor_in_pattern:
-   error = "вычислительные скобки в образце не поддерживаются";
-   goto cleanup;
 }

@@ -1031,7 +1031,10 @@ sentence_complete:
                      switch (ids->n[lex.node].val.tag) {
                      // Используем ветку модуля для поиска следующего идентификатора.
                      case rft_module:
-                        assert(!imports);
+                        if (imports) {
+                           warning(st, "указание модуля потеряло смысл", mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
+                           warning(st, "повторное имя модуля переопределяет предыдущее", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
+                        }
                         imports = rtrie_find_next(ids, lex.node, ' ');
                         mod_line = lex.line;
                         mod_pos  = lex.pos;

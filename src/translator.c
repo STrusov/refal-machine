@@ -511,19 +511,19 @@ enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
          }
          break;
       case '/':
-            if (!comment) switch(lexer_next_char(lex)) {
-            case '/':
-               ++lex->pos;
-               comment = true;
-               multiline = false;
-               break;
-            case '*':
-               ++lex->pos;
-               comment = multiline = true;
-            default:
-            }
+         if (!comment) switch(lexer_next_char(lex)) {
+         case '/':
+            ++lex->pos;
+            comment = true;
+            multiline = false;
             break;
-      default:
+         case '*':
+            ++lex->pos;
+            comment = multiline = true;
+         default: break;
+         }
+         break;
+      default: break;
       }
       enum lexem_type t = lex_type(chr);
       if (!comment && t != L_whitespace)
@@ -1000,7 +1000,7 @@ sentence_complete:
                         ids->n[lex.node].val = (struct rtrie_val) { rft_enum, local++ };
                      }
                      if (!expression) {
-                        rf_alloc_value(vm, ids->n[lex.node].val.value, lex.id_type);
+                        rf_alloc_value(vm, ids->n[lex.node].val.value, (enum rf_type)lex.id_type);
                         continue;
                      }
                      // При первом вхождении создаём переменную и запоминаем её индекс.
@@ -1016,7 +1016,7 @@ sentence_complete:
                         }
 #endif
                      }
-                     var[id].opcode = rf_alloc_value(vm, id, lex.id_type);
+                     var[id].opcode = rf_alloc_value(vm, id, (enum rf_type)lex.id_type);
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                      var[id].src  = lex.line;
                      var[id].line = lex.line_num;

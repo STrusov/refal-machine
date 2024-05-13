@@ -643,17 +643,16 @@ int refal_translate_istream_to_bytecode(
                goto cleanup;
             case rft_byte_code: error = "имя модуля определено ранее как вычислимая функция";
                goto cleanup;
-            case rft_enum: if (ids->n[lex.node].val.value) {
-                  error = "имя модуля определено ранее как невычислимая функция (ENUM)";
-                  goto cleanup;
-               }
+            case rft_enum: error = "имя модуля определено ранее как невычислимая функция (ENUM)";
+               goto cleanup;
+            case rft_module:
                // Если идентификатор определён со значением 0, значит трансляция
                // модуля уже выполнена. Импортируем идентификаторы.
                lex.id_node = rtrie_find_next(ids, lex.id_node, ' ');
                assert(!(lex.id_node < 0));
                break;
             case rft_undefined:
-               ids->n[lex.id_node].val = (struct rtrie_val) { rft_enum, 0 };
+               ids->n[lex.id_node].val = (struct rtrie_val) { rft_module, lex.id_begin };
                // Поскольку другие модули могут импортировать такой же модуль,
                // необходимо обеспечить идентичность идентификаторов, а так же
                // нет смысла повторно транслировать уже импортированный модуль.
@@ -1027,11 +1026,20 @@ sentence_complete:
                         assert(imports);
                         goto no_identifier_in_module;
                      }
-                     if (ids->n[lex.node].val.tag != rft_undefined) {
-                        // Если открыта вычислительная скобка, задаём ей адрес
-                        // первой вычислимой функции из выражения.
-                        if (ids->n[lex.node].val.tag != rft_enum && cmd_exec[ep]
-                        && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
+                     switch (ids->n[lex.node].val.tag) {
+                     // Используем ветку модуля для поиска следующего идентификатора.
+                     case rft_module:
+                        assert(!imports);
+                        imports = rtrie_find_next(ids, lex.node, ' ');
+                        lex.id_line = lex.line;
+                        lex.id_pos  = lex.pos;
+                        lex.id_line_num = lex.line_num;
+                        assert(imports > 0);
+                        continue;
+                     // Если открыта вычислительная скобка, задаём ей адрес
+                     // первой вычислимой функции из выражения.
+                     case rft_byte_code: case rft_machine_code:
+                        if (cmd_exec[ep] && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
                            // Если в поле действия данной скобки встретился идентификатор,
                            // который на данный момент не определён, не известно,
                            // вычислим ли он. Возможно, именно определённая для него
@@ -1042,21 +1050,14 @@ sentence_complete:
                               goto implicit_declaration;
                            vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[lex.node].val);
                            imports = 0;
+                           continue;
                         }
-                        // rft_enum и нулевое значение означают идентификатор модуля.
-                        // Используем соответствующую ветку для поиска следующего идентификатора.
-                        else if (ids->n[lex.node].val.tag == rft_enum && !ids->n[lex.node].val.value) {
-                           assert(!imports);
-                           imports = rtrie_find_next(ids, lex.node, ' ');
-                           lex.id_line = lex.line;
-                           lex.id_pos  = lex.pos;
-                           lex.id_line_num = lex.line_num;
-                           assert(imports > 0);
-                        } else {
-                           rf_alloc_value(vm, rtrie_val_to_raw(ids->n[lex.node].val), rf_identifier);
-                           imports = 0;
-                        }
-                     } else {
+                        [[fallthrough]];
+                     default:
+                        rf_alloc_value(vm, rtrie_val_to_raw(ids->n[lex.node].val), rf_identifier);
+                        imports = 0;
+                        continue;
+                     case rft_undefined:
 implicit_declaration:   if (imports) {
 no_identifier_in_module:   error = "идентификатор не определён в модуле";
                            goto cleanup;
@@ -1082,8 +1083,8 @@ no_identifier_in_module:   error = "идентификатор не опреде
                         rf_alloc_value(vm, lex.line_num, rf_undefined);
                         rf_alloc_value(vm, lex.pos, rf_undefined);
                         rf_alloc_value(vm, lex.line, rf_undefined);
+                        continue;
                      }
-                     continue;
                   }// switch (lex.id_type)
                }// case L_identifier
             }// тело функции.

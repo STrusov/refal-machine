@@ -41,7 +41,8 @@ typedef enum rtrie_type {
    rft_undefined,
    rft_machine_code,    ///< Ссылка на машинный код (функцию).
    rft_byte_code,       ///< Ссылка на функцию в РЕФАЛ-машине.
-   rft_enum,            ///< Пустая функция (ENUM в Refal-05) или имя модуля.
+   rft_enum,            ///< Пустая функция (ENUM в Refal-05).
+   rft_module,          ///< Имя модуля.
 } rtrie_type;
 
 /**

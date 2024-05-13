@@ -519,6 +519,7 @@ evar_express:
       struct rtrie_val function = rtrie_val_from_raw(vm->u[ip].data);
       fn_name = function;
       switch (function.tag) {
+      case rft_module: assert(0);
       case rft_enum:
          inconsistence(st, "пустая функция", ip, step);
          goto error;
@@ -538,6 +539,7 @@ evar_express:
                   switch (function.tag) {
                   case rft_undefined:
                      goto error_undefined_identifier;
+                  case rft_module:
                   case rft_enum:
                      continue;
                   case rft_byte_code:
@@ -574,6 +576,7 @@ Mu_machine_code:     rf_free_evar(vm, vm->u[id].prev, n);
                         goto Mu_machine_code;
                      // Если идентификатор "найден", но неопределён,
                      // значит это часть другого. Считаем его обычным текстом.
+                     case rft_module:
                      case rft_undefined:
                      case rft_enum:
                         break;

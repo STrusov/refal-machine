@@ -543,9 +543,6 @@ int refal_translate_istream_to_bytecode(
    // Сообщение об ошибке при завершении.
    const char *error = NULL;
 
-   // Для вывода предупреждений об идентификаторах модулей.
-   const char *redundant_module_id = "идентификатор модуля без функции не имеет смысла";
-
    // Пустым функциям (ENUM в Refal-05) для возможности сопоставления
    // присваивается уникальное значение.
    // Значение 0 используется для идентификаторов модулей (при разрешении имён)
@@ -722,6 +719,11 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             cmd_exec[ep] = 0; // изначально пустой (используется как признак, а не только при закрытии >)
             unsigned bp = 0;  // свободный элемент в массиве ()
 
+            const char *redundant_module_id = "имя модуля без функции не имеет смысла";
+            wstr_index  mod_line = 0;
+            unsigned    mod_pos  = 0;
+            unsigned    mod_line_num = 0;
+
             //TODO Рефал-5 позволяет переопределить встроенные функции.
             if (ids->n[lex.id_node].val.tag != rft_undefined) {
                // TODO надо бы отобразить прежнее определение
@@ -793,7 +795,7 @@ incomplete:       lex.line = lex.id_line;
                      goto cleanup;
                   }
                   if (imports) {
-                     warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                     warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;
                   }
                   if (ids->n[lex.id_node].val.tag == rft_enum) {
@@ -866,7 +868,7 @@ executor_in_pattern: error = "вычислительные скобки в об�
                      goto cleanup;
                   }
                   if (imports) {
-                     warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                     warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;
                   }
                   cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
@@ -880,7 +882,7 @@ executor_in_pattern: error = "вычислительные скобки в об�
                      goto cleanup;
                   }
                   if (imports) {
-                     warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                     warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;
                   }
                   assert(ep > 0);
@@ -939,7 +941,7 @@ sentence_complete:
                      goto cleanup;
                   }
                   if (imports) {
-                     warning(st, redundant_module_id, lex.id_line_num, lex.id_pos, &lex.buf.s[lex.id_line], &lex.buf.s[lex.buf.free]);
+                     warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;
                   }
                   rf_index sentence_complete;
@@ -1031,9 +1033,9 @@ sentence_complete:
                      case rft_module:
                         assert(!imports);
                         imports = rtrie_find_next(ids, lex.node, ' ');
-                        lex.id_line = lex.line;
-                        lex.id_pos  = lex.pos;
-                        lex.id_line_num = lex.line_num;
+                        mod_line = lex.line;
+                        mod_pos  = lex.pos;
+                        mod_line_num = lex.line_num;
                         assert(imports > 0);
                         continue;
                      // Если открыта вычислительная скобка, задаём ей адрес

@@ -44,12 +44,21 @@ void *realloc_stack(void **mem, unsigned *size)
 }
 
 /**\details
-   Предполагаемый формат функции:
-   - Имя функции: маркер со ссылкой на следующее поле (не реализовано).
-   - Предложение: маркер со ссылкой на следующее предложение (может отсутствовать).
-      - выражение-образец (может отсутствовать).
-      - rf_equal — начало общего выражения.
-   - rf_complete признак завершения функции.
+   Формат функции:
+
+     Ссылка из таблицы символов
+                 ↓
+   [rf_name][rf_sentence][...][rf_equal][...]
+                 ↓
+            [rf_sentence][...][rf_equal][...]
+                ...
+            [rf_sentence][...][rf_equal][...]
+                 ↓
+   [rf_name следующей ф.] -> Отождествление невозможно.
+
+   [rf_sentence] отсутствует в однострочных исполняемых.
+   [rf_equal] отсутствует в «ящиках».
+
  */
 int refal_interpret_bytecode(
       struct refal_interpreter_config  *cfg,
@@ -139,6 +148,7 @@ next_sentence:
       cur = vm->u[prev].next;
       ep = -1;
       local = 0;
+      // Оставлено для однострочных, поскольку не содержат rf_sentence
       if (!next_sentence)
          goto recognition_impossible;
       ip = next_sentence;
@@ -203,9 +213,6 @@ pattern_match:
    switch (tag) {
    case rf_undefined:
       goto error_undefined;
-
-   case rf_name: assert(0);
-      goto pattern_next_instruction;
 
    case rf_char:
    case rf_number:
@@ -383,7 +390,7 @@ equal:
    case rf_execute:
       goto error_execution_bracket;
 
-   case rf_complete:
+   case rf_name:
 recognition_impossible:
       // TODO Раскрутка стека с размещением в поле зрения признака исключения?
       // Делаем результатом что-то похожее на вызов функции с текущим Полем Зрения.
@@ -410,9 +417,6 @@ express:
    switch (tag) {
    case rf_undefined:
       goto error_undefined;
-
-   case rf_name:
-      goto error_name;
 
    case rf_char:
    case rf_number:
@@ -628,7 +632,7 @@ execute_machine_code:
       case rft_byte_code:
 execute_byte_code:
          // Для хвостовых вызовов транслятор установил признак.
-         if (vm->u[ip].tag2 /* == rf_complete */) {
+         if (vm->u[ip].tag2 /* == rf_execute */) {
             assert(sp);
             --sp;
             next = stack[sp].next;
@@ -646,8 +650,8 @@ execute_byte_code:
          goto execute;
       }
 
+   case rf_name:
    case rf_sentence:
-   case rf_complete:
       rf_free_evar(vm, prev, next);
       assert(result);
       rf_splice_evar_prev(vm, result, vm->free, next);
@@ -665,10 +669,6 @@ execute_byte_code:
 
    } // switch (tag)
    assert(0);
-
-error_name:
-   inconsistence(st, "rf_name в выражении", ip, step);
-   goto error;
 
 error_undefined:
    inconsistence(st, "значение не определено", ip, step);

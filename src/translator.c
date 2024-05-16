@@ -732,6 +732,8 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             switch (lexeme) {
             case L_semicolon:
                ids->n[lex.id_node].val.tag = rft_reference;
+               cmd_sentence = rf_alloc_command(vm, rf_sentence);
+               vm->u[cmd_sentence].data = vm->free;
                continue;
             case L_equal:
                rf_alloc_command(vm, rf_equal);
@@ -740,9 +742,6 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             case L_block_open:
                // Предварительно считаем функцию невычислимой.
                // При наличии предложений сменим тип и значение.
-               // Такой подход приводит к расходу одной лишней ячейки, однако,
-               // вряд ли стоит переусложнять код - кому нужны пустые функции,
-               // наверняка предпочтёт краткую запись: ид;
                ids->n[lex.id_node].val.tag = rft_reference;
                cmd_sentence = rf_alloc_command(vm, rf_sentence);
                ++idc;
@@ -794,7 +793,6 @@ incomplete:       lex.line = lex.id_line;
                      imports = 0;
                   }
                   if (ids->n[lex.id_node].val.tag == rft_reference) {
-                     assert(cmd_sentence);
                      ids->n[lex.id_node].val.tag = rft_byte_code;
                   }
                   rf_alloc_command(vm, rf_equal);
@@ -817,12 +815,10 @@ incomplete:       lex.line = lex.id_line;
                      goto cleanup;
                   }
                   --function_block;
+                  // После последнего предложения ; может отсутствовать.
                   if (expression) {
-                     // После последнего предложения ; может отсутствовать.
-                     assert(cmd_sentence);
-                     // Код операции rf_complete размещается в sentence_complete.
+                     // Функция закончена, следом должен быть rf_name.
                      vm->u[cmd_sentence].data = vm->free;
-                     cmd_sentence = 0;
                      goto sentence_complete;
                   } else {
                      // ; начинает предложение-образец, пустой в случае завершения функции.
@@ -830,7 +826,8 @@ incomplete:       lex.line = lex.id_line;
                         error = "образец без общего выражения (пропущено = ?)";
                         goto cleanup;
                      }
-                     vm->u[cmd_sentence].tag = rf_complete;
+                     // Удаляем размещённую в L_semicolon команду rf_sentence.
+                     rf_free_last(vm);
                      function_complete = true;
                      continue;
                   }
@@ -939,33 +936,22 @@ sentence_complete:
                      warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;
                   }
-                  rf_index sentence_complete;
-                  // В функциях с блоком сохраняем в маркере текущего предложения
-                  // ссылку на данные следующего и размещаем новый маркер.
-                  if (function_block && cmd_sentence) {
-                     sentence_complete = rf_alloc_command(vm, rf_sentence);
-                     vm->u[cmd_sentence].data = sentence_complete;
-                     cmd_sentence = sentence_complete;
-                     expression = false;
-                     local = 0;
-                     ++idc;
-                  } else if (cmd_sentence) {
-                     assert(0);
-                     sentence_complete = rf_alloc_command(vm, rf_complete);
-                     vm->u[cmd_sentence].data = sentence_complete;
-                     function_complete = true;
-                  } else {
-                     // См. переход сюда из case '}' где подразумевается данный опкод.
-                     // Может показаться, что достаточно проверять function_block на 0,
-                     // но планируется поддержка вложенных блоков.
-                     sentence_complete = rf_alloc_command(vm, rf_complete);
-                     function_complete = true;
-                  }
                   // При хвостовых вызовах нет смысла в парном сохранении и
                   // восстановление контекста функции. Обозначим такие интерпретатору.
-                  if (vm->u[vm->u[sentence_complete].prev].tag == rf_execute) {
-                     vm->u[vm->u[sentence_complete].prev].tag2 = rf_complete;
+                  if (vm->u[vm->u[vm->free].prev].tag == rf_execute) {
+                     vm->u[vm->u[vm->free].prev].tag2 = rf_execute;
                   }
+                  // В функциях с блоком сохраняем в маркере текущего предложения
+                  // ссылку на данные следующего и размещаем новый маркер.
+                  if (function_block) {
+                     vm->u[cmd_sentence].data = rf_alloc_command(vm, rf_sentence);
+                     cmd_sentence = vm->u[cmd_sentence].data;
+                     local = 0;
+                     ++idc;
+                  } else {
+                     function_complete = true;
+                  }
+                  expression = false;
                   continue;
 
                ///\subsection Является
@@ -1090,7 +1076,9 @@ no_identifier_in_module:   error = "идентификатор не опреде
             }// тело функции.
          }
       }
-   }// цикл верхнего уровня
+   }
+   // Завершаем последнюю функцию пустышкой, куда указывает rf_sentence.
+   rf_alloc_value(vm, 0, rf_name);
 
    // Ищем, не появилось ли определение идентификаторов.
    // На первой итерации проверяем только идентификаторы внутри скобок,
@@ -1121,9 +1109,9 @@ no_identifier_in_module:   error = "идентификатор не опреде
          lex.line = vm->u[s].num;
          s = vm->u[s].next;
 
-         // В результате трансляции rf_complete в данной позиции невозможен,
+         // В результате трансляции rf_name в данной позиции невозможен,
          // потому выбран в качестве маркера на предыдущей итерации.
-         if (vm->u[opcode].tag == rf_complete) {
+         if (vm->u[opcode].tag == rf_name) {
             assert(!ex);
             rf_free_evar(vm, vm->u[opcode].prev, s);
             continue;
@@ -1148,7 +1136,7 @@ no_identifier_in_module:   error = "идентификатор не опреде
                   assert(ex);
                   vm->u[exec_close].data = rtrie_val_to_raw(ids->n[n].val);
                   // временный маркер для следующей итерации.
-                  vm->u[opcode].tag = rf_complete;
+                  vm->u[opcode].tag = rf_name;
                   continue;
                } else if (ex) {
                   continue;

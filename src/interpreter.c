@@ -520,6 +520,8 @@ evar_express:
       fn_name = function;
       switch (function.tag) {
       case rft_module: assert(0);
+      case rft_box:
+      case rft_reference:
       case rft_enum:
          inconsistence(st, "пустая функция", ip, step);
          goto error;
@@ -540,6 +542,8 @@ evar_express:
                   case rft_undefined:
                      goto error_undefined_identifier;
                   case rft_module:
+                  case rft_box:
+                  case rft_reference:
                   case rft_enum:
                      continue;
                   case rft_byte_code:
@@ -578,6 +582,8 @@ Mu_machine_code:     rf_free_evar(vm, vm->u[id].prev, n);
                      // значит это часть другого. Считаем его обычным текстом.
                      case rft_module:
                      case rft_undefined:
+                     case rft_box:
+                     case rft_reference:
                      case rft_enum:
                         break;
                      }

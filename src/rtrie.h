@@ -39,10 +39,12 @@ struct refal_trie {
 
 typedef enum rtrie_type {
    rft_undefined,
-   rft_machine_code,    ///< Ссылка на машинный код (функцию).
-   rft_byte_code,       ///< Ссылка на функцию в РЕФАЛ-машине.
-   rft_enum,            ///< Пустая функция (ENUM в Refal-05).
    rft_module,          ///< Имя модуля.
+   rft_machine_code,    ///< Ссылка на машинный код (функцию).
+   rft_byte_code,       ///< Ссылка на исполняемую функцию РЕФАЛ.
+   rft_box,             ///< Ссылка на «ящик» (неисполняемую функцию, содержащую данные).
+   rft_reference,       ///< Ссылка на «ящик» (исходно пустой), пригодный и как ENUM.
+   rft_enum,            ///< Идентификатор-значение (ENUM в Refal-05). rf_output не выводит имя.
 } rtrie_type;
 
 /**

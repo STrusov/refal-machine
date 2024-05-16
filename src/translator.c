@@ -545,10 +545,9 @@ int refal_translate_istream_to_bytecode(
 
    // В случае неявного определения, имена идентификаторов на заносятся в таблицу
    // атомов. Что бы получить уникальные для каждого модуля значения, используем
-   // номер свободной ячейки — количество занятых не превышает количество
-   // сгенерированных значений.
-   // Что бы значения не пересекались, для второго используем дополнительный код.
-   struct rtrie_val enum_couner = { .value = -ids->free };
+   // номер свободной ячейки таблицы символов.
+   // Приведение к дополнительному коду использовано, что бы выделяться в rf_output.
+   struct rtrie_val enum_couner = { .tag = rft_enum, .value = -ids->free };
 
    // РЕФАЛ позволяет произвольный порядок определения функций.
    // При последовательном проходе не все идентификаторы определены, такие
@@ -632,7 +631,9 @@ int refal_translate_istream_to_bytecode(
                goto cleanup;
             case rft_byte_code: error = "имя модуля определено ранее как вычислимая функция";
                goto cleanup;
-            case rft_enum: error = "имя модуля определено ранее как невычислимая функция (ENUM)";
+            case rft_box:
+            case rft_reference:
+            case rft_enum: error = "имя модуля определено ранее как невычислимая функция";
                goto cleanup;
             case rft_module:
                // Если идентификатор определён со значением 0, значит трансляция
@@ -730,7 +731,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->free };
             switch (lexeme) {
             case L_semicolon:
-               ids->n[lex.id_node].val.tag = rft_enum;
+               ids->n[lex.id_node].val.tag = rft_reference;
                continue;
             case L_equal:
                rf_alloc_command(vm, rf_equal);
@@ -742,7 +743,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                // Такой подход приводит к расходу одной лишней ячейки, однако,
                // вряд ли стоит переусложнять код - кому нужны пустые функции,
                // наверняка предпочтёт краткую запись: ид;
-               ids->n[lex.id_node].val.tag = rft_enum;
+               ids->n[lex.id_node].val.tag = rft_reference;
                cmd_sentence = rf_alloc_command(vm, rf_sentence);
                ++idc;
                ++function_block;
@@ -792,7 +793,7 @@ incomplete:       lex.line = lex.id_line;
                      warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;
                   }
-                  if (ids->n[lex.id_node].val.tag == rft_enum) {
+                  if (ids->n[lex.id_node].val.tag == rft_reference) {
                      assert(cmd_sentence);
                      ids->n[lex.id_node].val.tag = rft_byte_code;
                   }
@@ -1135,18 +1136,15 @@ no_identifier_in_module:   error = "идентификатор не опреде
             if (cfg && cfg->warn_implicit_declaration) {
                warning(st, "неявное определение идентификатора", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
             }
-            if (!(vm->id.free < enum_couner.value)) {
-               critical_error(st, "исчерпан диапазон ENUM", vm->id.free, enum_couner.value);
-            }
-            ids->n[n].val.tag   = rft_enum;
-            ids->n[n].val.value = --enum_couner.value;
+            --enum_couner.value;
+            ids->n[n].val = enum_couner;
          }
          // Скобке присваивается первая вычислимая функция, так что порядок
          // обработки списка неопределённых идентификаторов важен.
          if (exec_open) {
             rf_index exec_close = vm->u[exec_open].link;
             if (rtrie_val_from_raw(vm->u[exec_close].data).tag == rft_undefined) {
-               if (ids->n[n].val.tag != rft_enum) {
+               if (ids->n[n].val.tag == rft_byte_code || ids->n[n].val.tag == rft_machine_code) {
                   assert(ex);
                   vm->u[exec_close].data = rtrie_val_to_raw(ids->n[n].val);
                   // временный маркер для следующей итерации.

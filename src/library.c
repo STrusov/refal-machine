@@ -132,7 +132,7 @@ int rf_output(
          break;
       case rf_identifier: ;
          struct rtrie_val id = rtrie_val_from_raw(vm->u[i].data);
-         if (id.tag == rft_byte_code || (id.tag == rft_enum && id.value < vm->id.free)) {
+         if (id.tag == rft_byte_code || id.tag == rft_box || id.tag == rft_reference) {
             rf_index bytecode = vm->u[id.value].prev;
             if (vm->u[bytecode].tag == rf_name) {
                fprintf(stream, prevt == rf_identifier

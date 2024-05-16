@@ -543,14 +543,6 @@ int refal_translate_istream_to_bytecode(
    // Сообщение об ошибке при завершении.
    const char *error = NULL;
 
-   // Пустым функциям (ENUM в Refal-05) для возможности сопоставления
-   // присваивается уникальное значение.
-   // Значение 0 используется для идентификаторов модулей (при разрешении имён)
-   // и в целевой код не переносится.
-   // В случае явного определения используем индекс первого символа их имени
-   // в таблице атомов \c id_begin. Что бы гарантировать ненулевые значения,
-   // заносим лишний символ в начало таблицы.
-   wstr_append(&vm->id, module);
    // В случае неявного определения, имена идентификаторов на заносятся в таблицу
    // атомов. Что бы получить уникальные для каждого модуля значения, используем
    // номер свободной ячейки — количество занятых не превышает количество
@@ -730,30 +722,32 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                error = "повторное определение идентификатора";
                goto cleanup;
             }
+            // Заголовок функции.
+            // Создаётся для всех, поскольку пустые во время выполнения
+            // могут быть преобразованы в «ящик».
+            // Опкод со ссылкой на имя хранится до исполняемых опкодов.
+            rf_alloc_value(vm, lex.id_begin, rf_name);
             ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->free };
             switch (lexeme) {
             case L_semicolon:
-               ids->n[lex.id_node].val = (struct rtrie_val) { rft_enum, lex.id_begin };
+               ids->n[lex.id_node].val.tag = rft_enum;
                continue;
             case L_equal:
-               // Содержит ссылку на таблицу атомов.
-               rf_alloc_value(vm, lex.id_begin, rf_equal);
+               rf_alloc_command(vm, rf_equal);
                expression = true;
                break;
             case L_block_open:
                // Предварительно считаем функцию невычислимой.
                // При наличии предложений сменим тип и значение.
-               // Такой подход приводит к расходу двух лишних ячеек, однако,
+               // Такой подход приводит к расходу одной лишней ячейки, однако,
                // вряд ли стоит переусложнять код - кому нужны пустые функции,
                // наверняка предпочтёт краткую запись: ид;
-               ids->n[lex.id_node].val = (struct rtrie_val) { rft_enum, lex.id_begin };
-               rf_alloc_value(vm, lex.id_begin, rf_nop_name);
+               ids->n[lex.id_node].val.tag = rft_enum;
                cmd_sentence = rf_alloc_command(vm, rf_sentence);
                ++idc;
                ++function_block;
                break;
             default:
-               rf_alloc_value(vm, lex.id_begin, rf_nop_name);
                goto current_lexem;
             }
 
@@ -800,7 +794,7 @@ incomplete:       lex.line = lex.id_line;
                   }
                   if (ids->n[lex.id_node].val.tag == rft_enum) {
                      assert(cmd_sentence);
-                     ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->u[cmd_sentence].prev };
+                     ids->n[lex.id_node].val.tag = rft_byte_code;
                   }
                   rf_alloc_command(vm, rf_equal);
                   expression = true;

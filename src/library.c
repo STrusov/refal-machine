@@ -132,15 +132,9 @@ int rf_output(
          break;
       case rf_identifier: ;
          struct rtrie_val id = rtrie_val_from_raw(vm->u[i].data);
-         if (id.tag == rft_enum && id.value < vm->id.free) {
-            fprintf(stream, prevt == rf_identifier
-                    ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
-                    : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
-                    &vm->id.s[id.value]);
-            break;
-         } else if (id.tag == rft_byte_code) {
-            rf_index bytecode = id.value;
-            if (vm->u[bytecode].tag == rf_nop_name || vm->u[bytecode].tag == rf_equal) {
+         if (id.tag == rft_byte_code || (id.tag == rft_enum && id.value < vm->id.free)) {
+            rf_index bytecode = vm->u[id.value].prev;
+            if (vm->u[bytecode].tag == rf_name) {
                fprintf(stream, prevt == rf_identifier
                        ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
                        : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,

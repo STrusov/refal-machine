@@ -1,0 +1,19 @@
+var1;
+
+go =
+    <Push var1>
+    <Push var1>
+    <Push var1 "12">
+    <Push var1>
+    <Push var1 "345">
+    <Push var1 "56789">
+    <Push var1>
+    <Prout "«"<Pop var1>"»">
+    <Prout "«"<Pop var1>"»">
+    <Prout "«"<Pop var1>"»">
+    <Prout "«"<Pop var1>"»">
+    <Prout "«"<Pop var1>"»">
+    <Prout "«"<Pop var1>"»">
+    <Prout "«"<Pop var1>"»">
+    <Prout "«"<Pop var1>"»">
+    ;

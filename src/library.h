@@ -55,6 +55,9 @@ rf_function  Div;
 rf_function  Mod;
 rf_function  Compare;
 
+rf_function  Push;
+rf_function  Pop;
+
 rf_function  Type;
 rf_function  Numb;
 rf_function  Symb;
@@ -188,6 +191,43 @@ int Mod(struct refal_vm *vm, rf_index prev, rf_index next);
         s.X, s.Y ::= s.NUMBER
  */
 int Compare(struct refal_vm *vm, rf_index prev, rf_index next);
+
+/**\}*/
+
+/**\addtogroup library-stack
+ * \{
+ */
+
+/**
+ *      <Br e.Name '=' e.Expr>
+ * Закапывает выражение \c e.Expr под именем \c e.Name.
+ * Имя не должно содержать знак \c '=' на верхнем уровне структуры.
+ *
+ * \c Push не использует \c '=' в качестве разделителя.
+ * Ожидает в качестве имени имя функции, предложения которой
+ * не содержат выражение-результат (то есть определены без =).
+ * Имя можно указать как идентификатором, так и текстом.
+ * Таким образом можно указать начальное содержимое и отчасти решается проблема
+ * «чтобы понять, какими глобальными переменными пользуется некоторая функция,
+ * нужно изучить исходный текст самой функции, а также других функций, которые
+ * она вызывает» стр.6 http://refal.botik.ru/events/IPSRAN-MGTU-seminar-17-06-2023/RAYAP_Lecture4.pdf
+ *
+        <Push s.Func | s.CHAR* e.Expr> == []
+*/
+int Push(struct refal_vm *vm, rf_index prev, rf_index next);
+
+/**
+ *      <Dg e.Name>
+ * Выкапывает выражение, закопанное под именем e.Name, то есть возвращает последнее
+ * выражение, закопанное под этим именем и удаляет его из стэка. Если не существует
+ * выражения, закопанного под именем e.Name, Dg возвращает пустое выражение.
+ *
+ * \c Pop работает подобно; имя можно указывать как идентификатором, так и текстом.
+ *
+        <Pop s.Func | s.CHAR*> == e.Value
+ */
+int Pop(struct refal_vm *vm, rf_index prev, rf_index next);
+
 
 /**\}*/
 

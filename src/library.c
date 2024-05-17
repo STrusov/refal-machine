@@ -30,6 +30,8 @@ const struct refal_import_descriptor library[] = {
    { "-",         { &Sub                } },
    { "*",         { &Mul                } },
    { "/",         { &Div                } },
+   { "Push",      { &Push               } },
+   { "Pop",       { &Pop                } },
    { "Type",      { &Type               } },
    { "Numb",      { &Numb               } },
    { "Symb",      { &Symb               } },
@@ -367,6 +369,57 @@ int Compare(struct refal_vm *vm, rf_index prev, rf_index next)
    }
    rf_free_evar(vm, s1, next);
    return 0;
+}
+
+// Связываем в односвязный список.
+int Push(struct refal_vm *vm, rf_index prev, rf_index next)
+{
+   struct rtrie_val id = rtrie_find_value_by_tags(vm->rt, rft_reference, rft_box, vm, prev, next);
+   if ((id.tag == rft_reference || id.tag == rft_box) && id.value != -1 && id.value) {
+      assert(vm->u[id.value].tag == rf_sentence);
+      if (vm->u[id.value].tag != rf_sentence)
+         return prev;
+      //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас байткод создаём сами.
+      rf_index s_next = vm->u[id.value].link;
+      // было:  [rf_name][rf_sentence][...][s_next]
+      //                       --------------->
+      // стало: [rf_name][rf_sentence] +++ [e-var][s_new] +++ [...][s_next]
+      //                       -------------------->  --------------->
+      rf_index guard = rf_alloc_value(vm, 0, rf_undefined);
+      vm->u[id.value].link = rf_alloc_value(vm, s_next, rf_sentence);
+      rf_splice_evar_prev(vm, guard, vm->free, vm->u[id.value].next);
+      rf_free_last(vm);
+      rf_splice_evar_prev(vm, prev, next, vm->u[id.value].next);
+      return 0;
+   }
+   return prev;
+}
+
+int Pop(struct refal_vm *vm, rf_index prev, rf_index next)
+{
+   struct rtrie_val id = rtrie_find_value_by_tags(vm->rt, rft_reference, rft_box, vm, prev, next);
+   if (!rf_is_evar_empty(vm, prev, next)) {
+      return prev;
+   }
+   //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас байткод создаём сами.
+   if ((id.tag == rft_reference || id.tag == rft_box) && id.value != -1 && id.value) {
+      assert(vm->u[id.value].tag == rf_sentence);
+      if (vm->u[id.value].tag != rf_sentence)
+         return prev;
+      rf_index s_next = vm->u[id.value].link;
+      assert(vm->u[s_next].tag == rf_sentence || vm->u[s_next].tag == rf_name);
+      rf_splice_evar_prev(vm, id.value, s_next, next);
+      // id.value менять нельзя, потому первую rf_sentence не удаляем.
+      // Таким образом из пустого ящика всегда извлекается пустая e-переменная.
+      if (vm->u[s_next].tag == rf_name)
+         return 0;
+      if (vm->u[s_next].tag == rf_sentence) {
+         vm->u[id.value].link = vm->u[s_next].link;
+         rf_free_evar(vm, id.value, vm->u[s_next].next);
+         return 0;
+      }
+   }
+   return prev;
 }
 
 

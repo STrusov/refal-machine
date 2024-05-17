@@ -349,5 +349,76 @@ struct rtrie_val rtrie_get_value(
    }
 }
 
+/**
+ * Ищет в поле зрения идентификатор с типом tag1 или tag2
+ * и возвращает определяемый им описатель функции,
+ * либо пустышку { rft_undefined, 0 } при отсутствии искомого.
+ * Содержимое структурных скобок пропускается, в случае выхода индекса
+ * закрывающей скобки за допустимые пределы возвращается { rft_undefined, -1 }
+ *
+ * Идентификатор может быть явным опкодом с rf_identifier
+ * либо определяться последовательностью rf_char - в таком случае проверяется
+ * вся строка до первого отличного от rf_char кода.
+ * Если найден, удаляется из поля зрения.
+ */
+static inline
+struct rtrie_val rtrie_find_value_by_tags(
+      const struct refal_trie *rt,
+      enum rtrie_type         tag1,
+      enum rtrie_type         tag2,
+      struct refal_vm         *vm,
+      rf_index                prev,
+      rf_index                next)
+{
+   struct rtrie_val function;
+   for (rf_index n, id = vm->u[prev].next; id != next; id = n) {
+      n = vm->u[id].next;
+      switch (vm->u[id].tag) {
+      case rf_identifier:
+         function = rtrie_val_from_raw(vm->u[id].data);
+         if (function.tag == tag1 || function.tag == tag2) {
+found:      rf_free_evar(vm, vm->u[id].prev, n);
+            return function;
+         } else if (function.tag == rft_undefined) {// не должно возникать при трансляции.
+            return function;
+         }
+         continue;
+      case rf_char: ;
+         // Просматриваем последовательность символов до конца.
+         // Параллельно производится поиск в дереве, если возможен.
+         // Пробел может следовать после имени модуля и вызывает
+         // поиск в отдельном пространство имён.
+         rtrie_index idx = rtrie_find_first(vm->rt, vm->u[id].chr);
+         wchar_t pc = L'\0';
+         for (n = vm->u[id].next ; n != next && vm->u[n].tag == rf_char; n = vm->u[n].next)
+            if (!(idx < 0)) {
+               idx = pc == L' ' ? rtrie_find_at(vm->rt, idx, vm->u[n].chr)
+                           : rtrie_find_next(vm->rt, idx, vm->u[n].chr);
+               pc = vm->u[n].chr;
+            }
+         // Если идентификатор "найден", но неопределён,
+         // значит это часть другого. Считаем его обычным текстом.
+         // Так же пропускаем и неподходящие.
+         if (!(idx < 0)) {
+            function = vm->rt->n[idx].val;
+            if (function.tag == tag1 || function.tag == tag2)
+               goto found;
+         }
+         continue;
+      case rf_opening_bracket:
+         id = vm->u[id].link;
+         if (!(id < vm->size)) {
+            return (struct rtrie_val) { rft_undefined, -1 };
+         }
+         n = vm->u[id].next;
+         continue;
+      default:
+         continue;
+      }
+   }
+   return (struct rtrie_val) { rft_undefined, 0 };
+}
+
+
 /**\}*/
 /**\}*/

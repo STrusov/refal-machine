@@ -534,78 +534,23 @@ evar_express:
       case rft_machine_code:
          // Функции Mu соответствует индекс 0.
          // Ищем в поле зрения вычислимую функцию
-         // либо её имя в глобальном пространстве и вызываем.
-         // Если очередной функцией является Mu, "исполняем" её, удаляя.
+         // либо её имя в глобальном пространстве и вызываем, удаляя из ПЗ.
+         // Если очередной функцией является Mu, "исполняем", продолжая поиск.
          if (!function.value) {
-            for (rf_index n, id = vm->u[prev].next; id != next; id = n) {
-               n = vm->u[id].next;
-               switch (vm->u[id].tag) {
-               case rf_identifier:
-                  function = rtrie_val_from_raw(vm->u[id].data);
-                  switch (function.tag) {
-                  case rft_undefined:
-                     goto error_undefined_identifier;
-                  case rft_module:
-                  case rft_box:
-                  case rft_reference:
-                  case rft_enum:
-                     continue;
-                  case rft_byte_code:
-Mu_byte_code:        rf_free_evar(vm, vm->u[id].prev, n);
-                     fn_name = function;
-                     goto execute_byte_code;
-                  case rft_machine_code:
-Mu_machine_code:     rf_free_evar(vm, vm->u[id].prev, n);
-                     if (!function.value) {
-                        continue;
-                     }
-                     fn_name = function;
-                     goto execute_machine_code;
-                  }
-               case rf_char: ;
-                  // Просматриваем последовательность символов до конца.
-                  // Параллельно производится поиск в дереве, если возможен.
-                  // Пробел может следовать после имени модуля и вызывает
-                  // поиск в отдельном пространство имён.
-                  rtrie_index idx = rtrie_find_first(vm->rt, vm->u[id].chr);
-                  wchar_t pc = L'\0';
-                  for (n = vm->u[id].next ; n != next && vm->u[n].tag == rf_char; n = vm->u[n].next)
-                     if (!(idx < 0)) {
-                        idx = pc == L' ' ? rtrie_find_at(vm->rt, idx, vm->u[n].chr)
-                                    : rtrie_find_next(vm->rt, idx, vm->u[n].chr);
-                        pc = vm->u[n].chr;
-                     }
-                  if (!(idx < 0)) {
-                     function = vm->rt->n[idx].val;
-                     switch (function.tag) {
-                     case rft_byte_code:
-                        goto Mu_byte_code;
-                     case rft_machine_code:
-                        goto Mu_machine_code;
-                     // Если идентификатор "найден", но неопределён,
-                     // значит это часть другого. Считаем его обычным текстом.
-                     case rft_module:
-                     case rft_undefined:
-                     case rft_box:
-                     case rft_reference:
-                     case rft_enum:
-                        break;
-                     }
-                  }
-                  continue;
-               case rf_opening_bracket:
-                  id = vm->u[id].link;
-                  if (!(id < vm->size)) {
-                     goto error_link_out_of_range;
-                  }
-                  n = vm->u[id].next;
-               default:
-                  continue;
-               }
+Mu:         function = rtrie_find_value_by_tags(vm->rt, rft_byte_code, rft_machine_code, vm, prev, next);
+            if (function.tag == rft_undefined) {
+               if (function.value == -1)  goto error_link_out_of_range;
+               else if (!function.value)  goto recognition_impossible;
+               else if (function.value)   goto error_undefined_identifier;
+            } else if (function.tag == rft_byte_code) {
+               fn_name = function;
+               goto execute_byte_code;
+            } else if (function.tag == rft_machine_code) {
+               if (!function.value)
+                  goto Mu;
+               fn_name = function;
             }
-            goto recognition_impossible;
          }
-execute_machine_code:
          if (!(function.value < vm->library_size)) {
             inconsistence(st, "библиотечная функция не существует", function.value, ip);
             goto error;

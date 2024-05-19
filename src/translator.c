@@ -636,7 +636,7 @@ int refal_translate_istream_to_bytecode(
             case rft_enum: error = "имя модуля определено ранее как невычислимая функция";
                goto cleanup;
             case rft_module:
-               // Если идентификатор определён со значением 0, значит трансляция
+               // Если идентификатор определён, значит трансляция
                // модуля уже выполнена. Импортируем идентификаторы.
                lex.id_node = rtrie_find_next(ids, lex.id_node, ' ');
                assert(!(lex.id_node < 0));
@@ -653,22 +653,23 @@ int refal_translate_istream_to_bytecode(
                // дублируем в глобальном пространстве и в узел "пробел" копируем
                // соответствующий ему из пространства модуля, что обеспечит
                // единообразный импорт идентификаторов модуля.
-               lex.id_node = rtrie_insert_next(ids, lex.id_node, ' ');
+               rtrie_index global = lex.id_node = rtrie_insert_next(ids, lex.id_node, ' ');
                if (module) {
                   const wchar_t *mn = &vm->id.s[lex.id_begin];
                   rtrie_index node = rtrie_insert_at(ids, 0, *mn);
                   while (*(++mn))
                      node = rtrie_insert_next(ids, node, *mn);
-                  rtrie_index already = rtrie_find_next(ids, node, ' ');
-                  if (already > 0) {
-                     ids->n[lex.id_node] = ids->n[already];
+                  global = rtrie_find_next(ids, node, ' ');
+                  if (global > 0) {
+                     ids->n[lex.id_node] = ids->n[global];
                      break;
                   }
-                  node = rtrie_insert_next(ids, node, ' ');
-                  ids->n[lex.id_node] = ids->n[node];
+                  ids->n[node].val = (struct rtrie_val) { rft_module, lex.id_begin };
+                  global = rtrie_insert_next(ids, node, ' ');
                }
                int r = refal_translate_module_to_bytecode(cfg, vm, ids, lex.id_node,
                                                     &vm->id.s[lex.id_begin], st);
+               ids->n[global] = ids->n[lex.id_node];
                //TODO пока ошибки трансляции модуля не учитываются
                if (r < 0) {
                   error = "исходный текст модуля недоступен";

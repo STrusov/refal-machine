@@ -12,7 +12,7 @@
 #include "translator.h"
 
 #define REFAL_NAME "Рефал-М"
-#define REFAL_VERSION "версия 0.3.0 (альфа)"
+#define REFAL_VERSION "версия 0.4.0 (альфа)"
 
 #define REFAL_INITIAL_MEMORY      (128*1024/sizeof(rf_cell))
 #define REFAL_ATOM_INITIAL_MEMORY (128*1024/sizeof(wchar_t))

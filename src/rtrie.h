@@ -277,7 +277,9 @@ rtrie_index rtrie_find_next(
       rtrie_index             idx,  ///< Результат предыдущего поиска.
       wchar_t                 chr)  ///< Первый символ имени.
 {
-   return idx < 0 ? idx : rtrie_find_at(rt, rt->n[idx].next, chr);
+   return idx < 0 ? idx
+                  : rt->n[idx].next ? rtrie_find_at(rt, rt->n[idx].next, chr)
+                                    : -1;
 }
 
 static inline

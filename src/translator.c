@@ -739,6 +739,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                lexeme = lexer_next_lexem(&lex, st);
                break;
             default:
+               cmd_sentence = rf_alloc_command(vm, rf_sentence);
                break;
             }
 
@@ -751,6 +752,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             wstr_index  mod_line = 0;
             unsigned    mod_pos  = 0;
             unsigned    mod_line_num = 0;
+            bool expression_expected = false;
             // Тело функции.
             for (bool complete = false; !complete; lexeme = !complete ? lexer_next_lexem(&lex, st) : L_whitespace)
                switch(lexeme) {
@@ -793,6 +795,9 @@ incomplete:       lex.line = lex.id_line;
                   }
                   if (ids->n[lex.id_node].val.tag == rft_reference) {
                      ids->n[lex.id_node].val.tag = rft_byte_code;
+                  } else if (ids->n[lex.id_node].val.tag == rft_box) {
+                     error = "предложение недопустимо в ящике (в предыдущем пропущен = ?)";
+                     goto cleanup;
                   }
                   rf_alloc_command(vm, rf_equal);
                   expression = true;
@@ -814,22 +819,17 @@ incomplete:       lex.line = lex.id_line;
                      goto cleanup;
                   }
                   --function_block;
+                  complete = true;
                   // После последнего предложения ; может отсутствовать.
-                  if (expression) {
-                     // Функция закончена, следом должен быть rf_name.
-                     vm->u[cmd_sentence].data = vm->free;
-                     goto sentence_complete;
-                  } else {
-                     // ; начинает предложение-образец, пустой в случае завершения функции.
-                     if (!rf_is_evar_empty(vm, cmd_sentence, vm->free)) {
-                        error = "образец без общего выражения (пропущено = ?)";
-                        goto cleanup;
-                     }
-                     // Удаляем размещённую в L_semicolon команду rf_sentence.
+                  // Если образец пуст, значит ;}
+                  if (rf_is_evar_empty(vm, cmd_sentence, vm->free)) {
+                     // Удаляем созданную в L_semicolon команду rf_sentence.
                      rf_free_last(vm);
-                     complete = true;
                      continue;
                   }
+                  // Функция закончена, следом должен быть rf_name.
+                  vm->u[cmd_sentence].data = vm->free;
+                  goto sentence_complete;
 
                ///\subsection Вычисление     Вычислительные скобки
                ///
@@ -901,6 +901,7 @@ executor_in_pattern: error = "вычислительные скобки в об�
                      goto cleanup;
                   }
                   bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
+                  expression_expected = true;
                   continue;
                case L_term_close: if (!bp) {
                      error = "непарная структурная скобка";
@@ -918,10 +919,6 @@ executor_in_pattern: error = "вычислительные скобки в об�
                /// В данной реализации точка с запятой может идти непосредственно после
                /// идентификатора, определяя пустую функцию.
                case L_semicolon:
-                  if (!expression) {
-                     //TODO обработано при определении функции. Обобщить, добавив ящики.
-                     assert(0);
-                  }
 sentence_complete:
                   if (ep) {
                      error = "не закрыта вычислительная скобка";
@@ -935,15 +932,30 @@ sentence_complete:
                      warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;
                   }
-                  // При хвостовых вызовах нет смысла в парном сохранении и
-                  // восстановление контекста функции. Обозначим такие интерпретатору.
-                  if (vm->u[vm->u[vm->free].prev].tag == rf_execute) {
+                  if (!expression) {
+                     if (expression_expected) {
+                        error = "образец без общего выражения (пропущено = ?)";
+                        goto cleanup;
+                     }
+                     if (ids->n[lex.id_node].val.tag == rft_reference) {
+                        ids->n[lex.id_node].val.tag = rft_box;
+                     } else if (ids->n[lex.id_node].val.tag == rft_byte_code) {
+                        error = "данные ящика недопустимы в исполняемой функции (пропущен = ?)";
+                        goto cleanup;
+                     }
+                  } else if (vm->u[vm->u[vm->free].prev].tag == rf_execute) {
+                     // При хвостовых вызовах нет смысла в парном сохранении и
+                     // восстановление контекста функции. Обозначим такие интерпретатору.
                      vm->u[vm->u[vm->free].prev].tag2 = rf_execute;
                   }
-                  // В функциях с блоком сохраняем в маркере текущего предложения
-                  // ссылку на данные следующего и размещаем новый маркер.
+                  // В функциях с блоком и однострочных с выражением-образцом
+                  // сохраняем в маркере текущего предложения
+                  // ссылку на данные следующего и добавляем новый маркер.
+                  if (cmd_sentence)
+                     vm->u[cmd_sentence].data = vm->free;
                   if (function_block) {
-                     vm->u[cmd_sentence].data = rf_alloc_command(vm, rf_sentence);
+                     assert(cmd_sentence);
+                     rf_alloc_command(vm, rf_sentence);
                      cmd_sentence = vm->u[cmd_sentence].data;
                      local = 0;
                      ++idc;
@@ -951,6 +963,7 @@ sentence_complete:
                      complete = true;
                   }
                   expression = false;
+                  expression_expected = false;
                   continue;
 
                ///\subsection Является

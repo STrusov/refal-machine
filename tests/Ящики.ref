@@ -1,0 +1,14 @@
+box 1 "234";
+
+fullbox {
+   1;
+   "22";
+   fullbox;
+}
+
+go =
+    <Prout <Pop box>>
+    <Prout <Pop fullbox>>
+    <Prout <Pop fullbox>>
+    <Prout <Pop fullbox>>
+    ;

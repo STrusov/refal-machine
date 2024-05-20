@@ -703,20 +703,9 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
          // Идентификатор предполагает последующее определение функции.
          default:
             assert(lex.id_node == lex.node);
-            bool function_complete = false;
             bool expression = false;
-            rtrie_index imports = 0;   // корень для поиска идентификаторов модуля.
             rf_index cmd_sentence = 0; // ячейка с командой rf_sentence.
             int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
-            rf_index local = 0;
-            unsigned ep = 0;  // последний занятый элемент в массиве <>
-            cmd_exec[ep] = 0; // изначально пустой (используется как признак, а не только при закрытии >)
-            unsigned bp = 0;  // свободный элемент в массиве ()
-
-            const char *redundant_module_id = "имя модуля без функции не имеет смысла";
-            wstr_index  mod_line = 0;
-            unsigned    mod_pos  = 0;
-            unsigned    mod_line_num = 0;
 
             //TODO Рефал-5 позволяет переопределить встроенные функции.
             if (ids->n[lex.id_node].val.tag != rft_undefined) {
@@ -729,33 +718,42 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             // могут быть преобразованы в «ящик».
             // Опкод со ссылкой на имя хранится до исполняемых опкодов.
             rf_alloc_value(vm, lex.id_begin, rf_name);
-            ids->n[lex.id_node].val = (struct rtrie_val) { rft_byte_code, vm->free };
+            // Изначально считаем функцию пустой.
+            // Изменим при наличии выражения-образца и -результата.
+            ids->n[lex.id_node].val = (struct rtrie_val) { rft_reference, vm->free };
             switch (lexeme) {
             case L_semicolon:
-               ids->n[lex.id_node].val.tag = rft_reference;
                cmd_sentence = rf_alloc_command(vm, rf_sentence);
                vm->u[cmd_sentence].data = vm->free;
                continue;
             case L_equal:
                rf_alloc_command(vm, rf_equal);
+               ids->n[lex.id_node].val.tag = rft_byte_code;
                expression = true;
+               lexeme = lexer_next_lexem(&lex, st);
                break;
             case L_block_open:
-               // Предварительно считаем функцию невычислимой.
-               // При наличии предложений сменим тип и значение.
-               ids->n[lex.id_node].val.tag = rft_reference;
                cmd_sentence = rf_alloc_command(vm, rf_sentence);
                ++idc;
                ++function_block;
+               lexeme = lexer_next_lexem(&lex, st);
                break;
             default:
-               goto current_lexem;
+               break;
             }
 
+            rtrie_index imports = 0;   // корень для поиска идентификаторов модуля.
+            rf_index local = 0;
+            unsigned ep = 0;  // последний занятый элемент в массиве <>
+            cmd_exec[ep] = 0; // изначально пустой (используется как признак, а не только при закрытии >)
+            unsigned bp = 0;  // свободный элемент в массиве ()
+            const char *redundant_module_id = "имя модуля без функции не имеет смысла";
+            wstr_index  mod_line = 0;
+            unsigned    mod_pos  = 0;
+            unsigned    mod_line_num = 0;
             // Тело функции.
-            while (!function_complete) {
-               lexeme = lexer_next_lexem(&lex, st);
-current_lexem: switch(lexeme) {
+            for (bool complete = false; !complete; lexeme = !complete ? lexer_next_lexem(&lex, st) : L_whitespace)
+               switch(lexeme) {
                case L_EOF: error = function_block ? "не завершено определение функции (пропущена } ?)"
                                                   : "не завершено определение функции (пропущена ; ?)";
 incomplete:       lex.line = lex.id_line;
@@ -829,7 +827,7 @@ incomplete:       lex.line = lex.id_line;
                      }
                      // Удаляем размещённую в L_semicolon команду rf_sentence.
                      rf_free_last(vm);
-                     function_complete = true;
+                     complete = true;
                      continue;
                   }
 
@@ -950,7 +948,7 @@ sentence_complete:
                      local = 0;
                      ++idc;
                   } else {
-                     function_complete = true;
+                     complete = true;
                   }
                   expression = false;
                   continue;
@@ -1074,7 +1072,6 @@ no_identifier_in_module:   error = "идентификатор не опреде
                      }
                   }// switch (lex.id_type)
                }// case L_identifier
-            }// тело функции.
          }
       }
    }

@@ -429,54 +429,41 @@ express:
          rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
          continue;
 
-      case rf_svar:
-      case rf_tvar:
-         v = vm->u[ip].link;
-         if (v > local) {
+      case rf_svar: case rf_tvar: case rf_evar: ;
+         rf_index v = vm->u[ip].link;
+         if (v > local)
             goto error_undefined_variable;
+         if (tag == rf_evar && !var[v].last)
+            continue;
+         if (tag == rf_svar || (tag == rf_tvar && vm->u[var[v].s].tag != rf_opening_bracket)) {
+            //TODO снижает ли это фрагментацию?
+            rf_alloc_value(vm, vm->u[var[v].s].data, vm->u[var[v].s].tag);
+            continue;
          }
-         const rf_index sval = var[v].s;
-         if (vm->u[sval].tag == rf_opening_bracket) {
-            assert(tag == rf_tvar);
-            goto evar_express;
+         // Копируем все вхождения кроме последнего (которое переносим).
+         // Транслятор отметил копии ненулевым tag2.
+         if (!vm->u[ip].tag2) {
+            rf_alloc_evar_move(vm, vm->u[var[v].s].prev, vm->u[var[v].last].next);
+            continue;
          }
-         rf_alloc_value(vm, vm->u[sval].data, vm->u[sval].tag);
-         continue;
-
-      case rf_evar:
-         v = vm->u[ip].link;
-         if (v >= local) {
-            goto error_undefined_variable;
-         }
-         // e-переменная возможно пуста, что не относится к t-переменным.
-         if (var[v].last) {
-evar_express:
-            // Копируем все вхождения кроме последнего (которое переносим).
-            // Транслятор отметил копии ненулевым tag2.
-            if (vm->u[ip].tag2) {
-               for (rf_index s = var[v].s; ; s = vm->u[s].next) {
-                  rf_type t = vm->u[s].tag;
-                  switch (t) {
-                  case rf_opening_bracket:
-                     if (bp == bracket_max &&
-                        !realloc_stack((void**)&bracket, &cfg->brackets_stack_size, &bracket_max, sizeof(*bracket)))
-                           goto error_bracket_stack_overflow;
-                     bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-                     break;
-                  case rf_closing_bracket:
-                     // Непарная скобка должна быть определена при сопоставлении.
-                     assert(bp);
-                     rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
-                     break;
-                  default:
-                     rf_alloc_value(vm, vm->u[s].data, t);
-                  }
-                  if (s == var[v].last)
-                     break;
-               }
-            } else {
-               rf_alloc_evar_move(vm, vm->u[var[v].s].prev, vm->u[var[v].last].next);
+         for (rf_index s = var[v].s; ; s = vm->u[s].next) {
+            switch (vm->u[s].tag) {
+            case rf_opening_bracket:
+               if (bp == bracket_max &&
+                  !realloc_stack((void**)&bracket, &cfg->brackets_stack_size, &bracket_max, sizeof(*bracket)))
+                     goto error_bracket_stack_overflow;
+               bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
+               break;
+            case rf_closing_bracket:
+               // Непарная скобка должна быть определена при сопоставлении.
+               assert(bp);
+               rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
+               break;
+            default:
+               rf_alloc_value(vm, vm->u[s].data, vm->u[s].tag);
             }
+            if (s == var[v].last)
+               break;
          }
          continue;
 

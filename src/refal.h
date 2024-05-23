@@ -61,7 +61,6 @@ typedef enum rf_type {
    rf_undefined,        ///< Пустая ячейка (может хранить данные транслятора).
    rf_char,             ///< Символ (одна буква в кодировке UTF-8).
    rf_number,           ///< Целое число.
-   rf_atom,             ///< Имя идентификатора в текстовом виде. Пока не используется.
    rf_opening_bracket,  ///< Открывающая скобка.
    rf_closing_bracket,  ///< Закрывающая скобка.
    // Команды интерпретатора.
@@ -552,20 +551,6 @@ rf_index rf_alloc_command(
       rf_type           tag)
 {
    return rf_alloc_value(vm, 0, tag);
-}
-
-/**
- * Добавляет в свободную часть списка символ идентификатора и возвращает номер ячейки.
- */
-static inline
-rf_index rf_alloc_atom(
-      struct refal_vm   *vm,
-      wstr_index        wstr_element)
-{
-   rf_index i = refal_vm_alloc_1(vm);
-   vm->u[i].atom = wstr_element;
-   vm->u[i].tag  = rf_atom;
-   return i;
 }
 
 /**

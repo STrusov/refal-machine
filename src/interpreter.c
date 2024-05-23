@@ -216,7 +216,6 @@ pattern_match:
 
    case rf_char:
    case rf_number:
-   case rf_atom:
    case rf_identifier:
       // При наличии данных в Поле Зрения сравниваем с образцом.
       if (cur == next || !rf_svar_equal(vm, cur, ip)) {
@@ -420,7 +419,6 @@ express:
 
    case rf_char:
    case rf_number:
-   case rf_atom:
    case rf_identifier:
       rf_alloc_value(vm, vm->u[ip].data, tag);
       goto express;

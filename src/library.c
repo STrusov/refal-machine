@@ -126,12 +126,6 @@ int rf_output(
       case rf_number:
          fprintf(stream, prevt == rf_number ? " %li" : "%li", vm->u[i].num);
          break;
-      case rf_atom:
-         fprintf(stream, prevt == rf_atom
-                 ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
-                 : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
-                 &vm->id.s[vm->u[i].atom]);
-         break;
       case rf_identifier: ;
          struct rtrie_val id = rtrie_val_from_raw(vm->u[i].data);
          if (id.tag == rft_byte_code || id.tag == rft_box || id.tag == rft_reference) {

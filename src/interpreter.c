@@ -148,7 +148,7 @@ sentence:
    if (ep < 0) {
 next_sentence:
       cur = vm->u[prev].next;
-      ep = -1;
+      assert(ep == -1);
       local = 0;
       // Оставлено для однострочных, поскольку не содержат rf_sentence
       if (!next_sentence)
@@ -206,28 +206,25 @@ pattern_next_instruction:
 pattern:
       tag = vm->u[ip].tag;
 
-      // Индекс текущей переменной. Вынесен сюда, поскольку
-      // обработка t-переменных совмещена с таковой для s- и e-.
-      rf_index v = -1;
-
 pattern_match:
+      switch (tag) {
+      case rf_equal: if (cur != next) goto sentence; break;
+      case rf_evar: case rf_sentence: case rf_name:  break;
+      default: if (cur == next) goto sentence;       break;
+      }
+
       switch (tag) {
       case rf_undefined: goto error_undefined;
 
-      case rf_char:
-      case rf_number:
-      case rf_identifier:
-         // При наличии данных в Поле Зрения сравниваем с образцом.
-         if (cur == next || !rf_svar_equal(vm, cur, ip)) {
+      case rf_char: case rf_number: case rf_identifier:
+         if (!rf_svar_equal(vm, cur, ip))
             goto sentence;
-         }
          continue;
 
       case rf_opening_bracket:
          // Данные (link) не совпадают (адресуют разные скобки).
-         if (cur == next || vm->u[cur].tag != rf_opening_bracket) {
+         if (vm->u[cur].tag != rf_opening_bracket)
             goto sentence;
-         }
          if (bp == bracket_max &&
             !realloc_stack((void**)&bracket, &cfg->brackets_stack_size, &bracket_max, sizeof(*bracket)))
                goto error_bracket_stack_overflow;
@@ -236,30 +233,25 @@ pattern_match:
 
       case rf_closing_bracket:
          // Данные (link) не совпадают (адресуют разные скобки).
-         if (cur == next || vm->u[cur].tag != rf_closing_bracket) {
+         if (vm->u[cur].tag != rf_closing_bracket)
             goto sentence;
-         }
          if (!bp--)
             goto error_parenthesis_unpaired;
          continue;
 
-      case rf_svar:
-      case rf_tvar:
-         if (cur == next) {
-            goto sentence;
-         }
+      case rf_svar: case rf_tvar: ;
          // Открытая скобка допустима только для термов (t-переменных)
          // и проверяется дальше. Закрытая всегда не подходит под образец.
          const rf_type t = vm->u[cur].tag;
-         if (t == rf_closing_bracket) {
+         if (t == rf_closing_bracket)
             goto sentence;
-         }
          // При первом вхождении присваиваем переменной значение образца.
          // При повторных сопоставляем.
-         v = vm->u[ip].link;
-         if (v >= local) {
-            assert(local == v);  // TODO убрать, заменив условие выше.
-            if (&var[local] == &var_stack[vars]) {
+         rf_index v = vm->u[ip].link;
+         assert(!(v > local));
+         if (v == local) {
+            ++local;
+            if (&var[v] == &var_stack[vars]) {
                ptrdiff_t nvar = var - var_stack;
                if (!realloc_stack((void**)&var_stack, &cfg->var_stack_size, &vars, sizeof(*var_stack)))
                   goto error_var_stack_overflow;
@@ -278,7 +270,6 @@ pattern_match:
                assert(vm->u[cur].tag == rf_closing_bracket);
                var[v].last = cur;
             }
-            ++local;
          } else if (t == rf_opening_bracket && tag == rf_tvar) {
             goto evar_compare;
          } else if (t == rf_opening_bracket) {
@@ -296,15 +287,15 @@ pattern_match:
          // возможного расширения диапазона (если дальше образец расходится).
          // При повторных — сопоставляем.
          v = vm->u[ip].link;
-         if (v >= local) {
+         assert(!(v > local));
+         if (v == local) {
+            ++local;
             if (++ep == evar_max) {
                // TODO аналогичная проверка выполняется и при трансляции.
                inconsistence(st, "превышен лимит e-переменных", ep, ip);
                r = -2;
                break;
             }
-            assert(local == v);  // TODO убрать, заменив условие выше.
-            ++local;
             evar[ep].idx = v;
             if (&var[v] == &var_stack[vars]) {
                ptrdiff_t nvar = var - var_stack;
@@ -388,9 +379,6 @@ recognition_impossible:
 
       // Начало общего выражения.
       case rf_equal:
-         if (cur != next) {
-            goto sentence;
-         }
 equal:   if (fn_bp != bp)
             goto error_parenthesis_unpaired;
          result = vm->free;

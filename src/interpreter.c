@@ -29,7 +29,7 @@ void runtime_error(
 
 
 static inline
-void *realloc_stack(void **mem, unsigned *size)
+void *realloc_stack(void **mem, unsigned *size, unsigned *max, size_t element)
 {
    void *p = NULL;
    unsigned new_size = *size * 2;
@@ -39,6 +39,7 @@ void *realloc_stack(void **mem, unsigned *size)
       p = refal_realloc(*mem, *size, new_size);
       *mem = p;
       *size = new_size;
+      *max = new_size / element;
    }
    return p;
 }
@@ -228,12 +229,9 @@ pattern_match:
       if (cur == next || vm->u[cur].tag != rf_opening_bracket) {
          goto sentence;
       }
-      if (bp == bracket_max) {
-         if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
+      if (bp == bracket_max &&
+         !realloc_stack((void**)&bracket, &cfg->brackets_stack_size, &bracket_max, sizeof(*bracket)))
             goto error_bracket_stack_overflow;
-         }
-         bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
-      }
       bracket[bp++] = cur;
       goto pattern_continue;
 
@@ -266,11 +264,9 @@ pattern_match:
          assert(local == v);  // TODO убрать, заменив условие выше.
          if (&var[local] == &var_stack[vars]) {
             ptrdiff_t nvar = var - var_stack;
-            if (!realloc_stack((void**)&var_stack, &cfg->var_stack_size)) {
+            if (!realloc_stack((void**)&var_stack, &cfg->var_stack_size, &vars, sizeof(*var_stack)))
                goto error_var_stack_overflow;
-            }
             var = var_stack + nvar;
-            vars = cfg->var_stack_size / sizeof(*var_stack);
          }
          var[v].s = cur;
          var[v].last = 0;
@@ -314,11 +310,9 @@ pattern_match:
          evar[ep].idx = v;
          if (&var[v] == &var_stack[vars]) {
             ptrdiff_t nvar = var - var_stack;
-            if (!realloc_stack((void**)&var_stack, &cfg->var_stack_size)) {
+            if (!realloc_stack((void**)&var_stack, &cfg->var_stack_size, &vars, sizeof(*var_stack)))
                goto error_var_stack_overflow;
-            }
             var = var_stack + nvar;
-            vars = cfg->var_stack_size / sizeof(*var_stack);
          }
          var[v].s = cur;
          var[v].last = 0;
@@ -422,12 +416,9 @@ express:
          continue;
 
       case rf_opening_bracket:
-         if (bp == bracket_max) {
-            if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
+         if (bp == bracket_max &&
+            !realloc_stack((void**)&bracket, &cfg->brackets_stack_size, &bracket_max, sizeof(*bracket)))
                goto error_bracket_stack_overflow;
-            }
-            bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
-         }
          bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
          continue;
 
@@ -467,12 +458,9 @@ evar_express:
                   rf_type t = vm->u[s].tag;
                   switch (t) {
                   case rf_opening_bracket:
-                     if (bp == bracket_max) {
-                        if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
+                     if (bp == bracket_max &&
+                        !realloc_stack((void**)&bracket, &cfg->brackets_stack_size, &bracket_max, sizeof(*bracket)))
                            goto error_bracket_stack_overflow;
-                        }
-                        bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
-                     }
                      bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
                      break;
                   case rf_closing_bracket:
@@ -498,13 +486,11 @@ evar_express:
 
       // Открыты вычислительные скобки.
       case rf_open_function:
-         if (!(sp < stack_size)) {
-            if (cfg->call_stack_size * 2 > cfg->call_stack_max
-             || !realloc_stack((void**)&stack, &cfg->call_stack_size)) {
+         if (!(sp < stack_size) &&
+            (cfg->call_stack_size * 2 > cfg->call_stack_max
+             || !realloc_stack((void**)&stack, &cfg->call_stack_size, &stack_size, sizeof(*stack)))) {
                runtime_error(st, "стек вызовов исчерпан", sp, ip);
                goto error;
-            }
-            stack_size = cfg->call_stack_size / sizeof(*stack);
          }
          stack[sp].prev   = prev;
          stack[sp].next   = next;

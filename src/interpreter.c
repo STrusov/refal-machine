@@ -410,207 +410,206 @@ recognition_impossible:
    } // switch (tag)
 
 express:
-   ip  = vm->u[ip].next;
-   tag = vm->u[ip].tag;
+   while (1) {
+      ip  = vm->u[ip].next;
+      tag = vm->u[ip].tag;
 
-   switch (tag) {
-   case rf_undefined:
-      goto error_undefined;
+      switch (tag) {
+      case rf_undefined: goto error_undefined;
 
-   case rf_char:
-   case rf_number:
-   case rf_identifier:
-      rf_alloc_value(vm, vm->u[ip].data, tag);
-      goto express;
+      case rf_char: case rf_number: case rf_identifier:
+         rf_alloc_value(vm, vm->u[ip].data, tag);
+         continue;
 
-   case rf_opening_bracket:
-      if (bp == bracket_max) {
-         if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
-            goto error_bracket_stack_overflow;
+      case rf_opening_bracket:
+         if (bp == bracket_max) {
+            if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
+               goto error_bracket_stack_overflow;
+            }
+            bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
          }
-         bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
-      }
-      bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-      goto express;
+         bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
+         continue;
 
-   case rf_closing_bracket:
-      if (!bp) {
-         goto error_parenthesis_unpaired;
-      }
-      rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
-      goto express;
+      case rf_closing_bracket:
+         if (!bp) {
+            goto error_parenthesis_unpaired;
+         }
+         rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
+         continue;
 
-   case rf_svar:
-   case rf_tvar:
-      v = vm->u[ip].link;
-      if (v > local) {
-         goto error_undefined_variable;
-      }
-      const rf_index sval = var[v].s;
-      if (vm->u[sval].tag == rf_opening_bracket) {
-         assert(tag == rf_tvar);
-         goto evar_express;
-      }
-      rf_alloc_value(vm, vm->u[sval].data, vm->u[sval].tag);
-      goto express;
+      case rf_svar:
+      case rf_tvar:
+         v = vm->u[ip].link;
+         if (v > local) {
+            goto error_undefined_variable;
+         }
+         const rf_index sval = var[v].s;
+         if (vm->u[sval].tag == rf_opening_bracket) {
+            assert(tag == rf_tvar);
+            goto evar_express;
+         }
+         rf_alloc_value(vm, vm->u[sval].data, vm->u[sval].tag);
+         continue;
 
-   case rf_evar:
-      v = vm->u[ip].link;
-      if (v >= local) {
-         goto error_undefined_variable;
-      }
-      // e-переменная возможно пуста, что не относится к t-переменным.
-      if (var[v].last) {
+      case rf_evar:
+         v = vm->u[ip].link;
+         if (v >= local) {
+            goto error_undefined_variable;
+         }
+         // e-переменная возможно пуста, что не относится к t-переменным.
+         if (var[v].last) {
 evar_express:
-         // Копируем все вхождения кроме последнего (которое переносим).
-         // Транслятор отметил копии ненулевым tag2.
-         if (vm->u[ip].tag2) {
-            for (rf_index s = var[v].s; ; s = vm->u[s].next) {
-               rf_type t = vm->u[s].tag;
-               switch (t) {
-               case rf_opening_bracket:
-                  if (bp == bracket_max) {
-                     if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
-                        goto error_bracket_stack_overflow;
+            // Копируем все вхождения кроме последнего (которое переносим).
+            // Транслятор отметил копии ненулевым tag2.
+            if (vm->u[ip].tag2) {
+               for (rf_index s = var[v].s; ; s = vm->u[s].next) {
+                  rf_type t = vm->u[s].tag;
+                  switch (t) {
+                  case rf_opening_bracket:
+                     if (bp == bracket_max) {
+                        if (!realloc_stack((void**)&bracket, &cfg->brackets_stack_size)) {
+                           goto error_bracket_stack_overflow;
+                        }
+                        bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
                      }
-                     bracket_max = cfg->brackets_stack_size / sizeof(*bracket);
+                     bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
+                     break;
+                  case rf_closing_bracket:
+                     // Непарная скобка должна быть определена при сопоставлении.
+                     assert(bp);
+                     rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
+                     break;
+                  default:
+                     rf_alloc_value(vm, vm->u[s].data, t);
                   }
-                  bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-                  break;
-               case rf_closing_bracket:
-                  // Непарная скобка должна быть определена при сопоставлении.
-                  assert(bp);
-                  rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
-                  break;
-               default:
-                  rf_alloc_value(vm, vm->u[s].data, t);
+                  if (s == var[v].last)
+                     break;
                }
-               if (s == var[v].last)
-                  break;
+            } else {
+               rf_alloc_evar_move(vm, vm->u[var[v].s].prev, vm->u[var[v].last].next);
             }
-         } else {
-            rf_alloc_evar_move(vm, vm->u[var[v].s].prev, vm->u[var[v].last].next);
          }
-      }
-      goto express;
+         continue;
 
-   case rf_equal:
-      inconsistence(st, "повторное присваивание", ip, step);
-      goto error;
-
-   // Открыты вычислительные скобки.
-   case rf_open_function:
-      if (!(sp < stack_size)) {
-         if (cfg->call_stack_size * 2 > cfg->call_stack_max
-          || !realloc_stack((void**)&stack, &cfg->call_stack_size)) {
-            runtime_error(st, "стек вызовов исчерпан", sp, ip);
-            goto error;
-         }
-         stack_size = cfg->call_stack_size / sizeof(*stack);
-      }
-      stack[sp].prev   = prev;
-      stack[sp].next   = next;
-      stack[sp].result = result;
-      ++sp;
-      prev = vm->u[vm->free].prev;
-      goto express;
-
-   // Закрывающая вычислительная скобка приводит к исполнению функции.
-   case rf_execute:
-      next = vm->free;
-      struct rtrie_val function = rtrie_val_from_raw(vm->u[ip].data);
-      fn_name = function;
-      switch (function.tag) {
-      case rft_module: assert(0);
-      case rft_box:
-      case rft_reference:
-      case rft_enum:
-         inconsistence(st, "пустая функция", ip, step);
+      case rf_equal:
+         inconsistence(st, "повторное присваивание", ip, step);
          goto error;
-      case rft_undefined:
-         goto error_undefined_identifier;
-      case rft_machine_code:
-         // Функции Mu соответствует индекс 0.
-         // Ищем в поле зрения вычислимую функцию
-         // либо её имя в глобальном пространстве и вызываем, удаляя из ПЗ.
-         // Если очередной функцией является Mu, "исполняем", продолжая поиск.
-         if (!function.value) {
-Mu:         function = rtrie_find_value_by_tags(vm->rt, rft_byte_code, rft_machine_code, vm, prev, next);
-            if (function.tag == rft_undefined) {
-               if (function.value == -1)  goto error_link_out_of_range;
-               else if (!function.value)  goto recognition_impossible;
-               else if (function.value)   goto error_undefined_identifier;
-            } else if (function.tag == rft_byte_code) {
-               fn_name = function;
-               goto execute_byte_code;
-            } else if (function.tag == rft_machine_code) {
-               if (!function.value)
-                  goto Mu;
-               fn_name = function;
+
+      // Открыты вычислительные скобки.
+      case rf_open_function:
+         if (!(sp < stack_size)) {
+            if (cfg->call_stack_size * 2 > cfg->call_stack_max
+             || !realloc_stack((void**)&stack, &cfg->call_stack_size)) {
+               runtime_error(st, "стек вызовов исчерпан", sp, ip);
+               goto error;
             }
+            stack_size = cfg->call_stack_size / sizeof(*stack);
          }
-         if (!(function.value < vm->library_size)) {
-            inconsistence(st, "библиотечная функция не существует", function.value, ip);
+         stack[sp].prev   = prev;
+         stack[sp].next   = next;
+         stack[sp].result = result;
+         ++sp;
+         prev = vm->u[vm->free].prev;
+         continue;
+
+      // Закрывающая вычислительная скобка приводит к исполнению функции.
+      case rf_execute:
+         next = vm->free;
+         struct rtrie_val function = rtrie_val_from_raw(vm->u[ip].data);
+         fn_name = function;
+         switch (function.tag) {
+         case rft_module: assert(0);
+         case rft_box:
+         case rft_reference:
+         case rft_enum:
+            inconsistence(st, "пустая функция", ip, step);
             goto error;
-         }
-         // TODO при невозможности отождествления функции возвращают
-         // `rf_index`, тип без знака. Значение получается из полей next
-         // и prev ячеек, где количество значащих разрядов ограничено
-         // из-за наличия тега. При имеющейся реализации приведение к int
-         // должно всегда попадать в диапазон положительных значений.
-         r = vm->library[function.value].function(vm, prev, next);
-         if (r > 0) {
-            cur = r;
-            goto recognition_impossible;
-         } else if (r < 0) {
-            inconsistence(st, "ошибка среды выполнения", -errno, ip);
-            goto cleanup;
-         }
-         // TODO убрать лишние (не изменяются при вызове).
-         --sp;
-         result = stack[sp].result;
-         next   = stack[sp].next;
-         prev   = stack[sp].prev;
-         goto express;
-      case rft_byte_code:
-execute_byte_code:
-         // Для хвостовых вызовов транслятор установил признак.
-         if (vm->u[ip].tag2 /* == rf_execute */) {
-            assert(sp);
+         case rft_undefined:
+            goto error_undefined_identifier;
+         case rft_machine_code:
+            // Функции Mu соответствует индекс 0.
+            // Ищем в поле зрения вычислимую функцию
+            // либо её имя в глобальном пространстве и вызываем, удаляя из ПЗ.
+            // Если очередной функцией является Mu, "исполняем", продолжая поиск.
+            if (!function.value) {
+Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_byte_code, rft_machine_code, vm, prev, next);
+               if (function.tag == rft_undefined) {
+                  if (function.value == -1)  goto error_link_out_of_range;
+                  else if (!function.value)  goto recognition_impossible;
+                  else if (function.value)   goto error_undefined_identifier;
+               } else if (function.tag == rft_byte_code) {
+                  fn_name = function;
+                  goto execute_byte_code;
+               } else if (function.tag == rft_machine_code) {
+                  if (!function.value)
+                     goto Mu;
+                  fn_name = function;
+               }
+            }
+            if (!(function.value < vm->library_size)) {
+               inconsistence(st, "библиотечная функция не существует", function.value, ip);
+               goto error;
+            }
+            // TODO при невозможности отождествления функции возвращают
+            // `rf_index`, тип без знака. Значение получается из полей next
+            // и prev ячеек, где количество значащих разрядов ограничено
+            // из-за наличия тега. При имеющейся реализации приведение к int
+            // должно всегда попадать в диапазон положительных значений.
+            r = vm->library[function.value].function(vm, prev, next);
+            if (r > 0) {
+               cur = r;
+               goto recognition_impossible;
+            } else if (r < 0) {
+               inconsistence(st, "ошибка среды выполнения", -errno, ip);
+               goto cleanup;
+            }
+            // TODO убрать лишние (не изменяются при вызове).
             --sp;
-            next = stack[sp].next;
-            rf_free_evar(vm, stack[sp].prev, next);
-            rf_splice_evar_prev(vm, result, vm->free, next);
-            rf_free_last(vm);
-            if (prev == result)
-               prev = stack[sp].prev;
-         } else {
-            stack[sp-1].ip = ip;
-            stack[sp-1].local = local;
-            var += local;
+            result = stack[sp].result;
+            next   = stack[sp].next;
+            prev   = stack[sp].prev;
+            continue;
+         case rft_byte_code:
+execute_byte_code:
+            // Для хвостовых вызовов транслятор установил признак.
+            if (vm->u[ip].tag2 /* == rf_execute */) {
+               assert(sp);
+               --sp;
+               next = stack[sp].next;
+               rf_free_evar(vm, stack[sp].prev, next);
+               rf_splice_evar_prev(vm, result, vm->free, next);
+               rf_free_last(vm);
+               if (prev == result)
+                  prev = stack[sp].prev;
+            } else {
+               stack[sp-1].ip = ip;
+               stack[sp-1].local = local;
+               var += local;
+            }
+            next_sentence = function.value;
+            goto execute;
          }
-         next_sentence = function.value;
-         goto execute;
-      }
 
-   case rf_name:
-   case rf_sentence:
-      rf_free_evar(vm, prev, next);
-      assert(result);
-      rf_splice_evar_prev(vm, result, vm->free, next);
-      rf_free_last(vm);
-      if (sp--) {
-         ip     = stack[sp].ip;
-         local  = stack[sp].local;
-         prev   = stack[sp].prev;
-         next   = stack[sp].next;
-         result = stack[sp].result;
-         var -= local;
-         goto express;
-      }
-      goto cleanup;
+      case rf_name:
+      case rf_sentence:
+         rf_free_evar(vm, prev, next);
+         assert(result);
+         rf_splice_evar_prev(vm, result, vm->free, next);
+         rf_free_last(vm);
+         if (sp--) {
+            ip     = stack[sp].ip;
+            local  = stack[sp].local;
+            prev   = stack[sp].prev;
+            next   = stack[sp].next;
+            result = stack[sp].result;
+            var -= local;
+            continue;
+         }
+         goto cleanup;
 
-   } // switch (tag)
+      } // switch (tag)
+   }
    assert(0);
 
 error_undefined:

@@ -139,7 +139,8 @@ execute:
 
    if (vm->free >= rf_index_max - 1) {
       runtime_error(st, "исчерпана память", ip, step);
-      goto error;
+      r = -1;
+      goto cleanup;
    }
 sentence:
    // При возможности расширяем e-переменные в текущем предложении.
@@ -303,7 +304,8 @@ pattern_match:
          if (++ep == evar_max) {
             // TODO аналогичная проверка выполняется и при трансляции.
             inconsistence(st, "превышен лимит e-переменных", ep, ip);
-            goto error;
+            r = -2;
+            goto cleanup;
          }
          assert(local == v);  // TODO убрать, заменив условие выше.
          ++local;
@@ -404,7 +406,7 @@ recognition_impossible:
    } // switch (tag)
 
 express:
-   while (1) {
+   while (!r) {
       ip  = vm->u[ip].next;
       tag = vm->u[ip].tag;
 
@@ -423,16 +425,18 @@ express:
          continue;
 
       case rf_closing_bracket:
-         if (!bp) {
+         if (!bp)
             goto error_parenthesis_unpaired;
-         }
          rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
          continue;
 
       case rf_svar: case rf_tvar: case rf_evar: ;
          rf_index v = vm->u[ip].link;
-         if (v > local)
-            goto error_undefined_variable;
+         if (v > local) {
+            inconsistence(st, "переменная не определена", ip, step);
+            r = -2;
+            break;
+         }
          if (tag == rf_evar && !var[v].last)
             continue;
          if (tag == rf_svar || (tag == rf_tvar && vm->u[var[v].s].tag != rf_opening_bracket)) {
@@ -469,7 +473,8 @@ express:
 
       case rf_equal:
          inconsistence(st, "повторное присваивание", ip, step);
-         goto error;
+         r = -2;
+         break;
 
       // Открыты вычислительные скобки.
       case rf_open_function:
@@ -477,7 +482,8 @@ express:
             (cfg->call_stack_size * 2 > cfg->call_stack_max
              || !realloc_stack((void**)&stack, &cfg->call_stack_size, &stack_size, sizeof(*stack)))) {
                runtime_error(st, "стек вызовов исчерпан", sp, ip);
-               goto error;
+               r = -1;
+               break;
          }
          stack[sp].prev   = prev;
          stack[sp].next   = next;
@@ -493,11 +499,10 @@ express:
          fn_name = function;
          switch (function.tag) {
          case rft_module: assert(0);
-         case rft_box:
-         case rft_reference:
-         case rft_enum:
+         case rft_box: case rft_reference: case rft_enum:
             inconsistence(st, "пустая функция", ip, step);
-            goto error;
+            r = -2;
+            continue;
          case rft_undefined:
             goto error_undefined_identifier;
          case rft_machine_code:
@@ -522,7 +527,8 @@ Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_byte_code, rft_ma
             }
             if (!(function.value < vm->library_size)) {
                inconsistence(st, "библиотечная функция не существует", function.value, ip);
-               goto error;
+               r = -2;
+               continue;
             }
             // TODO при невозможности отождествления функции возвращают
             // `rf_index`, тип без знака. Значение получается из полей next
@@ -535,7 +541,7 @@ Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_byte_code, rft_ma
                goto recognition_impossible;
             } else if (r < 0) {
                inconsistence(st, "ошибка среды выполнения", -errno, ip);
-               goto cleanup;
+               continue;
             }
             // TODO убрать лишние (не изменяются при вызове).
             --sp;
@@ -564,66 +570,63 @@ execute_byte_code:
             goto execute;
          }
 
-      case rf_name:
-      case rf_sentence:
+      case rf_name: case rf_sentence:
          rf_free_evar(vm, prev, next);
          assert(result);
          rf_splice_evar_prev(vm, result, vm->free, next);
          rf_free_last(vm);
-         if (sp--) {
-            ip     = stack[sp].ip;
-            local  = stack[sp].local;
-            prev   = stack[sp].prev;
-            next   = stack[sp].next;
-            result = stack[sp].result;
-            var -= local;
-            continue;
-         }
-         goto cleanup;
-
-      } // switch (tag)
+         if (!sp--)
+            break;
+         ip     = stack[sp].ip;
+         local  = stack[sp].local;
+         prev   = stack[sp].prev;
+         next   = stack[sp].next;
+         result = stack[sp].result;
+         var -= local;
+         continue;
+      }
+      break;
    }
-   assert(0);
 
-error_undefined:
-   inconsistence(st, "значение не определено", ip, step);
-   goto error;
-
-error_execution_bracket:
-   inconsistence(st, "вычислительная скобка в образце", ip, step);
-   goto error;
-
-error_undefined_identifier:
-   inconsistence(st, "неопределённая функция", ip, step);
-   goto error;
-
-error_undefined_variable:
-   inconsistence(st, "переменная не определена", ip, step);
-   goto error;
-
-error_var_stack_overflow:
-   runtime_error(st, "стек переменных исчерпан", &var[local] - var_stack, vars);
-   goto error;
-
-error_bracket_stack_overflow:
-   runtime_error(st, "переполнен стек структурных скобок", bp, ip);
-   goto error;
-
-error_parenthesis_unpaired:
-   // TODO аналогичная проверка выполняется и при трансляции.
-   inconsistence(st, "непарная закрывающая скобка", ip, step);
-   goto error;
-
-error_link_out_of_range:
-   inconsistence(st, "недействительная структурная скобка", cur, vm->size);
-   goto error;
-
-error:
-   r = -1;
 cleanup:
    refal_free(bracket, cfg->brackets_stack_size);
    refal_free(var_stack, cfg->var_stack_size);
    refal_free(stack, cfg->call_stack_size);
-
    return r;
+
+error_undefined:
+   inconsistence(st, "значение не определено", ip, step);
+   r = -2;
+   goto cleanup;
+
+error_execution_bracket:
+   inconsistence(st, "вычислительная скобка в образце", ip, step);
+   r = -2;
+   goto cleanup;
+
+error_undefined_identifier:
+   inconsistence(st, "неопределённая функция", ip, step);
+   r = -2;
+   goto cleanup;
+
+error_var_stack_overflow:
+   runtime_error(st, "стек переменных исчерпан", &var[local] - var_stack, vars);
+   r = -1;
+   goto cleanup;
+
+error_bracket_stack_overflow:
+   runtime_error(st, "переполнен стек структурных скобок", bp, ip);
+   r = -1;
+   goto cleanup;
+
+error_parenthesis_unpaired:
+   // TODO аналогичная проверка выполняется и при трансляции.
+   inconsistence(st, "непарная закрывающая скобка", ip, step);
+   r = -2;
+   goto cleanup;
+
+error_link_out_of_range:
+   inconsistence(st, "недействительная структурная скобка", cur, vm->size);
+   r = -2;
+   goto cleanup;
 }

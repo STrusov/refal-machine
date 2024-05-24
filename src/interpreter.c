@@ -5,6 +5,7 @@
 #include "library.h"
 #include "translator.h"
 #include "interpreter.h"
+#include <stdbool.h>
 
 
 static inline
@@ -160,7 +161,7 @@ next_sentence:
       // Расширяем e-переменную.
       // Если при этом безуспешно дошли до конца образца,
       // откатываем на предыдущую e-переменную.
-      while (1) {
+      while (true) {
          local = evar[ep].idx;
          cur = var[local].last;
          cur = cur ? vm->u[cur].next : var[local].s;
@@ -198,14 +199,10 @@ prev_evar:
       }
       ++local;
    }
-   goto pattern;
 
-   for (; !r ;cur = vm->u[cur].next) {
-pattern_next_instruction:
-      ip = vm->u[ip].next;
-pattern:
+   for (bool fetch; !r ;ip = vm->u[ip].next, cur = fetch ? vm->u[cur].next : cur) {
+      fetch = true;
       tag = vm->u[ip].tag;
-
 pattern_match:
       switch (tag) {
       case rf_equal: if (cur != next) goto sentence; break;
@@ -264,17 +261,14 @@ pattern_match:
                   goto sentence;
                cur = vm->u[cur].link;
                // TODO см. замечание в sentence.
-               if (!(cur < vm->size)) {
+               if (!(cur < vm->size))
                   goto error_link_out_of_range;
-               }
                assert(vm->u[cur].tag == rf_closing_bracket);
                var[v].last = cur;
             }
          } else if (t == rf_opening_bracket && tag == rf_tvar) {
             goto evar_compare;
-         } else if (t == rf_opening_bracket) {
-            goto sentence;
-         } else if (!rf_svar_equal(vm, cur, var[v].s)) {
+         } else if (t == rf_opening_bracket || !rf_svar_equal(vm, cur, var[v].s)) {
             goto sentence;
          }
          continue;
@@ -314,13 +308,11 @@ pattern_match:
             // и диапазон не пуст.
             switch (tag) {
             case rf_closing_bracket:
-               if (!bp) {
+               if (!bp)
                   goto error_parenthesis_unpaired;
-               }
                cur = vm->u[bracket[--bp]].link;
-               if (!(cur < vm->size)) {
+               if (!(cur < vm->size))
                   goto error_link_out_of_range;
-               }
                if (var[v].s != cur)
                   var[v].last = vm->u[cur].prev;
                continue;
@@ -335,24 +327,26 @@ pattern_match:
             // t-переменная всегда не пуста.
 evar_compare:
             // Размер закрытой переменной равен таковому для первого вхождения.
-            for (rf_index s = var[v].s; ; s = vm->u[s].next) {
+            for (rf_index s = var[v].s; ; s = vm->u[s].next, cur = vm->u[cur].next) {
                rf_type t = vm->u[s].tag;
                if (t != vm->u[cur].tag)
                   goto sentence;
                if (t != rf_opening_bracket && t != rf_closing_bracket
                 && vm->u[s].data != vm->u[cur].data)
                   goto sentence;
-               cur = vm->u[cur].next;
                if (s == var[v].last)
                   break;
             }
+            continue;
          }
-         goto pattern_next_instruction;
+         fetch = false;
+         continue;
 
       // Начало предложения. Далее следует выражение-образец (возможно, пустое).
       case rf_sentence:
          next_sentence = vm->u[ip].data;
-         goto pattern_next_instruction;
+         fetch = false;
+         continue;
 
       case rf_open_function: case rf_execute:
          inconsistence(st, "вычислительная скобка в образце", ip, step);

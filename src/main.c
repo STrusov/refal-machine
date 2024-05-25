@@ -95,6 +95,8 @@ int main(int argc, char **argv)
          if (argv[0][2])
             goto option_unrecognized;
          puts(REFAL_NAME " " REFAL_VERSION);
+         if (flag)
+            break;
          return EXIT_SUCCESS;
       default:
 option_unrecognized:

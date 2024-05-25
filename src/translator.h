@@ -29,6 +29,10 @@
 #define REFAL_TRANSLATOR_BRACKETS_DEFAULT 128
 #endif
 
+#ifndef REFAL_INITIAL_FILEBUFFER
+#define REFAL_INITIAL_FILEBUFFER 1024 //TODO увеличить. В 4-х байтных символах.
+#endif
+
 /**
  * Конфигурация транслятора.
  *

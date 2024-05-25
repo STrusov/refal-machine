@@ -210,7 +210,7 @@ void lexer_init(struct lexer* lex, FILE *src)
    lex->line_num = 1;
    lex->pos      = 0;
 
-   wstr_alloc(&lex->buf, 1024);
+   wstr_alloc(&lex->buf, REFAL_INITIAL_FILEBUFFER);
    lex->line = lex->buf.free;
    read_file(&lex->buf, src);
 }

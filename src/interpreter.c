@@ -1,5 +1,5 @@
 /**\file
- * \brief Реализация РЕФАЛ интерпретатора.
+ * \brief Реализация исполнителя РЕФАЛ (интерпретатора).
  */
 
 #include "library.h"
@@ -62,7 +62,7 @@ void *realloc_stack(void **mem, unsigned *size, unsigned *max, size_t element)
    [rf_equal] отсутствует в «ящиках».
 
  */
-int refal_interpret_bytecode(
+int refal_run_opcodes(
       struct refal_interpreter_config  *cfg,
       struct refal_vm      *vm,
       rf_index             prev,
@@ -70,7 +70,7 @@ int refal_interpret_bytecode(
       rf_index             next_sentence,
       struct refal_message *st)
 {
-   refal_message_source(st, "интерпретатор");
+   refal_message_source(st, "исполнитель");
    int r = 0;
    size_t step = 0;
 
@@ -86,7 +86,7 @@ int refal_interpret_bytecode(
    unsigned sp = 0;
 
    // Исполняемая функция, для определения имени (обычно, по rf_nop_name).
-   struct rtrie_val  fn_name = { .value = next_sentence, .tag = rft_byte_code };
+   struct rtrie_val  fn_name = { .value = next_sentence, .tag = rft_op_code };
 
    struct {
       // s-переменная или первый элемент e- или t- переменной.
@@ -181,8 +181,8 @@ prev_evar:
       case rf_opening_bracket:
          cur = vm->u[cur].link;
          // TODO накладно проверять, попадает ли индекс в диапазон до next.
-         // Задача транслятора это гарантировать. Для случая, когда байт-код
-         // получен из другого источника, проверим на принадлежность массиву.
+         // Задача транслятора это гарантировать. Для случая, когда опкоды
+         // получены из другого источника, проверим на принадлежность массиву.
          if (!(cur < vm->size)) {
             goto error_link_out_of_range;
          }
@@ -478,12 +478,12 @@ equal:   if (fn_bp != bp)
             // либо её имя в глобальном пространстве и вызываем, удаляя из ПЗ.
             // Если очередной функцией является Mu, "исполняем", продолжая поиск.
             if (!function.value) {
-Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_byte_code, rft_machine_code, vm, prev, next);
+Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_op_code, rft_machine_code, vm, prev, next);
                if (function.tag == rft_undefined) {
                   if (function.value == -1)  goto error_link_out_of_range;
                   else if (!function.value)  goto recognition_impossible;
                   else if (function.value)   goto error_undefined_identifier;
-               } else if (function.tag == rft_byte_code) {
+               } else if (function.tag == rft_op_code) {
                   fn_name = function;
                   goto execute_byte_code;
                } else if (function.tag == rft_machine_code) {
@@ -516,7 +516,7 @@ Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_byte_code, rft_ma
             next   = stack[sp].next;
             prev   = stack[sp].prev;
             continue;
-         case rft_byte_code:
+         case rft_op_code:
 execute_byte_code:
             // Для хвостовых вызовов транслятор установил признак.
             if (vm->u[ip].tag2 /* == rf_execute */) {

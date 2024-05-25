@@ -178,7 +178,7 @@ struct lexer {
    enum identifier_type id_type;
 
    // Первый символ идентификатора в массиве атомов.
-   // Используются при импорте и встраивании ссылки на имя функции в байткод.
+   // Используются при импорте и встраивании ссылки на имя функции в опкоды.
    wstr_index  id_begin;
    // Начало строки в буфере и позиция в исходном тексте для диагностики.
    wstr_index  id_line;
@@ -375,7 +375,7 @@ tail: chr = lexer_next_char(lex);
 /// Символ \c \ перед иными знаками представляет сам себя.
 
 /**
- * Переносит строку из исходного текста в байт-код.
+ * Переносит строку из исходного текста в опкоды.
  */
 static inline
 void lexem_string(struct lexer *lex, struct refal_vm *vm, struct refal_message *st)
@@ -426,7 +426,7 @@ void lexem_string(struct lexer *lex, struct refal_vm *vm, struct refal_message *
 ///
 
 /**
- * Переносит макрофицру из исходного текста в байт-код.
+ * Переносит макрофицру из исходного текста в опкоды.
  */
 static inline
 void lexem_number(struct lexer *lex, struct refal_vm *vm, struct refal_message *st)
@@ -629,7 +629,7 @@ int refal_translate_istream_to_bytecode(
             switch (ids->n[lex.id_node].val.tag) {
             case rft_machine_code: error = "имя модуля определено ранее как встроенная функция";
                goto cleanup;
-            case rft_byte_code: error = "имя модуля определено ранее как вычислимая функция";
+            case rft_op_code: error = "имя модуля определено ранее как вычислимая функция";
                goto cleanup;
             case rft_box:
             case rft_reference:
@@ -728,7 +728,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                continue;
             case L_equal:
                rf_alloc_command(vm, rf_equal);
-               ids->n[lex.id_node].val.tag = rft_byte_code;
+               ids->n[lex.id_node].val.tag = rft_op_code;
                expression = true;
                lexeme = lexer_next_lexem(&lex, st);
                break;
@@ -794,7 +794,7 @@ incomplete:       lex.line = lex.id_line;
                      imports = 0;
                   }
                   if (ids->n[lex.id_node].val.tag == rft_reference) {
-                     ids->n[lex.id_node].val.tag = rft_byte_code;
+                     ids->n[lex.id_node].val.tag = rft_op_code;
                   } else if (ids->n[lex.id_node].val.tag == rft_box) {
                      error = "предложение недопустимо в ящике (в предыдущем пропущен = ?)";
                      goto cleanup;
@@ -877,7 +877,7 @@ executor_in_pattern: error = "вычислительные скобки в об�
                      imports = 0;
                   }
                   assert(ep > 0);
-                  // Копируем адрес функции из парной открывающей, для вызова интерпретатором.
+                  // Копируем адрес функции из парной открывающей, для вызова исполнителем.
                   // Если функция не определена, но между скобок содержатся
                   // идентификаторы (.value == 1) задаём открывающей скобке ссылку на эту.
                   rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute);
@@ -939,13 +939,13 @@ sentence_complete:
                      }
                      if (ids->n[lex.id_node].val.tag == rft_reference) {
                         ids->n[lex.id_node].val.tag = rft_box;
-                     } else if (ids->n[lex.id_node].val.tag == rft_byte_code) {
+                     } else if (ids->n[lex.id_node].val.tag == rft_op_code) {
                         error = "данные ящика недопустимы в исполняемой функции (пропущен = ?)";
                         goto cleanup;
                      }
                   } else if (vm->u[vm->u[vm->free].prev].tag == rf_execute) {
                      // При хвостовых вызовах нет смысла в парном сохранении и
-                     // восстановление контекста функции. Обозначим такие интерпретатору.
+                     // восстановление контекста функции. Обозначим такие исполнителю.
                      vm->u[vm->u[vm->free].prev].tag2 = rf_execute;
                   }
                   // В функциях с блоком и однострочных с выражением-образцом
@@ -993,7 +993,7 @@ sentence_complete:
                         ids->n[lex.node].val = (struct rtrie_val) { rft_enum, local++ };
                      }
                      if (!expression) {
-                        rf_alloc_value(vm, ids->n[lex.node].val.value, (enum rf_type)lex.id_type);
+                        rf_alloc_value(vm, ids->n[lex.node].val.value, (enum rf_opcode)lex.id_type);
                         continue;
                      }
                      // При первом вхождении создаём переменную и запоминаем её индекс.
@@ -1009,7 +1009,7 @@ sentence_complete:
                         }
 #endif
                      }
-                     var[id].opcode = rf_alloc_value(vm, id, (enum rf_type)lex.id_type);
+                     var[id].opcode = rf_alloc_value(vm, id, (enum rf_opcode)lex.id_type);
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                      var[id].src  = lex.line;
                      var[id].line = lex.line_num;
@@ -1036,7 +1036,7 @@ sentence_complete:
                         continue;
                      // Если открыта вычислительная скобка, задаём ей адрес
                      // первой вычислимой функции из выражения.
-                     case rft_byte_code: case rft_machine_code:
+                     case rft_op_code: case rft_machine_code:
                         if (cmd_exec[ep] && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
                            // Если в поле действия данной скобки встретился идентификатор,
                            // который на данный момент не определён, не известно,
@@ -1143,7 +1143,7 @@ no_identifier_in_module:   error = "идентификатор не опреде
          if (exec_open) {
             rf_index exec_close = vm->u[exec_open].link;
             if (rtrie_val_from_raw(vm->u[exec_close].data).tag == rft_undefined) {
-               if (ids->n[n].val.tag == rft_byte_code || ids->n[n].val.tag == rft_machine_code) {
+               if (ids->n[n].val.tag == rft_op_code || ids->n[n].val.tag == rft_machine_code) {
                   assert(ex);
                   vm->u[exec_close].data = rtrie_val_to_raw(ids->n[n].val);
                   // временный маркер для следующей итерации.

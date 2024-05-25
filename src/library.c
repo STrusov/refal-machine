@@ -10,7 +10,7 @@
 #include "library.h"
 
 const struct refal_import_descriptor library[] = {
-   // Mu - реализована в интерпретаторе и должна быть 0-м элементом.
+   // Mu - реализована в исполнителе и должна быть 0-м элементом.
    { "Mu",        { NULL                } },
    { "Print",     { .cfunction = &Print } },
    { "Prout",     { &Prout              } },
@@ -95,7 +95,7 @@ int Card(struct refal_vm *vm, rf_index prev, rf_index next)
    if (s1 != next)
       return s1;
    // Поле зрения пусто, просто продолжаем размещать данные в области
-   // формирования результата вызывающей функции (интерпретатора).
+   // формирования результата вызывающей функции (исполнителя).
    rf_alloc_input(vm, stdin);
    return 0;
 }
@@ -114,7 +114,7 @@ int rf_output(
 {
    assert(prev != next);
    assert(stream);
-   enum rf_type prevt = rf_undefined;
+   enum rf_opcode prevt = rf_undefined;
    for (rf_index i = prev; (i = vm->u[i].next) != next; ) {
       switch (vm->u[i].tag) {
       case rf_char: {
@@ -128,7 +128,7 @@ int rf_output(
          break;
       case rf_identifier: ;
          struct rtrie_val id = rtrie_val_from_raw(vm->u[i].data);
-         if (id.tag == rft_byte_code || id.tag == rft_box || id.tag == rft_reference) {
+         if (id.tag == rft_op_code || id.tag == rft_box || id.tag == rft_reference) {
             rf_index bytecode = vm->u[id.value].prev;
             if (vm->u[bytecode].tag == rf_name) {
                fprintf(stream, prevt == rf_identifier
@@ -373,7 +373,7 @@ int Push(struct refal_vm *vm, rf_index prev, rf_index next)
       assert(vm->u[id.value].tag == rf_sentence);
       if (vm->u[id.value].tag != rf_sentence)
          return prev;
-      //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас байткод создаём сами.
+      //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас опкоды создаём сами.
       rf_index s_next = vm->u[id.value].link;
       // было:  [rf_name][rf_sentence][...][s_next]
       //                       --------------->
@@ -395,7 +395,7 @@ int Pop(struct refal_vm *vm, rf_index prev, rf_index next)
    if (!rf_is_evar_empty(vm, prev, next)) {
       return prev;
    }
-   //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас байткод создаём сами.
+   //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас опкоды создаём сами.
    if ((id.tag == rft_reference || id.tag == rft_box) && id.value != -1 && id.value) {
       assert(vm->u[id.value].tag == rf_sentence);
       if (vm->u[id.value].tag != rf_sentence)

@@ -57,8 +57,8 @@ int main(int argc, char **argv)
 
    setlocale(LC_ALL, "");
 
-   // 0-й параметр пропускаем (содержит имя интерпретатора).
-   // Начинающиеся с + и - параметры считаем ключами интерпретатору.
+   // 0-й параметр пропускаем (содержит имя исполняемого файла).
+   // Начинающиеся с + и - параметры считаем ключами исполнителю.
    // Первый отличающийся параметр — именем программы для исполнения.
    // Одиночный - служит для ввода из stdin.
    --argc;
@@ -110,7 +110,7 @@ arguments:
       return EXIT_FAILURE;
    }
 
-   // Память РЕФАЛ-машины (байт-код и поле зрения совмещены).
+   // Память РЕФАЛ-машины (исполняемые опкоды и поле зрения совмещены).
    struct refal_vm   vm;
    refal_vm_init(&vm, REFAL_INITIAL_MEMORY, REFAL_ATOM_INITIAL_MEMORY);
    if (refal_vm_check(&vm, &status)) {
@@ -142,12 +142,12 @@ arguments:
          // Для точек входа Начало проверяем, принимает ли вызываемая функция
          // аргументы, и передаём по необходимости.
          struct rtrie_val entry = rtrie_get_value(&ids, "начало");
-         if (entry.tag == rft_byte_code) {
+         if (entry.tag == rft_op_code) {
             show_result = 1;
          } else {
             entry = rtrie_get_value(&ids, "Начало");
          }
-         if (entry.tag == rft_byte_code) {
+         if (entry.tag == rft_op_code) {
             rf_index oc = entry.value;
             if (vm.u[oc].tag == rf_sentence)
                oc = vm.u[oc].next;
@@ -156,31 +156,29 @@ arguments:
          }
 
          // Для точек входа main и Main всегда передаём аргументы.
-         if (entry.tag != rft_byte_code) {
+         if (entry.tag != rft_op_code) {
             entry = rtrie_get_value(&ids, "main");
-            if (entry.tag == rft_byte_code) {
+            if (entry.tag == rft_op_code) {
                show_result = 1;
             } else {
                entry = rtrie_get_value(&ids, "Main");
             }
-            if (entry.tag == rft_byte_code) {
+            if (entry.tag == rft_op_code) {
                pass_args = 1;
             }
          }
 
          // Точки входа классического РЕФАЛ не получают аргументы.
-         if (entry.tag != rft_byte_code) {
+         if (entry.tag != rft_op_code) {
             entry = rtrie_get_value(&ids, "go");
-            if (entry.tag == rft_byte_code) {
+            if (entry.tag == rft_op_code) {
                show_result = 1;
             } else {
                entry = rtrie_get_value(&ids, "Go");
             }
          }
 
-//         rtrie_free(&ids);
-
-         if (entry.tag != rft_byte_code) {
+         if (entry.tag != rft_op_code) {
             //TODO есть ли смысл проверять каждую на rft_enum?
             critical_error(&status, "не определена вычислимая функция Начало, Main или Go", entry.value, 0);
          } else {
@@ -196,8 +194,8 @@ arguments:
                .locals              = tcfg.locals_limit,
             };
             next = vm.free;
-            r = refal_interpret_bytecode(&cfg, &vm, prev, next, entry.value, &status);
-            // В случае ошибки среды, она выведена интерпретатором.
+            r = refal_run_opcodes(&cfg, &vm, prev, next, entry.value, &status);
+            // В случае ошибки среды, она выведена исполнителем.
             if (r > 0) {
                puts("Отождествление невозможно.");
                show_result = 1;

@@ -310,7 +310,7 @@ int Arg(struct refal_vm *vm, rf_index prev, rf_index next);
  *
        <Mu e.Arg1 s.Func e.Arg2> == <s.Func e.Arg>
 
-  Функция реализована непосредственно в интерпретаторе.
+  Функция реализована непосредственно в исполнителе.
 */
 int Mu(struct refal_vm *vm, rf_index prev, rf_index next);
 

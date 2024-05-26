@@ -74,7 +74,7 @@ typedef enum rf_opcode {
    rf_svar,             ///< s-переменная (односимвольная).
    rf_tvar,             ///< t-переменная (s- либо выражение в скобках).
    rf_evar,             ///< e-переменная (произвольное количество элементов.
-} rf_type;
+} rf_opcode;
 
 static_assert(rf_evar < 1<<4, "Значение хранится в 4-х разрядах.");
 
@@ -127,7 +127,7 @@ typedef struct rf_cell {
       wstr_index  atom;    ///< Индекс первого символа имени идентификатора (хранятся отдельно).
       rf_index    link;    ///< Узел в графе.
    };
-   rf_type     tag :4;     ///< Тип содержимого.
+   rf_opcode   tag :4;     ///< Код операции.
    rf_index    prev:28;    ///< Индекс предыдущей ячейки.
    rf_index    tag2:4;     ///< Вспомогательный тип.
    rf_index    next:28;    ///< Индекс последующей ячейки.
@@ -535,7 +535,7 @@ static inline
 rf_index rf_alloc_value(
       struct refal_vm   *vm,
       uint64_t          value,
-      rf_type           tag)
+      rf_opcode         tag)
 {
    rf_index i = refal_vm_alloc_1(vm);
    vm->u[i].data = value;
@@ -549,7 +549,7 @@ rf_index rf_alloc_value(
 static inline
 rf_index rf_alloc_command(
       struct refal_vm   *vm,
-      rf_type           tag)
+      rf_opcode         tag)
 {
    return rf_alloc_value(vm, 0, tag);
 }

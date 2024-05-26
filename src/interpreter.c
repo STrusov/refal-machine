@@ -135,8 +135,8 @@ execute:
    int ep = -1;      // текущая открытая e-переменная (индекс недействителен исходно)
    unsigned fn_bp = bp;
 
-   // Тип текущего элемента образца.
-   rf_type tag = rf_undefined;
+   // Код операции элемента образца.
+   rf_opcode tag = rf_undefined;
 
    if (vm->free >= rf_index_max - 1) {
       runtime_error(st, "исчерпана память", ip, step);
@@ -257,7 +257,7 @@ pattern_match:
             }
             // Размер закрытой переменной равен таковому для первого вхождения.
             for (rf_index s = var[v].s; ; s = vm->u[s].next, cur = vm->u[cur].next) {
-               rf_type t = vm->u[s].tag;
+               rf_opcode t = vm->u[s].tag;
                if (t != vm->u[cur].tag)
                   goto sentence;
                if (t != rf_opening_bracket && t != rf_closing_bracket
@@ -375,7 +375,7 @@ equal:   if (fn_bp != bp)
    // Результат
    while (!r) {
       ip  = vm->u[ip].next;
-      rf_type tag = vm->u[ip].tag;
+      rf_opcode tag = vm->u[ip].tag;
 
       switch (tag) {
       case rf_undefined: goto error_undefined;

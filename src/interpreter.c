@@ -85,8 +85,8 @@ int refal_run_opcodes(
    unsigned stack_size = cfg->call_stack_size / sizeof(*stack);
    unsigned sp = 0;
 
-   // Исполняемая функция, для определения имени (обычно, по rf_nop_name).
-   struct rtrie_val  fn_name = { .value = next_sentence, .tag = rft_op_code };
+   // Исполняемая функция, для определения имени.
+   struct rf_id  fn_name = { .link = next_sentence, .tag = rf_id_op_code };
 
    struct {
       // s-переменная или первый элемент e- или t- переменной.
@@ -351,7 +351,7 @@ recognition_impossible:
          rf_alloc_command(vm, rf_execute);
          rf_splice_evar_prev(vm, result, vm->free, next);
          rf_alloc_command(vm, rf_open_function);
-         rf_alloc_value(vm, rtrie_val_to_raw(fn_name), rf_identifier);
+         rf_alloc_identifier(vm, fn_name);
          rf_splice_evar_prev(vm, result, vm->free, vm->u[prev].next);
          if (sp && next != stack[0].next) {
             rf_free_evar(vm, stack[0].prev, stack[0].next);
@@ -462,38 +462,38 @@ equal:   if (fn_bp != bp)
       // Закрывающая вычислительная скобка приводит к исполнению функции.
       case rf_execute:
          next = vm->free;
-         struct rtrie_val function = rtrie_val_from_raw(vm->u[ip].data);
+         struct rf_id function = vm->u[ip].id;
          fn_name = function;
          switch (function.tag) {
-         case rft_module: assert(0);
-         case rft_box: case rft_reference: case rft_enum:
+         case rf_id_module: assert(0);
+         case rf_id_box: case rf_id_reference: case rf_id_enum:
             inconsistence(st, "пустая функция", ip, step);
             r = -2;
             continue;
-         case rft_undefined:
+         case rf_id_undefined:
             goto error_undefined_identifier;
-         case rft_machine_code:
+         case rf_id_mach_code:
             // Функции Mu соответствует индекс 0.
             // Ищем в поле зрения вычислимую функцию
             // либо её имя в глобальном пространстве и вызываем, удаляя из ПЗ.
             // Если очередной функцией является Mu, "исполняем", продолжая поиск.
-            if (!function.value) {
-Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_op_code, rft_machine_code, vm, prev, next);
-               if (function.tag == rft_undefined) {
-                  if (function.value == -1)  goto error_link_out_of_range;
-                  else if (!function.value)  goto recognition_impossible;
-                  else if (function.value)   goto error_undefined_identifier;
-               } else if (function.tag == rft_op_code) {
+            if (!function.link) {
+Mu:            function = rtrie_find_value_by_tags(vm->rt, rf_id_op_code, rf_id_mach_code, vm, prev, next);
+               if (function.tag == rf_id_undefined) {
+                  if (function.link == -1)  goto error_link_out_of_range;
+                  else if (!function.link)  goto recognition_impossible;
+                  else if (function.link)   goto error_undefined_identifier;
+               } else if (function.tag == rf_id_op_code) {
                   fn_name = function;
                   goto execute_byte_code;
-               } else if (function.tag == rft_machine_code) {
-                  if (!function.value)
+               } else if (function.tag == rf_id_mach_code) {
+                  if (!function.link)
                      goto Mu;
                   fn_name = function;
                }
             }
-            if (!(function.value < vm->library_size)) {
-               inconsistence(st, "библиотечная функция не существует", function.value, ip);
+            if (!(function.link < vm->library_size)) {
+               inconsistence(st, "библиотечная функция не существует", function.link, ip);
                r = -2;
                continue;
             }
@@ -502,7 +502,7 @@ Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_op_code, rft_mach
             // и prev ячеек, где количество значащих разрядов ограничено
             // из-за наличия тега. При имеющейся реализации приведение к int
             // должно всегда попадать в диапазон положительных значений.
-            r = vm->library[function.value].function(vm, prev, next);
+            r = vm->library[function.link].function(vm, prev, next);
             if (r > 0) {
                cur = r;
                goto recognition_impossible;
@@ -516,7 +516,7 @@ Mu:            function = rtrie_find_value_by_tags(vm->rt, rft_op_code, rft_mach
             next   = stack[sp].next;
             prev   = stack[sp].prev;
             continue;
-         case rft_op_code:
+         case rf_id_op_code:
 execute_byte_code:
             // Для хвостовых вызовов транслятор установил признак.
             if (vm->u[ip].tag2 /* == rf_execute */) {
@@ -533,7 +533,7 @@ execute_byte_code:
                stack[sp-1].local = local;
                var += local;
             }
-            next_sentence = function.value;
+            next_sentence = function.link;
             goto execute;
          }
 

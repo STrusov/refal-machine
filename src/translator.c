@@ -547,7 +547,7 @@ int refal_translate_istream_to_bytecode(
    // атомов. Что бы получить уникальные для каждого модуля значения, используем
    // номер свободной ячейки таблицы символов.
    // Приведение к дополнительному коду использовано, что бы выделяться в rf_output.
-   struct rtrie_val enum_couner = { .tag = rft_enum, .value = -ids->free };
+   struct rf_id enum_couner = { .tag = rf_id_enum, .link = -ids->free };
 
    // РЕФАЛ позволяет произвольный порядок определения функций.
    // При последовательном проходе не все идентификаторы определены, такие
@@ -627,22 +627,22 @@ int refal_translate_istream_to_bytecode(
          // и вносим имеющиеся в действующую область видимости.
          case L_colon:
             switch (ids->n[lex.id_node].val.tag) {
-            case rft_machine_code: error = "имя модуля определено ранее как встроенная функция";
+            case rf_id_mach_code: error = "имя модуля определено ранее как встроенная функция";
                goto cleanup;
-            case rft_op_code: error = "имя модуля определено ранее как вычислимая функция";
+            case rf_id_op_code: error = "имя модуля определено ранее как вычислимая функция";
                goto cleanup;
-            case rft_box:
-            case rft_reference:
-            case rft_enum: error = "имя модуля определено ранее как невычислимая функция";
+            case rf_id_box:
+            case rf_id_reference:
+            case rf_id_enum: error = "имя модуля определено ранее как невычислимая функция";
                goto cleanup;
-            case rft_module:
+            case rf_id_module:
                // Если идентификатор определён, значит трансляция
                // модуля уже выполнена. Импортируем идентификаторы.
                lex.id_node = rtrie_find_next(ids, lex.id_node, ' ');
                assert(!(lex.id_node < 0));
                break;
-            case rft_undefined:
-               ids->n[lex.id_node].val = (struct rtrie_val) { rft_module, lex.id_begin };
+            case rf_id_undefined:
+               ids->n[lex.id_node].val = (struct rf_id) { rf_id_module, lex.id_begin };
                // Поскольку другие модули могут импортировать такой же модуль,
                // необходимо обеспечить идентичность идентификаторов, а так же
                // нет смысла повторно транслировать уже импортированный модуль.
@@ -664,7 +664,7 @@ int refal_translate_istream_to_bytecode(
                      ids->n[lex.id_node] = ids->n[global];
                      break;
                   }
-                  ids->n[node].val = (struct rtrie_val) { rft_module, lex.id_begin };
+                  ids->n[node].val = (struct rf_id) { rf_id_module, lex.id_begin };
                   global = rtrie_insert_next(ids, node, ' ');
                }
                int r = refal_translate_module_to_bytecode(cfg, vm, ids, lex.id_node,
@@ -689,8 +689,8 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                      error = "идентификатор не определён в модуле (возможно, взаимно-рекурсивный импорт)";
                      goto cleanup;
                   }
-                  if (ids->n[lex.node].val.tag != rft_undefined
-                   && ids->n[lex.node].val.value != ids->n[import_node].val.value) {
+                  if (ids->n[lex.node].val.tag != rf_id_undefined
+                   && ids->n[lex.node].val.link != ids->n[import_node].val.link) {
                      error = "импортируемый идентификатор уже определён";
                      goto cleanup;
                   }
@@ -708,7 +708,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             int function_block = 0;    // подсчитывает блоки в функции (фигурные скобки).
 
             //TODO Рефал-5 позволяет переопределить встроенные функции.
-            if (ids->n[lex.id_node].val.tag != rft_undefined) {
+            if (ids->n[lex.id_node].val.tag != rf_id_undefined) {
                // TODO надо бы отобразить прежнее определение
                error = "повторное определение идентификатора";
                goto cleanup;
@@ -720,7 +720,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             rf_alloc_value(vm, lex.id_begin, rf_name);
             // Изначально считаем функцию пустой.
             // Изменим при наличии выражения-образца и -результата.
-            ids->n[lex.id_node].val = (struct rtrie_val) { rft_reference, vm->free };
+            ids->n[lex.id_node].val = (struct rf_id) { rf_id_reference, vm->free };
             switch (lexeme) {
             case L_semicolon:
                cmd_sentence = rf_alloc_command(vm, rf_sentence);
@@ -728,7 +728,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                continue;
             case L_equal:
                rf_alloc_command(vm, rf_equal);
-               ids->n[lex.id_node].val.tag = rft_op_code;
+               ids->n[lex.id_node].val.tag = rf_id_op_code;
                expression = true;
                lexeme = lexer_next_lexem(&lex, st);
                break;
@@ -793,9 +793,9 @@ incomplete:       lex.line = lex.id_line;
                      warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;
                   }
-                  if (ids->n[lex.id_node].val.tag == rft_reference) {
-                     ids->n[lex.id_node].val.tag = rft_op_code;
-                  } else if (ids->n[lex.id_node].val.tag == rft_box) {
+                  if (ids->n[lex.id_node].val.tag == rf_id_reference) {
+                     ids->n[lex.id_node].val.tag = rf_id_op_code;
+                  } else if (ids->n[lex.id_node].val.tag == rf_id_box) {
                      error = "предложение недопустимо в ящике (в предыдущем пропущен = ?)";
                      goto cleanup;
                   }
@@ -881,9 +881,8 @@ executor_in_pattern: error = "вычислительные скобки в об�
                   // Если функция не определена, но между скобок содержатся
                   // идентификаторы (.value == 1) задаём открывающей скобке ссылку на эту.
                   rf_index ec = rf_alloc_value(vm, vm->u[cmd_exec[ep]].data, rf_execute);
-                  struct rtrie_val f = rtrie_val_from_raw(vm->u[cmd_exec[ep]].data);
-                  if (f.tag == rft_undefined) {
-                     if (!f.value) {
+                  if (vm->u[cmd_exec[ep]].id.tag == rf_id_undefined) {
+                     if (!vm->u[cmd_exec[ep]].id.link) {
                         error = "активное выражение должно содержать имя вычислимой функции";
                         goto cleanup;
                      }
@@ -937,9 +936,9 @@ sentence_complete:
                         error = "образец без общего выражения (пропущено = ?)";
                         goto cleanup;
                      }
-                     if (ids->n[lex.id_node].val.tag == rft_reference) {
-                        ids->n[lex.id_node].val.tag = rft_box;
-                     } else if (ids->n[lex.id_node].val.tag == rft_op_code) {
+                     if (ids->n[lex.id_node].val.tag == rf_id_reference) {
+                        ids->n[lex.id_node].val.tag = rf_id_box;
+                     } else if (ids->n[lex.id_node].val.tag == rf_id_op_code) {
                         error = "данные ящика недопустимы в исполняемой функции (пропущен = ?)";
                         goto cleanup;
                      }
@@ -983,23 +982,23 @@ sentence_complete:
                         error = "превышен лимит переменных";
                         goto cleanup;
                      }
-                     if (ids->n[lex.node].val.tag == rft_undefined) {
+                     if (ids->n[lex.node].val.tag == rf_id_undefined) {
                         assert(!(lex.node < 0));
                         if (expression) {
                            error = "идентификатор не определён";
                            goto cleanup;
                         }
                         var[local].opcode = 0;
-                        ids->n[lex.node].val = (struct rtrie_val) { rft_enum, local++ };
+                        ids->n[lex.node].val = (struct rf_id) { rf_id_enum, local++ };
                      }
                      if (!expression) {
-                        rf_alloc_value(vm, ids->n[lex.node].val.value, (enum rf_opcode)lex.id_type);
+                        rf_alloc_value(vm, ids->n[lex.node].val.link, (enum rf_opcode)lex.id_type);
                         continue;
                      }
                      // При первом вхождении создаём переменную и запоминаем её индекс.
                      // При следующем вхождении устанавливаем значение tag2 по
                      // сохранённому индексу, а индекс заменяем на текущий.
-                     rf_index id = ids->n[lex.node].val.value;
+                     rf_index id = ids->n[lex.node].val.link;
                      if (lex.id_type != id_svar && var[id].opcode) {
                         vm->u[var[id].opcode].tag2 = 1;
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
@@ -1023,7 +1022,7 @@ sentence_complete:
                      }
                      switch (ids->n[lex.node].val.tag) {
                      // Используем ветку модуля для поиска следующего идентификатора.
-                     case rft_module:
+                     case rf_id_module:
                         if (imports) {
                            warning(st, "указание модуля потеряло смысл", mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                            warning(st, "повторное имя модуля переопределяет предыдущее", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
@@ -1036,26 +1035,26 @@ sentence_complete:
                         continue;
                      // Если открыта вычислительная скобка, задаём ей адрес
                      // первой вычислимой функции из выражения.
-                     case rft_op_code: case rft_machine_code:
-                        if (cmd_exec[ep] && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
+                     case rf_id_op_code: case rf_id_mach_code:
+                        if (cmd_exec[ep] && vm->u[cmd_exec[ep]].id.tag == rf_id_undefined) {
                            // Если в поле действия данной скобки встретился идентификатор,
                            // который на данный момент не определён, не известно,
                            // вычислим ли он. Возможно, именно определённая для него
                            // функция и должна быть вызвана скобкой. В таком случае
                            // откладываем решение до этапа, когда разрешаются
                            // неопределённые на данном проходе идентификаторы.
-                           if (rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).value)
+                           if (vm->u[cmd_exec[ep]].id.link)
                               goto implicit_declaration;
-                           vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(ids->n[lex.node].val);
+                           rf_assign_id(vm, cmd_exec[ep], ids->n[lex.node].val);
                            imports = 0;
                            continue;
                         }
                         [[fallthrough]];
                      default:
-                        rf_alloc_value(vm, rtrie_val_to_raw(ids->n[lex.node].val), rf_identifier);
+                        rf_alloc_identifier(vm, ids->n[lex.node].val);
                         imports = 0;
                         continue;
-                     case rft_undefined:
+                     case rf_id_undefined:
 implicit_declaration:   if (imports) {
 no_identifier_in_module:   error = "идентификатор не определён в модуле";
                            goto cleanup;
@@ -1072,10 +1071,9 @@ no_identifier_in_module:   error = "идентификатор не опреде
                         // rf_execute, а скобке зададим фиктивное значение, что бы при
                         // проверке в закрывающей скобке отличить неопределённые
                         // идентификаторы от отсутствия таковых.
-                        if (cmd_exec[ep] && rtrie_val_from_raw(vm->u[cmd_exec[ep]].data).tag == rft_undefined) {
+                        if (cmd_exec[ep] && vm->u[cmd_exec[ep]].id.tag == rf_id_undefined) {
                            rf_alloc_value(vm, cmd_exec[ep], rf_open_function);
-                           struct rtrie_val f = { .tag = rft_undefined, .value = 1 };
-                           vm->u[cmd_exec[ep]].data = rtrie_val_to_raw(f);
+                           rf_assign_id(vm, cmd_exec[ep], (struct rf_id) { rf_id_undefined, 1 });
                         }
                         // На случай ошибки.
                         rf_alloc_value(vm, lex.line_num, rf_undefined);
@@ -1128,24 +1126,24 @@ no_identifier_in_module:   error = "идентификатор не опреде
             continue;
          }
          rtrie_index n = vm->u[opcode].link;
-         if (ids->n[n].val.tag == rft_undefined) {
+         if (ids->n[n].val.tag == rf_id_undefined) {
             // TODO опциональное поведение?
             if (ex)
                continue;
             if (cfg && cfg->warn_implicit_declaration) {
                warning(st, "неявное определение идентификатора", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
             }
-            --enum_couner.value;
+            --enum_couner.link;
             ids->n[n].val = enum_couner;
          }
          // Скобке присваивается первая вычислимая функция, так что порядок
          // обработки списка неопределённых идентификаторов важен.
          if (exec_open) {
             rf_index exec_close = vm->u[exec_open].link;
-            if (rtrie_val_from_raw(vm->u[exec_close].data).tag == rft_undefined) {
-               if (ids->n[n].val.tag == rft_op_code || ids->n[n].val.tag == rft_machine_code) {
+            if (vm->u[exec_close].id.tag == rf_id_undefined) {
+               if (ids->n[n].val.tag == rf_id_op_code || ids->n[n].val.tag == rf_id_mach_code) {
                   assert(ex);
-                  vm->u[exec_close].data = rtrie_val_to_raw(ids->n[n].val);
+                  rf_assign_id(vm, exec_close, ids->n[n].val);
                   // временный маркер для следующей итерации.
                   vm->u[opcode].tag = rf_name;
                   continue;
@@ -1161,7 +1159,7 @@ no_identifier_in_module:   error = "идентификатор не опреде
             }
          }
          vm->u[opcode].tag  = rf_identifier;
-         vm->u[opcode].link = rtrie_val_to_raw(ids->n[n].val);
+         rf_assign_id(vm, opcode, ids->n[n].val);
          rf_free_evar(vm, opcode, s);
       }
    }

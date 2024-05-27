@@ -127,9 +127,9 @@ int rf_output(
          fprintf(stream, prevt == rf_number ? " %li" : "%li", vm->u[i].num);
          break;
       case rf_identifier: ;
-         struct rtrie_val id = rtrie_val_from_raw(vm->u[i].data);
-         if (id.tag == rft_op_code || id.tag == rft_box || id.tag == rft_reference) {
-            rf_index bytecode = vm->u[id.value].prev;
+         struct rf_id id = vm->u[i].id;
+         if (id.tag == rf_id_op_code || id.tag == rf_id_box || id.tag == rf_id_reference) {
+            rf_index bytecode = vm->u[id.link].prev;
             if (vm->u[bytecode].tag == rf_name) {
                fprintf(stream, prevt == rf_identifier
                        ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
@@ -137,12 +137,12 @@ int rf_output(
                        &vm->id.s[vm->u[bytecode].name]);
                break;
             }
-         } else if (id.tag == rft_machine_code
-                 && id.value < vm->library_size && vm->library[id.value].name) {
+         } else if (id.tag == rf_id_mach_code
+                 && id.link < vm->library_size && vm->library[id.link].name) {
             fprintf(stream, prevt == rf_identifier
                     ? RF_COLOR_SYMBOL" %s"RF_ESC_RESET
                     : RF_COLOR_SYMBOL"%s"RF_ESC_RESET,
-                    vm->library[id.value].name);
+                    vm->library[id.link].name);
             break;
          }
          fprintf(stream, prevt == rf_identifier
@@ -368,22 +368,22 @@ int Compare(struct refal_vm *vm, rf_index prev, rf_index next)
 // Связываем в односвязный список.
 int Push(struct refal_vm *vm, rf_index prev, rf_index next)
 {
-   struct rtrie_val id = rtrie_find_value_by_tags(vm->rt, rft_reference, rft_box, vm, prev, next);
-   if ((id.tag == rft_reference || id.tag == rft_box) && id.value != -1 && id.value) {
-      assert(vm->u[id.value].tag == rf_sentence);
-      if (vm->u[id.value].tag != rf_sentence)
+   struct rf_id id = rtrie_find_value_by_tags(vm->rt, rf_id_reference, rf_id_box, vm, prev, next);
+   if ((id.tag == rf_id_reference || id.tag == rf_id_box) && id.link != -1 && id.link) {
+      assert(vm->u[id.link].tag == rf_sentence);
+      if (vm->u[id.link].tag != rf_sentence)
          return prev;
       //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас опкоды создаём сами.
-      rf_index s_next = vm->u[id.value].link;
+      rf_index s_next = vm->u[id.link].link;
       // было:  [rf_name][rf_sentence][...][s_next]
       //                       --------------->
       // стало: [rf_name][rf_sentence] +++ [e-var][s_new] +++ [...][s_next]
       //                       -------------------->  --------------->
       rf_index guard = rf_alloc_value(vm, 0, rf_undefined);
-      vm->u[id.value].data = rf_alloc_value(vm, s_next, rf_sentence);
-      rf_splice_evar_prev(vm, guard, vm->free, vm->u[id.value].next);
+      vm->u[id.link].data = rf_alloc_value(vm, s_next, rf_sentence);
+      rf_splice_evar_prev(vm, guard, vm->free, vm->u[id.link].next);
       rf_free_last(vm);
-      rf_splice_evar_prev(vm, prev, next, vm->u[id.value].next);
+      rf_splice_evar_prev(vm, prev, next, vm->u[id.link].next);
       return 0;
    }
    return prev;
@@ -391,25 +391,25 @@ int Push(struct refal_vm *vm, rf_index prev, rf_index next)
 
 int Pop(struct refal_vm *vm, rf_index prev, rf_index next)
 {
-   struct rtrie_val id = rtrie_find_value_by_tags(vm->rt, rft_reference, rft_box, vm, prev, next);
+   struct rf_id id = rtrie_find_value_by_tags(vm->rt, rf_id_reference, rf_id_box, vm, prev, next);
    if (!rf_is_evar_empty(vm, prev, next)) {
       return prev;
    }
    //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас опкоды создаём сами.
-   if ((id.tag == rft_reference || id.tag == rft_box) && id.value != -1 && id.value) {
-      assert(vm->u[id.value].tag == rf_sentence);
-      if (vm->u[id.value].tag != rf_sentence)
+   if ((id.tag == rf_id_reference || id.tag == rf_id_box) && id.link != -1 && id.link) {
+      assert(vm->u[id.link].tag == rf_sentence);
+      if (vm->u[id.link].tag != rf_sentence)
          return prev;
-      rf_index s_next = vm->u[id.value].link;
+      rf_index s_next = vm->u[id.link].link;
       assert(vm->u[s_next].tag == rf_sentence || vm->u[s_next].tag == rf_name);
-      rf_splice_evar_prev(vm, id.value, s_next, next);
+      rf_splice_evar_prev(vm, id.link, s_next, next);
       // id.value менять нельзя, потому первую rf_sentence не удаляем.
       // Таким образом из пустого ящика всегда извлекается пустая e-переменная.
       if (vm->u[s_next].tag == rf_name)
          return 0;
       if (vm->u[s_next].tag == rf_sentence) {
-         vm->u[id.value].data = vm->u[s_next].link;
-         rf_free_evar(vm, id.value, vm->u[s_next].next);
+         vm->u[id.link].data = vm->u[s_next].link;
+         rf_free_evar(vm, id.link, vm->u[s_next].next);
          return 0;
       }
    }

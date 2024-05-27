@@ -143,14 +143,14 @@ arguments:
 
          // Для точек входа Начало проверяем, принимает ли вызываемая функция
          // аргументы, и передаём по необходимости.
-         struct rtrie_val entry = rtrie_get_value(&ids, "начало");
-         if (entry.tag == rft_op_code) {
+         struct rf_id entry = rtrie_get_value(&ids, "начало");
+         if (entry.tag == rf_id_op_code) {
             show_result = 1;
          } else {
             entry = rtrie_get_value(&ids, "Начало");
          }
-         if (entry.tag == rft_op_code) {
-            rf_index oc = entry.value;
+         if (entry.tag == rf_id_op_code) {
+            rf_index oc = entry.link;
             if (vm.u[oc].tag == rf_sentence)
                oc = vm.u[oc].next;
             if (vm.u[oc].tag != rf_equal)
@@ -158,31 +158,31 @@ arguments:
          }
 
          // Для точек входа main и Main всегда передаём аргументы.
-         if (entry.tag != rft_op_code) {
+         if (entry.tag != rf_id_op_code) {
             entry = rtrie_get_value(&ids, "main");
-            if (entry.tag == rft_op_code) {
+            if (entry.tag == rf_id_op_code) {
                show_result = 1;
             } else {
                entry = rtrie_get_value(&ids, "Main");
             }
-            if (entry.tag == rft_op_code) {
+            if (entry.tag == rf_id_op_code) {
                pass_args = 1;
             }
          }
 
          // Точки входа классического РЕФАЛ не получают аргументы.
-         if (entry.tag != rft_op_code) {
+         if (entry.tag != rf_id_op_code) {
             entry = rtrie_get_value(&ids, "go");
-            if (entry.tag == rft_op_code) {
+            if (entry.tag == rf_id_op_code) {
                show_result = 1;
             } else {
                entry = rtrie_get_value(&ids, "Go");
             }
          }
 
-         if (entry.tag != rft_op_code) {
+         if (entry.tag != rf_id_op_code) {
             //TODO есть ли смысл проверять каждую на rft_enum?
-            critical_error(&status, "не определена вычислимая функция Начало, Main или Go", entry.value, 0);
+            critical_error(&status, "не определена вычислимая функция Начало, Main или Go", entry.link, 0);
          } else {
             // Имя интерпретатора не передаём среди аргументов.
             if (pass_args) {
@@ -196,7 +196,7 @@ arguments:
                .locals              = tcfg.locals_limit,
             };
             next = vm.free;
-            r = refal_run_opcodes(&cfg, &vm, prev, next, entry.value, &status);
+            r = refal_run_opcodes(&cfg, &vm, prev, next, entry.link, &status);
             // В случае ошибки среды, она выведена исполнителем.
             if (r > 0) {
                puts("Отождествление невозможно.");

@@ -37,42 +37,7 @@ struct refal_trie {
    rtrie_index free;       ///< Первый свободный элемент.
 };
 
-typedef enum rtrie_type {
-   rft_undefined,
-   rft_module,          ///< Имя модуля.
-   rft_machine_code,    ///< Ссылка на машинный код (функцию).
-   rft_op_code,         ///< Ссылка на коды операций исполняемой функции РЕФАЛ.
-   rft_box,             ///< Ссылка на «ящик» (неисполняемую функцию, содержащую данные).
-   rft_reference,       ///< Ссылка на «ящик» (исходно пустой), пригодный и как ENUM.
-   rft_enum,            ///< Идентификатор-значение (ENUM в Refal-05). rf_output не выводит имя.
-} rtrie_type;
-
-/**
- * Соответствующее префиксу (ключу) значение.
- */
-struct rtrie_val {
-   rtrie_type  tag :4;     ///< Тип содержимого.
-   rf_index    value:28;   ///< Индекс (ячейки РЕФАЛ-машины или таблице импорта).
-};
-
-static_assert(sizeof(struct rtrie_val) == sizeof(uint32_t), "размеры должны соответствовать");
-
-static inline
-struct rtrie_val rtrie_val_from_raw(uint32_t raw)
-{
-   union { struct rtrie_val val; uint32_t raw; } u;
-   u.raw = raw;
-   return u.val;
-}
-
-static inline
-uint32_t rtrie_val_to_raw(struct rtrie_val val)
-{
-   union { struct rtrie_val val; uint32_t raw; } u;
-   u.val = val;
-   return u.raw;
-}
-
+static_assert(sizeof(struct rf_id) == sizeof(uint32_t), "размеры должны соответствовать");
 
 /**
  * Узел.
@@ -85,7 +50,7 @@ struct rtrie_node {
    rtrie_index next;       ///< Узел со следующим символом последовательности.
    rtrie_index left;       ///< Меньший по значению символ.
    rtrie_index right;      ///< Больший по значению символ.
-   struct rtrie_val val;   ///< Соответствующее префиксу значение.
+   struct rf_id val;       ///< Соответствующее префиксу значение.
 };
 
 /**
@@ -322,7 +287,7 @@ wchar_t decode_utf8(
  * `struct rtrie_val` и возвращает его.
  */
 static inline
-struct rtrie_val rtrie_get_value(
+struct rf_id rtrie_get_value(
       const struct refal_trie *rt,
       const char              *prefix)
 {
@@ -343,10 +308,10 @@ struct rtrie_val rtrie_get_value(
          }
       } else if (chr > rt->n[idx].chr) {
          if (!(idx = rt->n[idx].right))
-            return (struct rtrie_val) { rft_undefined };
+            return (struct rf_id) { rf_id_undefined };
       } else /* if (chr < rt->n[idx].chr) */ {
          if (!(idx = rt->n[idx].left))
-            return (struct rtrie_val) { rft_undefined };
+            return (struct rf_id) { rf_id_undefined };
       }
    }
 }
@@ -364,24 +329,24 @@ struct rtrie_val rtrie_get_value(
  * Если найден, удаляется из поля зрения.
  */
 static inline
-struct rtrie_val rtrie_find_value_by_tags(
+struct rf_id rtrie_find_value_by_tags(
       const struct refal_trie *rt,
-      enum rtrie_type         tag1,
-      enum rtrie_type         tag2,
+      enum rf_id_type         tag1,
+      enum rf_id_type         tag2,
       struct refal_vm         *vm,
       rf_index                prev,
       rf_index                next)
 {
-   struct rtrie_val function;
+   struct rf_id function;
    for (rf_index n, id = vm->u[prev].next; id != next; id = n) {
       n = vm->u[id].next;
       switch (vm->u[id].tag) {
       case rf_identifier:
-         function = rtrie_val_from_raw(vm->u[id].data);
+         function = vm->u[id].id;
          if (function.tag == tag1 || function.tag == tag2) {
 found:      rf_free_evar(vm, vm->u[id].prev, n);
             return function;
-         } else if (function.tag == rft_undefined) {// не должно возникать при трансляции.
+         } else if (function.tag == rf_id_undefined) {// не должно возникать при трансляции.
             return function;
          }
          continue;
@@ -410,7 +375,7 @@ found:      rf_free_evar(vm, vm->u[id].prev, n);
       case rf_opening_bracket:
          id = vm->u[id].link;
          if (!(id < vm->size)) {
-            return (struct rtrie_val) { rft_undefined, -1 };
+            return (struct rf_id) { rf_id_undefined, -1 };
          }
          n = vm->u[id].next;
          continue;
@@ -418,7 +383,7 @@ found:      rf_free_evar(vm, vm->u[id].prev, n);
          continue;
       }
    }
-   return (struct rtrie_val) { rft_undefined, 0 };
+   return (struct rf_id) { rf_id_undefined, 0 };
 }
 
 

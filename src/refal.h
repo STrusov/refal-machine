@@ -104,6 +104,24 @@ struct wstr {
    wstr_index  free;
 };
 
+typedef enum rf_id_type {
+   rf_id_undefined,
+   rf_id_module,        ///< Имя модуля.
+   rf_id_mach_code,     ///< Ссылка на машинный код (функцию).
+   rf_id_op_code,       ///< Ссылка на коды операций исполняемой функции РЕФАЛ.
+   rf_id_box,           ///< Ссылка на «ящик» (неисполняемую функцию, содержащую данные).
+   rf_id_reference,     ///< Ссылка на «ящик» (исходно пустой), пригодный и как ENUM.
+   rf_id_enum,          ///< Идентификатор-значение (ENUM в Refal-05). rf_output не выводит имя.
+} rf_id_type;
+
+/**
+ * Соответствующее префиксу (ключу) значение.
+ */
+typedef struct rf_id {
+   rf_id_type  tag :4;  ///< Тип идентификатора.
+   rf_index    link:28; ///< Индекс (ячейки РЕФАЛ-машины или таблице импорта).
+} rf_id;
+
 /**
  * Ячейка памяти РЕФАЛ-машины.
  *
@@ -127,6 +145,7 @@ typedef struct rf_cell {
       wchar_t     chr;     ///< Символ (буква).
       wstr_index  name;    ///< Индекс первого символа имени идентификатора (хранятся отдельно).
       rf_index    link;    ///< Узел в графе.
+      rf_id       id;      ///< Ссылка на первый опкод функции.
    };
    rf_opcode   tag :4;     ///< Код операции.
    rf_index    prev:28;    ///< Индекс предыдущей ячейки.
@@ -577,6 +596,32 @@ rf_index rf_alloc_int(
       rf_int            num)
 {
    return rf_alloc_value(vm, num, rf_number);
+}
+
+/**
+ * Присваивает ячейке ссылку на функцию, но не меняет тег.
+ */
+static inline
+void rf_assign_id(
+      struct refal_vm   *vm,
+      rf_index          i,
+      struct rf_id      id)
+{
+   vm->u[i].data = 0;
+   vm->u[i].id = id;
+}
+
+/**
+ * Добавляет в свободную часть списка ссылку на функцию и возвращает номер ячейки.
+ */
+static inline
+rf_index rf_alloc_identifier(
+      struct refal_vm   *vm,
+      struct rf_id      id)
+{
+   rf_index i = rf_alloc_value(vm, 0, rf_identifier);
+   vm->u[i].id = id;
+   return i;
 }
 
 /**

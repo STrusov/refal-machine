@@ -71,8 +71,8 @@ unsigned refal_import(
       while (*p) {
          idx = rtrie_insert_next(ids, idx, *p++);
       }
-      ids->n[idx].val.tag   = rft_machine_code;
-      ids->n[idx].val.value = ordinal;
+      ids->n[idx].val.tag   = rf_id_mach_code;
+      ids->n[idx].val.link = ordinal;
    }
    return ordinal;
 }

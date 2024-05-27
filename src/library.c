@@ -134,7 +134,7 @@ int rf_output(
                fprintf(stream, prevt == rf_identifier
                        ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
                        : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
-                       &vm->id.s[vm->u[bytecode].atom]);
+                       &vm->id.s[vm->u[bytecode].name]);
                break;
             }
          } else if (id.tag == rft_machine_code
@@ -380,7 +380,7 @@ int Push(struct refal_vm *vm, rf_index prev, rf_index next)
       // стало: [rf_name][rf_sentence] +++ [e-var][s_new] +++ [...][s_next]
       //                       -------------------->  --------------->
       rf_index guard = rf_alloc_value(vm, 0, rf_undefined);
-      vm->u[id.value].link = rf_alloc_value(vm, s_next, rf_sentence);
+      vm->u[id.value].data = rf_alloc_value(vm, s_next, rf_sentence);
       rf_splice_evar_prev(vm, guard, vm->free, vm->u[id.value].next);
       rf_free_last(vm);
       rf_splice_evar_prev(vm, prev, next, vm->u[id.value].next);
@@ -408,7 +408,7 @@ int Pop(struct refal_vm *vm, rf_index prev, rf_index next)
       if (vm->u[s_next].tag == rf_name)
          return 0;
       if (vm->u[s_next].tag == rf_sentence) {
-         vm->u[id.value].link = vm->u[s_next].link;
+         vm->u[id.value].data = vm->u[s_next].link;
          rf_free_evar(vm, id.value, vm->u[s_next].next);
          return 0;
       }

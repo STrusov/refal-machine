@@ -121,10 +121,11 @@ struct wstr {
  */
 typedef struct rf_cell {
    union {
+      //TODO не хочется делать «сеттер», но записывать двойные слова лучше только сюда.
       uint64_t    data;    ///< Используется для сравнения.
       rf_int      num;     ///< Число.
       wchar_t     chr;     ///< Символ (буква).
-      wstr_index  atom;    ///< Индекс первого символа имени идентификатора (хранятся отдельно).
+      wstr_index  name;    ///< Индекс первого символа имени идентификатора (хранятся отдельно).
       rf_index    link;    ///< Узел в графе.
    };
    rf_opcode   tag :4;     ///< Код операции.
@@ -630,7 +631,7 @@ rf_index rf_alloc_char_decode_utf8(
       i = vm->u[vm->free].prev;
       assert(vm->u[i].tag == rf_char);
       --*state;
-      vm->u[i].chr = (vm->u[i].chr << 6) | (0x3f & octet);
+      vm->u[i].data = (vm->u[i].chr << 6) | (0x3f & octet);
       return i;
    }
 }
@@ -698,8 +699,8 @@ void rf_link_brackets(
 {
    assert(vm->u[opening].tag == rf_opening_bracket);
    assert(vm->u[closing].tag == rf_closing_bracket);
-   vm->u[opening].link = closing;
-   vm->u[closing].link = opening;
+   vm->u[opening].data = closing;
+   vm->u[closing].data = opening;
 }
 
 /**

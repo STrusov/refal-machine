@@ -175,7 +175,7 @@ prev_evar:
       // в поле зрения:
       // — открывающая структурная скобка, пропускаем до закрывающей;
       // — закрывающая структурная скобка, откатываем к предыдущей переменной.
-      switch (vm->u[cur].tag) {
+      switch (vm->u[cur].op) {
       case rf_closing_bracket:
          goto prev_evar;
       case rf_opening_bracket:
@@ -202,7 +202,7 @@ prev_evar:
 
    for (bool fetch; !r ;ip = vm->u[ip].next, cur = fetch ? vm->u[cur].next : cur) {
       fetch = true;
-      tag = vm->u[ip].tag;
+      tag = vm->u[ip].op;
 pattern_match:
       switch (tag) {
       case rf_equal: if (cur != next) goto sentence; break;
@@ -220,7 +220,7 @@ pattern_match:
 
       case rf_opening_bracket:
          // Данные (link) не совпадают (адресуют разные скобки).
-         if (vm->u[cur].tag != rf_opening_bracket)
+         if (vm->u[cur].op != rf_opening_bracket)
             goto sentence;
          if (bp == bracket_max &&
             !realloc_stack((void**)&bracket, &cfg->brackets_stack_size, &bracket_max, sizeof(*bracket)))
@@ -230,14 +230,14 @@ pattern_match:
 
       case rf_closing_bracket:
          // Данные (link) не совпадают (адресуют разные скобки).
-         if (vm->u[cur].tag != rf_closing_bracket)
+         if (vm->u[cur].op != rf_closing_bracket)
             goto sentence;
          if (!bp--)
             goto error_parenthesis_unpaired;
          continue;
 
       case rf_svar:
-         if (vm->u[cur].tag == rf_opening_bracket || vm->u[cur].tag == rf_closing_bracket)
+         if (vm->u[cur].op == rf_opening_bracket || vm->u[cur].op == rf_closing_bracket)
             goto sentence;
          [[fallthrough]];
       case rf_tvar: case rf_evar: ;
@@ -257,8 +257,8 @@ pattern_match:
             }
             // Размер закрытой переменной равен таковому для первого вхождения.
             for (rf_index s = var[v].s; ; s = vm->u[s].next, cur = vm->u[cur].next) {
-               rf_opcode t = vm->u[s].tag;
-               if (t != vm->u[cur].tag)
+               rf_opcode t = vm->u[s].op;
+               if (t != vm->u[cur].op)
                   goto sentence;
                if (t != rf_opening_bracket && t != rf_closing_bracket
                 && vm->u[s].data != vm->u[cur].data)
@@ -291,7 +291,7 @@ pattern_match:
          // Первое вхождение - присваиваем переменной текущую позицию в образце.
          var[v].s = cur;
          var[v].last = 0;
-         if (tag == rf_svar || (tag == rf_tvar && vm->u[cur].tag != rf_opening_bracket))
+         if (tag == rf_svar || (tag == rf_tvar && vm->u[cur].op != rf_opening_bracket))
             continue;
          if (tag == rf_tvar) {
             cur = vm->u[cur].link;
@@ -307,7 +307,7 @@ pattern_match:
          // Запоминаем индекс переменной для возможного расширения диапазона
          // (если дальше образец расходится).
          ip  = vm->u[ip].next;
-         tag = vm->u[ip].tag;
+         tag = vm->u[ip].op;
          evar[ep].ip = ip;
          evar[ep].bp = bp;
          evar[ep].ob = bp ? bracket[bp - 1] : 0;
@@ -375,7 +375,7 @@ equal:   if (fn_bp != bp)
    // Результат
    while (!r) {
       ip  = vm->u[ip].next;
-      rf_opcode tag = vm->u[ip].tag;
+      rf_opcode tag = vm->u[ip].op;
 
       switch (tag) {
       case rf_undefined: goto error_undefined;
@@ -406,9 +406,9 @@ equal:   if (fn_bp != bp)
          }
          if (tag == rf_evar && !var[v].last)
             continue;
-         if (tag == rf_svar || (tag == rf_tvar && vm->u[var[v].s].tag != rf_opening_bracket)) {
+         if (tag == rf_svar || (tag == rf_tvar && vm->u[var[v].s].op != rf_opening_bracket)) {
             //TODO снижает ли это фрагментацию?
-            rf_alloc_value(vm, vm->u[var[v].s].data, vm->u[var[v].s].tag);
+            rf_alloc_value(vm, vm->u[var[v].s].data, vm->u[var[v].s].op);
             continue;
          }
          // Копируем все вхождения кроме последнего (которое переносим).
@@ -418,7 +418,7 @@ equal:   if (fn_bp != bp)
             continue;
          }
          for (rf_index s = var[v].s; ; s = vm->u[s].next) {
-            switch (vm->u[s].tag) {
+            switch (vm->u[s].op) {
             case rf_opening_bracket:
                if (bp == bracket_max &&
                   !realloc_stack((void**)&bracket, &cfg->brackets_stack_size, &bracket_max, sizeof(*bracket)))
@@ -431,7 +431,7 @@ equal:   if (fn_bp != bp)
                rf_link_brackets(vm, bracket[--bp], rf_alloc_command(vm, rf_closing_bracket));
                break;
             default:
-               rf_alloc_value(vm, vm->u[s].data, vm->u[s].tag);
+               rf_alloc_value(vm, vm->u[s].data, vm->u[s].op);
             }
             if (s == var[v].last)
                break;

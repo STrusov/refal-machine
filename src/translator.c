@@ -942,7 +942,7 @@ sentence_complete:
                         error = "данные ящика недопустимы в исполняемой функции (пропущен = ?)";
                         goto cleanup;
                      }
-                  } else if (vm->u[vm->u[vm->free].prev].tag == rf_execute) {
+                  } else if (vm->u[vm->u[vm->free].prev].op == rf_execute) {
                      // При хвостовых вызовах нет смысла в парном сохранении и
                      // восстановление контекста функции. Обозначим такие исполнителю.
                      vm->u[vm->u[vm->free].prev].tag2 = rf_execute;
@@ -1099,13 +1099,13 @@ no_identifier_in_module:   error = "идентификатор не опреде
    for (int ex = 1; ex >= 0; --ex) {
       rf_index last_exec = 0;
       for (rf_index undef = undefined_fist; undef; ) {
-         assert(vm->u[undef].tag == rf_undefined);
+         assert(vm->u[undef].op == rf_undefined);
          const rf_index opcode = vm->u[undef].prev;
          rf_index s = vm->u[undef].next;
          undef = vm->u[undef].link;
 
          rf_index exec_open = 0;
-         if (vm->u[s].tag == rf_open_function) {
+         if (vm->u[s].op == rf_open_function) {
             exec_open = vm->u[s].link;
             s = vm->u[s].next;
          } else if (ex) {
@@ -1120,7 +1120,7 @@ no_identifier_in_module:   error = "идентификатор не опреде
 
          // В результате трансляции rf_name в данной позиции невозможен,
          // потому выбран в качестве маркера на предыдущей итерации.
-         if (vm->u[opcode].tag == rf_name) {
+         if (vm->u[opcode].op == rf_name) {
             assert(!ex);
             rf_free_evar(vm, vm->u[opcode].prev, s);
             continue;
@@ -1145,7 +1145,7 @@ no_identifier_in_module:   error = "идентификатор не опреде
                   assert(ex);
                   rf_assign_id(vm, exec_close, ids->n[n].val);
                   // временный маркер для следующей итерации.
-                  vm->u[opcode].tag = rf_name;
+                  vm->u[opcode].op = rf_name;
                   continue;
                } else if (ex) {
                   continue;
@@ -1158,7 +1158,7 @@ no_identifier_in_module:   error = "идентификатор не опреде
                continue;
             }
          }
-         vm->u[opcode].tag  = rf_identifier;
+         vm->u[opcode].op  = rf_identifier;
          rf_assign_id(vm, opcode, ids->n[n].val);
          rf_free_evar(vm, opcode, s);
       }

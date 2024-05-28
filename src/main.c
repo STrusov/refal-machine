@@ -151,9 +151,9 @@ arguments:
          }
          if (entry.tag == rf_id_op_code) {
             rf_index oc = entry.link;
-            if (vm.u[oc].tag == rf_sentence)
+            if (vm.u[oc].op == rf_sentence)
                oc = vm.u[oc].next;
-            if (vm.u[oc].tag != rf_equal)
+            if (vm.u[oc].op != rf_equal)
                pass_args = 1;
          }
 

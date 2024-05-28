@@ -147,7 +147,7 @@ typedef struct rf_cell {
       rf_index    link;    ///< Узел в графе.
       rf_id       id;      ///< Ссылка на первый опкод функции.
    };
-   rf_opcode   tag :4;     ///< Код операции.
+   rf_opcode   op  :4;     ///< Код операции.
    rf_index    prev:28;    ///< Индекс предыдущей ячейки.
    rf_index    tag2:4;     ///< Вспомогательный тип.
    rf_index    next:28;    ///< Индекс последующей ячейки.
@@ -345,7 +345,7 @@ rf_index refal_vm_alloc_1(
          vm->u = p;
          vm->size *= 2;
       }
-      vm->u[i + 1].tag = rf_undefined;
+      vm->u[i + 1].op = rf_undefined;
       vm->u[i + 1].prev = i;
    }
    vm->free = i;
@@ -470,11 +470,11 @@ void rf_free_evar(
       vm->u[vm->free].next = first;
       vm->u[vm->free].tag2 = 0;
       vm->u[first].prev = vm->free;
-      vm->u[first].tag  = rf_undefined;
+      vm->u[first].op  = rf_undefined;
       vm->u[last].next = heap;
       vm->u[last].tag2 = 0;
       vm->u[heap].prev = last;
-      vm->u[heap].tag  = rf_undefined;
+      vm->u[heap].op   = rf_undefined;
       // TODO закрыть описатели (handle), при наличии.
    }
 }
@@ -559,7 +559,7 @@ rf_index rf_alloc_value(
 {
    rf_index i = refal_vm_alloc_1(vm);
    vm->u[i].data = value;
-   vm->u[i].tag  = tag;
+   vm->u[i].op   = tag;
    return i;
 }
 
@@ -642,7 +642,7 @@ rf_index rf_alloc_char_decode_utf8(
    switch (*state) {
    case 0:
       i = refal_vm_alloc_1(vm);
-      vm->u[i].tag  = rf_char;
+      vm->u[i].op  = rf_char;
       switch (octet) {
       // ASCII
       case 0x00 ... 0x7f:
@@ -674,7 +674,7 @@ rf_index rf_alloc_char_decode_utf8(
    case 2:
    case 3:
       i = vm->u[vm->free].prev;
-      assert(vm->u[i].tag == rf_char);
+      assert(vm->u[i].op == rf_char);
       --*state;
       vm->u[i].data = (vm->u[i].chr << 6) | (0x3f & octet);
       return i;
@@ -742,8 +742,8 @@ void rf_link_brackets(
       rf_index          opening,
       rf_index          closing)
 {
-   assert(vm->u[opening].tag == rf_opening_bracket);
-   assert(vm->u[closing].tag == rf_closing_bracket);
+   assert(vm->u[opening].op == rf_opening_bracket);
+   assert(vm->u[closing].op == rf_closing_bracket);
    vm->u[opening].data = closing;
    vm->u[closing].data = opening;
 }
@@ -794,7 +794,7 @@ int rf_svar_equal(
    // 1. даже при равенстве тегов, они вероятно, различаются;
    // 2. теги хранятся в битовом поле и требуют команды AND для выделения.
    return vm->u[s1].data == vm->u[s2].data
-       && vm->u[s1].tag  == vm->u[s2].tag;
+       && vm->u[s1].op   == vm->u[s2].op;
 }
 
 /**\} addtogroup auxiliary */

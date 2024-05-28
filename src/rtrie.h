@@ -340,7 +340,7 @@ struct rf_id rtrie_find_value_by_tags(
    struct rf_id function;
    for (rf_index n, id = vm->u[prev].next; id != next; id = n) {
       n = vm->u[id].next;
-      switch (vm->u[id].tag) {
+      switch (vm->u[id].op) {
       case rf_identifier:
          function = vm->u[id].id;
          if (function.tag == tag1 || function.tag == tag2) {
@@ -357,7 +357,7 @@ found:      rf_free_evar(vm, vm->u[id].prev, n);
          // поиск в отдельном пространство имён.
          rtrie_index idx = rtrie_find_first(vm->rt, vm->u[id].chr);
          wchar_t pc = L'\0';
-         for (n = vm->u[id].next ; n != next && vm->u[n].tag == rf_char; n = vm->u[n].next)
+         for (n = vm->u[id].next ; n != next && vm->u[n].op == rf_char; n = vm->u[n].next)
             if (!(idx < 0)) {
                idx = pc == L' ' ? rtrie_find_at(vm->rt, idx, vm->u[n].chr)
                            : rtrie_find_next(vm->rt, idx, vm->u[n].chr);

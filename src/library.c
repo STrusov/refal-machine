@@ -116,7 +116,7 @@ int rf_output(
    assert(stream);
    enum rf_opcode prevt = rf_undefined;
    for (rf_index i = prev; (i = vm->u[i].next) != next; ) {
-      switch (vm->u[i].tag) {
+      switch (vm->u[i].op) {
       case rf_char: {
             char utf8[5];
             utf8[rf_encode_utf8(vm, i, utf8)] = '\0';
@@ -130,7 +130,7 @@ int rf_output(
          struct rf_id id = vm->u[i].id;
          if (id.tag == rf_id_op_code || id.tag == rf_id_box || id.tag == rf_id_reference) {
             rf_index bytecode = vm->u[id.link].prev;
-            if (vm->u[bytecode].tag == rf_name) {
+            if (vm->u[bytecode].op == rf_name) {
                fprintf(stream, prevt == rf_identifier
                        ? RF_COLOR_SYMBOL" %ls"RF_ESC_RESET
                        : RF_COLOR_SYMBOL"%ls"RF_ESC_RESET,
@@ -169,7 +169,7 @@ int rf_output(
          assert(i);
          return i;
       }
-      prevt = vm->u[i].tag;
+      prevt = vm->u[i].op;
 #ifndef NDEBUG
       fflush(stream);
 #endif
@@ -197,14 +197,14 @@ FILE *file[REFAL_LIBRARY_LEGACY_FILES];
 int Open(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
-   if (s == next || vm->u[s].tag != rf_char)
+   if (s == next || vm->u[s].op != rf_char)
       return s;
    wchar_t m = vm->u[s].chr;
    if (!(m == 'r' || m == 'w' || m == 'a'))
       return s;
 
    s = vm->u[s].next;
-   if (s == next || vm->u[s].tag != rf_number)
+   if (s == next || vm->u[s].op != rf_number)
       return s;
    rf_int fno = vm->u[s].num;
    if (!(fno > 0 && fno < REFAL_LIBRARY_LEGACY_FILES))
@@ -235,7 +235,7 @@ int Open(struct refal_vm *vm, rf_index prev, rf_index next)
 int Close(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
-   if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
+   if (s == next || vm->u[s].op != rf_number || vm->u[s].next != next)
       return s;
 
    rf_int fno = vm->u[s].num;
@@ -253,7 +253,7 @@ int Close(struct refal_vm *vm, rf_index prev, rf_index next)
 int Get(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
-   if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
+   if (s == next || vm->u[s].op != rf_number || vm->u[s].next != next)
       return s;
 
    rf_int fno = vm->u[s].num;
@@ -268,7 +268,7 @@ int Get(struct refal_vm *vm, rf_index prev, rf_index next)
 int Put(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
-   if (s == next || vm->u[s].tag != rf_number)
+   if (s == next || vm->u[s].op != rf_number)
       return s;
 
    rf_int fno = vm->u[s].num;
@@ -301,9 +301,9 @@ int calc(struct refal_vm *vm, rf_index prev, rf_index next, aop *op)
    rf_index s2 = vm->u[s1].next;
    if (vm->u[s2].next != next)
       return s2;
-   if (vm->u[s1].tag != rf_number)
+   if (vm->u[s1].op != rf_number)
       return s1;
-   if (vm->u[s2].tag != rf_number)
+   if (vm->u[s2].op != rf_number)
       return s2;
    vm->u[s1].num = op(vm->u[s1].num, vm->u[s2].num);
    rf_free_evar(vm, s1, next);
@@ -353,7 +353,7 @@ int Compare(struct refal_vm *vm, rf_index prev, rf_index next)
    rf_index s2 = vm->u[s1].next;
    if (vm->u[s2].next != next)
       return s2;
-   vm->u[s1].tag = rf_char;
+   vm->u[s1].op = rf_char;
    if (vm->u[s1].num < vm->u[s2].num) {
       vm->u[s1].data = '-';
    } else if (vm->u[s1].num > vm->u[s2].num) {
@@ -370,8 +370,8 @@ int Push(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    struct rf_id id = rtrie_find_value_by_tags(vm->rt, rf_id_reference, rf_id_box, vm, prev, next);
    if ((id.tag == rf_id_reference || id.tag == rf_id_box) && id.link != -1 && id.link) {
-      assert(vm->u[id.link].tag == rf_sentence);
-      if (vm->u[id.link].tag != rf_sentence)
+      assert(vm->u[id.link].op == rf_sentence);
+      if (vm->u[id.link].op != rf_sentence)
          return prev;
       //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас опкоды создаём сами.
       rf_index s_next = vm->u[id.link].link;
@@ -397,17 +397,17 @@ int Pop(struct refal_vm *vm, rf_index prev, rf_index next)
    }
    //TODO ссылку хорошо бы проверять на выход за пределы, но сейчас опкоды создаём сами.
    if ((id.tag == rf_id_reference || id.tag == rf_id_box) && id.link != -1 && id.link) {
-      assert(vm->u[id.link].tag == rf_sentence);
-      if (vm->u[id.link].tag != rf_sentence)
+      assert(vm->u[id.link].op == rf_sentence);
+      if (vm->u[id.link].op != rf_sentence)
          return prev;
       rf_index s_next = vm->u[id.link].link;
-      assert(vm->u[s_next].tag == rf_sentence || vm->u[s_next].tag == rf_name);
+      assert(vm->u[s_next].op == rf_sentence || vm->u[s_next].op == rf_name);
       rf_splice_evar_prev(vm, id.link, s_next, next);
       // id.value менять нельзя, потому первую rf_sentence не удаляем.
       // Таким образом из пустого ящика всегда извлекается пустая e-переменная.
-      if (vm->u[s_next].tag == rf_name)
+      if (vm->u[s_next].op == rf_name)
          return 0;
-      if (vm->u[s_next].tag == rf_sentence) {
+      if (vm->u[s_next].op == rf_sentence) {
          vm->u[id.link].data = vm->u[s_next].link;
          rf_free_evar(vm, id.link, vm->u[s_next].next);
          return 0;
@@ -426,7 +426,7 @@ int Type(struct refal_vm *vm, rf_index prev, rf_index next)
    if (s == next) {
       rf_alloc_char(vm, '*');
    } else {
-      switch (vm->u[s].tag) {
+      switch (vm->u[s].op) {
       case rf_identifier:
          type = 'W';
          subtype = 'i';
@@ -473,7 +473,7 @@ int Numb(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_int result = 0;
    for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
-      if (vm->u[s].tag != rf_char)
+      if (vm->u[s].op != rf_char)
          break;
       wchar_t c = vm->u[s].chr;
       if (c < '0' || c > '9')
@@ -488,7 +488,7 @@ int Numb(struct refal_vm *vm, rf_index prev, rf_index next)
 int Symb(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
-   if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
+   if (s == next || vm->u[s].op != rf_number || vm->u[s].next != next)
       return s;
 
    rf_int num = vm->u[s].num;
@@ -516,8 +516,8 @@ int Symb(struct refal_vm *vm, rf_index prev, rf_index next)
 int Ord(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
-      if (vm->u[s].tag == rf_char)
-         vm->u[s].tag = rf_number;
+      if (vm->u[s].op == rf_char)
+         vm->u[s].op = rf_number;
    }
    return 0;
 }
@@ -525,8 +525,8 @@ int Ord(struct refal_vm *vm, rf_index prev, rf_index next)
 int Chr(struct refal_vm *vm, rf_index prev, rf_index next)
 {
    for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
-      if (vm->u[s].tag == rf_number)
-         vm->u[s].tag = rf_char;
+      if (vm->u[s].op == rf_number)
+         vm->u[s].op = rf_char;
    }
    return 0;
 }
@@ -540,7 +540,7 @@ int GetEnv(struct refal_vm *vm, rf_index prev, rf_index next)
    while (*env) {
       const char *restrict ename = *env;
       for (rf_index s = name; s != next; s = vm->u[s].next) {
-         if (vm->u[s].tag != rf_char) {
+         if (vm->u[s].op != rf_char) {
             return s;
          }
          char utf8[4];
@@ -567,7 +567,7 @@ exit:
 int Exit(const struct refal_vm *vm, rf_index prev, rf_index next)
 {
    rf_index s = vm->u[prev].next;
-   if (s == next || vm->u[s].tag != rf_number || vm->u[s].next != next)
+   if (s == next || vm->u[s].op != rf_number || vm->u[s].next != next)
       return s;
 
    rf_int status = vm->u[s].num;
@@ -580,7 +580,7 @@ int System(struct refal_vm *vm, rf_index prev, rf_index next)
    char path[PATH_MAX + 4];
    unsigned size = 0;
    for (rf_index s = vm->u[prev].next; s != next; s = vm->u[s].next) {
-      if (size >= PATH_MAX || vm->u[s].tag != rf_char)
+      if (size >= PATH_MAX || vm->u[s].op != rf_char)
          return s;
       size += rf_encode_utf8(vm, s, &path[size]);
    }

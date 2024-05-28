@@ -608,10 +608,11 @@ int refal_translate_istream_to_bytecode(
    // Module: id1 id2;     // импорт из файла-модуля.
    // identifier;          // определение функции.
    // identifier ... = ;
-   // identifier { ... };
+   // identifier { ... }
    for (enum lexem_type lexeme; L_EOF != (lexeme = lexer_next_lexem(&lex, st)); ) {
       switch (lexeme) {
       case L_whitespace: assert(0); continue;
+      //TODO игнорировать пустую точку с запятой?
       default: error = "ожидается идентификатор модуля или функции"; goto cleanup;
       // Импорт из глобального пространства имён.
       case L_colon: lex.id_node = 0; goto importlist;

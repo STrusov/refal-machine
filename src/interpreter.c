@@ -5,6 +5,7 @@
 #include "library.h"
 #include "translator.h"
 #include "interpreter.h"
+#include <assert.h>
 #include <stdbool.h>
 
 
@@ -127,6 +128,16 @@ int refal_run_opcodes(
       rf_index ob;   // предшествующая evar скобка (содержимое стека переписывается!)
    } evar[evar_max];
 
+   // Здесь храним ссылки на предложения-образцы.
+   // Полный ящик в образце сопоставляется по содержимому, а не значению ссылки.
+   unsigned pat_max = cfg->boxed_patterns ? cfg->boxed_patterns  : REFAL_INTERPRETER_BOXED_PATTERNS;
+   struct {
+      rf_index ip;
+      rf_index cur;
+      rf_index next;
+   } pattern[pat_max];
+   unsigned pp;
+
 execute:
    ++step;
    rf_index ip  = next_sentence;    // текущая инструкция в предложении
@@ -134,6 +145,7 @@ execute:
    rf_index result = 0;    // результат формируется между этой и vm->free.
    int ep = -1;      // текущая открытая e-переменная (индекс недействителен исходно)
    unsigned fn_bp = bp;
+   pp = 0;
 
    // Код операции элемента образца.
    rf_opcode tag = rf_undefined;
@@ -143,10 +155,23 @@ execute:
       r = -1;
       goto cleanup;
    }
-sentence:
+sentence: ;
+   bool box = false;
+   // Если происходит сравнение с образцом ящика, пробуем следующее его предложение.
+   for (; pp; --pp) {
+      ip = pattern[pp - 1].next;
+      assert(vm->u[ip].op == rf_sentence || vm->u[ip].op == rf_name);
+      if (vm->u[ip].op != rf_sentence)
+         continue;
+      cur = pattern[pp - 1].cur;
+      pattern[pp - 1].next = vm->u[ip].link;
+      ip  = vm->u[ip].next;
+      box = true;
+      break;
+   }
    // При возможности расширяем e-переменные в текущем предложении.
    // Иначе переходим к следующему образцу.
-   if (ep < 0) {
+   if (!box && ep < 0) {
 next_sentence:
       cur = vm->u[prev].next;
       assert(ep == -1);
@@ -157,7 +182,7 @@ next_sentence:
       ip = next_sentence;
       next_sentence = 0;
       bp = fn_bp;
-   } else {
+   } else if (!box) {
       // Расширяем e-переменную.
       // Если при этом безуспешно дошли до конца образца,
       // откатываем на предыдущую e-переменную.
@@ -206,14 +231,34 @@ prev_evar:
 pattern_match:
       switch (tag) {
       case rf_equal: if (cur != next) goto sentence; break;
-      case rf_evar: case rf_sentence: case rf_name:  break;
-      default: if (cur == next) goto sentence;       break;
+      default:       if (cur == next) goto sentence; break;
+      case rf_evar: break;
+      case rf_name: case rf_sentence: if (!pp) break;
+         ip = pattern[--pp].ip;
+         fetch = false;
+         continue;
       }
 
       switch (tag) {
       case rf_undefined: goto error_undefined;
 
-      case rf_char: case rf_number: case rf_identifier:
+      case rf_identifier:
+         if (vm->u[ip].id.tag == rf_id_box) {
+            if (pp == pat_max) {
+               inconsistence(st, "превышен лимит вложенности ящиков в образце", pp, ip);
+               r = -2;
+               break;
+            }
+            pattern[pp].ip  = ip;
+            pattern[pp].cur = cur;
+            ip = vm->u[ip].id.link;
+            assert(vm->u[ip].op == rf_sentence);
+            pattern[pp++].next = vm->u[ip].link;
+            fetch = false;
+            continue;
+         }
+         [[fallthrough]];
+      case rf_char: case rf_number:
          if (!rf_svar_equal(vm, cur, ip))
             goto sentence;
          continue;
@@ -333,6 +378,7 @@ pattern_match:
 
       // Начало предложения. Далее следует выражение-образец (возможно, пустое).
       case rf_sentence:
+         assert(!pp);
          next_sentence = vm->u[ip].data;
          fetch = false;
          continue;

@@ -901,7 +901,6 @@ executor_in_pattern: error = "вычислительные скобки в об�
                      goto cleanup;
                   }
                   bracket[bp++] = rf_alloc_command(vm, rf_opening_bracket);
-                  expression_expected = true;
                   continue;
                case L_term_close: if (!bp) {
                      error = "непарная структурная скобка";
@@ -993,6 +992,7 @@ sentence_complete:
                         ids->n[lex.node].val = (struct rf_id) { rf_id_enum, local++ };
                      }
                      if (!expression) {
+                        expression_expected = true;
                         rf_alloc_value(vm, ids->n[lex.node].val.link, (enum rf_opcode)lex.id_type);
                         continue;
                      }

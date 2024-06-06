@@ -187,6 +187,7 @@ arguments:
             // Имя интерпретатора не передаём среди аргументов.
             if (pass_args) {
                rf_alloc_strv(&vm, argc, (const char**)argv);
+               next = vm.free;
             }
             struct refal_interpreter_config cfg = {
                .call_stack_size     = REFAL_INTERPRETER_CALL_STACK,
@@ -195,7 +196,6 @@ arguments:
                .brackets_stack_size = REFAL_INTERPRETER_BRACKET_STACK,
                .locals              = tcfg.locals_limit,
             };
-            next = vm.free;
             r = refal_run_opcodes(&cfg, &vm, prev, next, entry.link, &status);
             // В случае ошибки среды, она выведена исполнителем.
             if (r > 0) {

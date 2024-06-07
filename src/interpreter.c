@@ -228,6 +228,7 @@ prev_evar:
    for (bool fetch; !r ;ip = vm->u[ip].next, cur = fetch ? vm->u[cur].next : cur) {
       fetch = true;
       tag = vm->u[ip].op;
+      rf_index e_next = 0;
 pattern_match:
       switch (tag) {
       case rf_equal: if (cur != next) goto sentence; break;
@@ -236,7 +237,18 @@ pattern_match:
       case rf_name: case rf_sentence: if (!pp) break;
          ip = pattern[--pp].ip;
          fetch = false;
-         continue;
+         if (pp)
+            continue;
+         // Если за успешно распознанным образцом ящика следует e-переменная,
+         // присваиваем соответствующую часть Поля Зрения.
+         // Если переменная закрыта, проверяем частичное соответствие.
+         ip = vm->u[ip].next;
+         tag = vm->u[ip].op;
+         if (tag != rf_evar)
+            goto pattern_match;
+         e_next = cur;
+         cur    = pattern[pp].cur;
+         break;
       }
 
       switch (tag) {
@@ -373,6 +385,10 @@ pattern_match:
                var[v].last = vm->u[next].prev;
             goto equal;
          default:
+            if (e_next) {
+               var[v].last = vm->u[e_next].prev;
+               cur = e_next;
+            }
             goto pattern_match;
          }
 

@@ -740,7 +740,6 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
                lexeme = lexer_next_lexem(&lex, st);
                break;
             default:
-               cmd_sentence = rf_alloc_command(vm, rf_sentence);
                break;
             }
 
@@ -937,6 +936,14 @@ sentence_complete:
                         goto cleanup;
                      }
                      if (ids->n[lex.id_node].val.tag == rf_id_reference) {
+                        if (!cmd_sentence) {
+                           // В общем случае не следует менять значение идентификатора,
+                           // но в данном происходит его определение, т.е.
+                           // значение пока никуда не скопировано.
+                           cmd_sentence = rf_alloc_command(vm, rf_sentence);
+                           rf_splice_evar_prev(vm, vm->u[cmd_sentence].prev, vm->free, ids->n[lex.id_node].val.link);
+                           ids->n[lex.id_node].val.link = cmd_sentence;
+                        }
                         ids->n[lex.id_node].val.tag = rf_id_box;
                      } else if (ids->n[lex.id_node].val.tag == rf_id_op_code) {
                         error = "данные ящика недопустимы в исполняемой функции (пропущен = ?)";

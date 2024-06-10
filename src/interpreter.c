@@ -176,9 +176,15 @@ next_sentence:
       cur = vm->u[prev].next;
       assert(ep == -1);
       local = 0;
-      // Оставлено для однострочных, поскольку не содержат rf_sentence
-      if (!next_sentence)
+      // Однострочные без блока не содержат опкод rf_sentence,
+      // потому требуют отдельного обработчика завершения (по !next_sentence).
+      // Используем это и считаем, что имеется неявное второе предложение
+      //  = ;
+      if (!next_sentence) {
+         if (rf_is_evar_empty(vm, prev, next))
+            goto return_with_empty;
          goto recognition_impossible;
+      }
       ip = next_sentence;
       next_sentence = 0;
       bp = fn_bp;
@@ -604,6 +610,7 @@ execute_byte_code:
          assert(result);
          rf_splice_evar_prev(vm, result, vm->free, next);
          rf_free_last(vm);
+return_with_empty:
          if (!sp--)
             break;
          ip     = stack[sp].ip;

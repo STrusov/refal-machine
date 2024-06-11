@@ -261,7 +261,7 @@ pattern_match:
       case rf_undefined: goto error_undefined;
 
       case rf_identifier:
-         if (vm->u[ip].id.tag == rf_id_box) {
+         if (vm->u[ip].id.tag == rf_id_box && !rf_svar_equal(vm, cur, ip)) {
             if (pp == pat_max) {
                inconsistence(st, "превышен лимит вложенности ящиков в образце", pp, ip);
                r = -2;

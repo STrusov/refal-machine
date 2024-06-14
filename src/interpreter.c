@@ -480,8 +480,7 @@ equal:   if (fn_bp != bp)
             continue;
          }
          // Копируем все вхождения кроме последнего (которое переносим).
-         // Транслятор отметил копии ненулевым tag2.
-         if (!vm->u[ip].tag2) {
+         if (vm->u[ip].mode == rf_op_default && (rf_op_var_copy)) {
             rf_alloc_evar_move(vm, vm->u[var[v].s].prev, vm->u[var[v].last].next);
             continue;
          }
@@ -586,8 +585,7 @@ Mu:            function = rtrie_find_value_by_tags(vm->rt, rf_id_op_code, rf_id_
             continue;
          case rf_id_op_code:
 execute_byte_code:
-            // Для хвостовых вызовов транслятор установил признак.
-            if (vm->u[ip].tag2 /* == rf_execute */) {
+            if (vm->u[ip].mode != rf_op_default && (rf_op_exec_tailcall)) {
                assert(sp);
                --sp;
                next = stack[sp].next;

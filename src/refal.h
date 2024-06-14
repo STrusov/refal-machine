@@ -79,6 +79,17 @@ typedef enum rf_opcode {
 static_assert(rf_evar < 1<<4, "Значение хранится в 4-х разрядах.");
 
 /**
+ *  Дополнительные режимы кодов операций РЕФАЛ-машины.
+ */
+typedef enum rf_op_mode {
+   rf_op_default,
+   rf_op_var_copy      = 1,   // Пока действительно любое отличное от 0.
+   rf_op_exec_tailcall = 1,
+} rf_op_mode;
+
+static_assert(rf_op_exec_tailcall < 1<<4, "Значение хранится в 4-х разрядах.");
+
+/**
  * Адресует ячейки памяти РЕФАЛ-машины.
  */
 typedef uint32_t rf_index;
@@ -149,7 +160,7 @@ typedef struct rf_cell {
    };
    rf_opcode   op  :4;     ///< Код операции.
    rf_index    prev:28;    ///< Индекс предыдущей ячейки.
-   rf_index    tag2:4;     ///< Вспомогательный тип.
+   rf_index    mode:4;     ///< Вспомогательный код операции.
    rf_index    next:28;    ///< Индекс последующей ячейки.
 } rf_cell;
 
@@ -330,7 +341,7 @@ rf_index refal_vm_alloc_1(
    // Достраиваем список, если следующее звено отсутствует.
    if (!vm->u[i].next) {
       vm->u[i].next = i + 1;
-      vm->u[i].tag2 = 0;
+      vm->u[i].mode = rf_op_default;
       if (!vm->u[i].next) {
          return r;
       }
@@ -468,11 +479,11 @@ void rf_free_evar(
       // Добавить ячейки после vm->free.
       const rf_index heap = vm->u[vm->free].next;
       vm->u[vm->free].next = first;
-      vm->u[vm->free].tag2 = 0;
+      vm->u[vm->free].mode = rf_op_default;
       vm->u[first].prev = vm->free;
       vm->u[first].op  = rf_undefined;
       vm->u[last].next = heap;
-      vm->u[last].tag2 = 0;
+      vm->u[last].mode = rf_op_default;
       vm->u[heap].prev = last;
       vm->u[heap].op   = rf_undefined;
       // TODO закрыть описатели (handle), при наличии.

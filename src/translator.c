@@ -951,7 +951,7 @@ sentence_complete:
                   } else if (vm->u[vm->u[vm->free].prev].op == rf_execute) {
                      // При хвостовых вызовах нет смысла в парном сохранении и
                      // восстановление контекста функции. Обозначим такие исполнителю.
-                     vm->u[vm->u[vm->free].prev].tag2 = rf_execute;
+                     vm->u[vm->u[vm->free].prev].mode = rf_op_exec_tailcall;
                   }
                   // В функциях с блоком и однострочных с выражением-образцом
                   // сохраняем в маркере текущего предложения
@@ -1003,11 +1003,11 @@ sentence_complete:
                         continue;
                      }
                      // При первом вхождении создаём переменную и запоминаем её индекс.
-                     // При следующем вхождении устанавливаем значение tag2 по
+                     // При следующем вхождении устанавливаем значение mode по
                      // сохранённому индексу, а индекс заменяем на текущий.
                      rf_index id = ids->n[lex.node].val.link;
                      if (lex.id_type != id_svar && var[id].opcode) {
-                        vm->u[var[id].opcode].tag2 = 1;
+                        vm->u[var[id].opcode].mode = rf_op_var_copy;
 #if REFAL_TRANSLATOR_PERFORMANCE_NOTICE_EVAR_COPY
                         if (cfg && cfg->notice_copy) {
                            performance(st, "создаётся копия переменной", var[id].line,

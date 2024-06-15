@@ -531,6 +531,21 @@ enum lexem_type lexer_next_lexem(struct lexer *lex, struct refal_message *st)
    }
 }
 
+static inline
+bool check_matching(struct refal_message *st, const struct lexer *lex, unsigned ep, unsigned bp)
+{
+   bool ok = true;
+   if (ep) {
+      syntax_error(st, "не закрыта вычислительная скобка", lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
+      ok = false;
+   }
+   if (bp) {
+      syntax_error(st, "не закрыта структурная скобка",  lex->line_num, lex->pos, &lex->buf.s[lex->line], &lex->buf.s[lex->buf.free]);
+      ok = false;
+   }
+   return ok;
+}
+
 
 int refal_translate_istream_to_bytecode(
       struct refal_translator_config   *cfg,
@@ -781,12 +796,10 @@ incomplete:       lex.line = lex.id_line;
                /// В данной реализации может стоять сразу после идентификатора, определяя
                /// _простую функцию_ (не имеет альтернативных предложений).
                case L_equal:
+                  if (!check_matching(st, &lex, bp, ep))
+                     goto cleanup;
                   if (expression) {
                      error = "недопустимый оператор в выражении (пропущена ; ?)";
-                     goto cleanup;
-                  }
-                  if (bp) {
-                     error = "не закрыта структурная скобка";
                      goto cleanup;
                   }
                   if (imports) {
@@ -918,14 +931,8 @@ executor_in_pattern: error = "вычислительные скобки в об�
                /// идентификатора, определяя пустую функцию.
                case L_semicolon:
 sentence_complete:
-                  if (ep) {
-                     error = "не закрыта вычислительная скобка";
+                  if (!check_matching(st, &lex, bp, ep))
                      goto cleanup;
-                  }
-                  if (bp) {
-                     error = "не закрыта структурная скобка";
-                     goto cleanup;
-                  }
                   if (imports) {
                      warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
                      imports = 0;

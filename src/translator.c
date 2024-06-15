@@ -545,6 +545,20 @@ bool check_matching(struct refal_message *st, const struct lexer *lex, unsigned 
    return ok;
 }
 
+struct mod_msg {
+   wstr_index  line;
+   unsigned    pos;
+   unsigned    line_num;
+};
+
+static inline
+void check_redundant_module_id(struct refal_message *st, const struct lexer *lex, rtrie_index *imports, const struct mod_msg * mm)
+{
+   if (*imports) {
+      warning(st, "имя модуля без функции не имеет смысла", mm->line_num, mm->pos, &lex->buf.s[mm->line], &lex->buf.s[lex->buf.free]);
+      *imports = 0;
+   }
+}
 
 int refal_translate_istream_to_bytecode(
       struct refal_translator_config   *cfg,
@@ -762,10 +776,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             unsigned ep = 0;  // последний занятый элемент в массиве <>
             cmd_exec[ep] = 0; // изначально пустой (используется как признак, а не только при закрытии >)
             unsigned bp = 0;  // свободный элемент в массиве ()
-            const char *redundant_module_id = "имя модуля без функции не имеет смысла";
-            wstr_index  mod_line = 0;
-            unsigned    mod_pos  = 0;
-            unsigned    mod_line_num = 0;
+            struct mod_msg mod = { 0, 0, 0 };
             bool expression_expected = false;
             // Тело функции.
             for (bool complete = false; !complete; lexeme = !complete ? lexer_next_lexem(&lex, st) : L_whitespace)
@@ -795,15 +806,12 @@ incomplete:       lex.line = lex.id_line;
                /// В данной реализации может стоять сразу после идентификатора, определяя
                /// _простую функцию_ (не имеет альтернативных предложений).
                case L_equal:
+                  check_redundant_module_id(st, &lex, &imports, &mod);
                   if (!check_matching(st, &lex, bp, ep))
                      goto cleanup;
                   if (expression) {
                      error = "недопустимый оператор в выражении (пропущена ; ?)";
                      goto cleanup;
-                  }
-                  if (imports) {
-                     warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
-                     imports = 0;
                   }
                   if (ids->n[lex.id_node].val.tag == rf_id_reference) {
                      ids->n[lex.id_node].val.tag = rf_id_op_code;
@@ -870,10 +878,7 @@ executor_in_pattern: error = "вычислительные скобки в об�
                      error = "превышен лимит вложенности вычислительных скобок";
                      goto cleanup;
                   }
-                  if (imports) {
-                     warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
-                     imports = 0;
-                  }
+                  check_redundant_module_id(st, &lex, &imports, &mod);
                   cmd_exec[ep] = rf_alloc_command(vm, rf_open_function);
                   continue;
 
@@ -884,10 +889,7 @@ executor_in_pattern: error = "вычислительные скобки в об�
                      error = "непарная вычислительная скобка";
                      goto cleanup;
                   }
-                  if (imports) {
-                     warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
-                     imports = 0;
-                  }
+                  check_redundant_module_id(st, &lex, &imports, &mod);
                   assert(ep > 0);
                   // Копируем адрес функции из парной открывающей, для вызова исполнителем.
                   // Если функция не определена, но между скобок содержатся
@@ -930,12 +932,9 @@ executor_in_pattern: error = "вычислительные скобки в об�
                /// идентификатора, определяя пустую функцию.
                case L_semicolon:
 sentence_complete:
+                  check_redundant_module_id(st, &lex, &imports, &mod);
                   if (!check_matching(st, &lex, bp, ep))
                      goto cleanup;
-                  if (imports) {
-                     warning(st, redundant_module_id, mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
-                     imports = 0;
-                  }
                   if (!expression) {
                      if (expression_expected) {
                         error = "образец без общего выражения (пропущено = ?)";
@@ -1038,13 +1037,13 @@ sentence_complete:
                      // Используем ветку модуля для поиска следующего идентификатора.
                      case rf_id_module:
                         if (imports) {
-                           warning(st, "указание модуля потеряло смысл", mod_line_num, mod_pos, &lex.buf.s[mod_line], &lex.buf.s[lex.buf.free]);
+                           warning(st, "указание модуля потеряло смысл", mod.line_num, mod.pos, &lex.buf.s[mod.line], &lex.buf.s[lex.buf.free]);
                            warning(st, "повторное имя модуля переопределяет предыдущее", lex.line_num, lex.pos, &lex.buf.s[lex.line], &lex.buf.s[lex.buf.free]);
                         }
                         imports = rtrie_find_next(ids, lex.node, ' ');
-                        mod_line = lex.line;
-                        mod_pos  = lex.pos;
-                        mod_line_num = lex.line_num;
+                        mod.line = lex.line;
+                        mod.pos  = lex.pos;
+                        mod.line_num = lex.line_num;
                         assert(imports > 0);
                         continue;
                      // Если открыта вычислительная скобка, задаём ей адрес

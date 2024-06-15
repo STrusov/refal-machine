@@ -237,6 +237,7 @@ prev_evar:
       rf_index e_next = 0;
 pattern_match:
       switch (tag) {
+      case rf_colon:
       case rf_equal: if (cur != next) goto sentence; break;
       default:       if (cur == next) goto sentence; break;
       case rf_evar: break;
@@ -403,6 +404,13 @@ pattern_match:
          assert(!pp);
          next_sentence = vm->u[ip].data;
          fetch = false;
+         continue;
+
+      // Пересматриваем ПЗ для следующего образца.
+      case rf_colon:
+         if (fn_bp != bp)
+            goto error_parenthesis_unpaired;
+         cur = prev;
          continue;
 
       case rf_open_function: case rf_execute:
@@ -602,6 +610,9 @@ execute_byte_code:
             next_sentence = function.link;
             goto execute;
          }
+
+      case rf_colon:
+         assert(0);
 
       case rf_name: case rf_sentence:
          rf_free_evar(vm, prev, next);

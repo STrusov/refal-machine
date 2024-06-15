@@ -984,7 +984,23 @@ sentence_complete:
                /// Применяется для импорта модулей, как замена $EXTERN (и *$FROM Refal-05).
                ///
                ///     ИмяМодуля: функция1 функция2;
-               case L_colon: error = "условия не поддерживаются"; goto cleanup;
+               ///
+               /// В Рефал-М выражение-образец (слева от `=`) может состоять из
+               /// нескольких участков (образцов), разделяемых двоеточием `:`.
+               /// Каждый сопоставляются с Полем Зрения по очереди,
+               /// при этом переменные сохраняют присвоенные ранее значения.
+               /// Сопоставление считается успешным, только когда все образцы
+               /// подошли (логическое "И").
+               case L_colon:
+                  check_redundant_module_id(st, &lex, &imports, &mod);
+                  if (!check_matching(st, &lex, bp, ep))
+                     goto cleanup;
+                  if (expression) {
+                     error = "условия не поддерживаются"; goto cleanup;
+                  }
+                  expression_expected = true;
+                  rf_alloc_command(vm, rf_colon);
+                  continue;
 
                case L_identifier:
                   lexem_identifier_exp(&lex, ids, module, imports, idc, vm, st);

@@ -143,6 +143,7 @@ execute:
    rf_index ip  = next_sentence;    // текущая инструкция в предложении
    rf_index cur = vm->u[prev].next; // текущий элемент в образце
    rf_index result = 0;    // результат формируется между этой и vm->free.
+   int evar_lock = 0;      // закрывает e-переменные от вложенных безымянных функций.
    int ep = -1;      // текущая открытая e-переменная (индекс недействителен исходно)
    unsigned fn_bp = bp;
    pp = 0;
@@ -199,8 +200,12 @@ next_sentence:
          if (cur != next)
             break;
 prev_evar:
+         // Если началась исполняться вложенная безымянная функция, значит
+         // ПЗ основной разрушено и следующее предложение сопоставлять не с чем.
          if (--ep < 0)
             goto next_sentence;
+         if (ep < evar_lock)
+            goto recognition_impossible;
       }
       // Если переменную требуется расширить и первый соответствующий её символ
       // в поле зрения:
@@ -231,6 +236,7 @@ prev_evar:
       ++local;
    }
 
+anon_function:
    for (bool fetch; !r ;ip = vm->u[ip].next, cur = fetch ? vm->u[cur].next : cur) {
       fetch = true;
       tag = vm->u[ip].op;
@@ -447,6 +453,7 @@ equal:   if (fn_bp != bp)
       }
       break;
    }
+   assert(!pp);
 
    // Результат
    while (!r) {
@@ -612,7 +619,14 @@ execute_byte_code:
          }
 
       case rf_colon:
-         assert(0);
+         evar_lock = local;
+         // Переносим результат в ПЗ, что бы очистить при завершении предложения.
+         cur = vm->u[result].next;
+         rf_splice_evar_prev(vm, result, vm->free, next);
+         rf_free_last(vm);
+         ip = vm->u[ip].next;
+         next_sentence = 0;
+         goto anon_function;
 
       case rf_name: case rf_sentence:
          rf_free_evar(vm, prev, next);

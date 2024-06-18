@@ -778,6 +778,7 @@ importlist: while (L_semicolon != (lexeme = lexer_next_lexem(&lex, st))) {
             unsigned bp = 0;  // свободный элемент в массиве ()
             struct mod_msg mod = { 0, 0, 0 };
             bool expression_expected = false;
+            bool anonymous_function  = false;
             // Тело функции.
             for (bool complete = false; !complete; lexeme = !complete ? lexer_next_lexem(&lex, st) : L_whitespace)
                switch(lexeme) {
@@ -975,6 +976,7 @@ sentence_complete:
                   }
                   expression = false;
                   expression_expected = false;
+                  anonymous_function  = false;
                   continue;
 
                ///\subsection Является
@@ -991,12 +993,25 @@ sentence_complete:
                /// при этом переменные сохраняют присвоенные ранее значения.
                /// Сопоставление считается успешным, только когда все образцы
                /// подошли (логическое "И").
+               ///
+               /// В выражении-результате определяет безымянную функцию
+               /// (пока поддержаны из одного предложения)
+               /// полем зрения которой служит созданный результат.
                case L_colon:
                   check_redundant_module_id(st, &lex, &imports, &mod);
                   if (!check_matching(st, &lex, bp, ep))
                      goto cleanup;
+                  // До первого = может быть множество : в образце.
+                  // В анонимных же функциях, разделяемых двоеточием,
+                  // двоеточия в образце не выглядят чем-то однозначно понятным,
+                  // потому исключаются. К тому же, не ясна от них польза.
+                  if (anonymous_function && !expression) {
+                     error = "повторное : в выражении-результате без предшествующего =";
+                     goto cleanup;
+                  }
                   if (expression) {
-                     error = "условия не поддерживаются"; goto cleanup;
+                     anonymous_function = true;
+                     expression = false;
                   }
                   expression_expected = true;
                   rf_alloc_command(vm, rf_colon);

@@ -21,7 +21,7 @@ int refal_translate_file_to_bytecode(
    int r = -1;
    FILE *src;
    const char *os;
-   if (name) {
+   if (name && *name) {
       src = fopen(name, "r");
       os = refal_message_source(st, name);
    }
@@ -33,7 +33,7 @@ int refal_translate_file_to_bytecode(
       critical_error(st, "исходный текст недоступен", -errno, 0);
    } else {
       r = refal_translate_istream_to_bytecode(cfg, vm, ids, 0, src, st);
-      if (name)
+      if (src != stdin)
          fclose(src);
    }
    refal_message_source(st, os);

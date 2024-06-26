@@ -69,7 +69,7 @@ int main(int argc, char **argv)
       switch (argv[0][0]) {
       case '-':
          if (argv[0][1] == '\0') {
-            argv[0] = NULL;
+            argv[0][0] = '\0';
             goto arguments;
          }
          flag = 0;

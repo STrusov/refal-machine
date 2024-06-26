@@ -724,6 +724,7 @@ rf_index rf_alloc_string(
       struct refal_vm   *vm,
       const char        *str)
 {
+   assert(str);
    rf_index r = vm->free;
    unsigned state = 0;
    char c;
@@ -758,6 +759,7 @@ rf_index rf_alloc_strv(
       int               strc,
       const char *const *strv)
 {
+   assert(strv);
    rf_index r = vm->free;
    for (int i = 0; i < strc; ++i) {
       rf_index ob = rf_alloc_command(vm, rf_opening_bracket);

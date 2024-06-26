@@ -39,6 +39,7 @@ test:	$(TARGET)
 	  echo $${filename}; \
 	  ./$(TARGET) +n "$${filename}" | diff - "$${filename}.эталон"; \
 	done
+	echo "main (.1)(.2) = <Prout .1 .2>;" | ./$(TARGET) - Ok
 
 install:	$(TARGET)
 	install --strip $(TARGET) $(INSTALLDIR)

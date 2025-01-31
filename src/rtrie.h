@@ -133,6 +133,9 @@ rtrie_index rtrie_insert_at(
       rtrie_index       idx,  ///< Начальный узел поиска.
       wchar_t           chr)  ///< Текущий символ имени.
 {
+   assert(rt);
+   assert(!(idx < 0));
+
    // Если значение совпадает с символом, значит узел найден;
    // иначе проверяем соседей.
    // В случае пустого дерева выполняется условие chr > rt->n[0].chr
@@ -184,6 +187,9 @@ rtrie_index rtrie_insert_next(
       rtrie_index       idx,  ///< Результат предыдущего поиска.
       wchar_t           chr)  ///< Текущий символ имени.
 {
+   assert(rt);
+   assert(!(idx < 0));
+
    if (rt->n[idx].next) {
       return rtrie_insert_at(rt, rt->n[idx].next, chr);
    }
@@ -203,6 +209,9 @@ rtrie_index rtrie_find_at(
       rtrie_index             idx,  ///< Начальный узел поиска.
       wchar_t                 chr)  ///< Текущий символ имени.
 {
+   assert(rt);
+   assert(!(idx < 0));
+
    // Если значение совпадает с символом, значит узел найден;
    // иначе проверяем соседей.
    // В случае пустого дерева выполняется условие chr > rt->n[0].chr
@@ -242,6 +251,8 @@ rtrie_index rtrie_find_next(
       rtrie_index             idx,  ///< Результат предыдущего поиска.
       wchar_t                 chr)  ///< Первый символ имени.
 {
+   assert(rt);
+
    return idx < 0 ? idx
                   : rt->n[idx].next ? rtrie_find_at(rt, rt->n[idx].next, chr)
                                     : -1;

@@ -305,12 +305,13 @@ void lexem_identifier(struct lexer *lex, struct refal_trie *ids,
  *
  * Локальные идентификаторы (s-, e- и t-переменные) выражения-образца
  * могут быть как определены, так и использованы (повторное вхождение).
- * Для выражения-результа такие должны быть определены, выполняется поиск.
- * В случае отсутствия lex->node отрицателен.
+ * Для простоты определяются всегда, поскольку вызывающая сторона смотрит rf_id_undefined.
+ *
+ * В случае отсутствия идентификатора lex->node отрицателен.
  */
 static inline
 void lexem_identifier_exp(struct lexer *lex, struct refal_trie *ids,
-      rtrie_index module, rtrie_index imports, wchar_t idc, bool expression,
+      rtrie_index module, rtrie_index imports, wchar_t idc,
       struct refal_vm *vm, struct refal_message *st)
 {
    wchar_t chr = lexer_char(lex);
@@ -325,10 +326,8 @@ void lexem_identifier_exp(struct lexer *lex, struct refal_trie *ids,
 check_local:
       if (lexer_next_char(lex) == '.') {
         ++lex->pos;
-local:   lex->node = expression ? rtrie_find_next(ids, lex->id_node, idc)
-                                : rtrie_insert_next(ids, lex->id_node, idc);
-         lex->node = expression ? rtrie_find_next(ids, lex->node, chr)
-                                : rtrie_insert_next(ids, lex->node, chr);
+local:   lex->node = rtrie_insert_next(ids, lex->id_node, idc);
+         lex->node = rtrie_insert_next(ids, lex->node, chr);
          goto tail;
       }
       [[fallthrough]];
@@ -982,7 +981,7 @@ sentence_complete:
                case L_colon: error = "условия не поддерживаются"; goto cleanup;
 
                case L_identifier:
-                  lexem_identifier_exp(&lex, ids, module, imports, idc, expression, vm, st);
+                  lexem_identifier_exp(&lex, ids, module, imports, idc, vm, st);
                   switch (lex.id_type) {
                   case id_svar: case id_tvar: case id_evar:
                      if (local == local_max) {

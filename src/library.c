@@ -213,7 +213,10 @@ int Open(struct refal_vm *vm, rf_index prev, rf_index next)
    char path[PATH_MAX + 4];
    unsigned size = 0;
    for (s = vm->u[s].next; s != next; s = vm->u[s].next) {
-      if (size >= PATH_MAX)
+      // TODO вопрос о возможном преобразовании rf_number и другого
+      // в символьное представление остаётся открытым.
+      // Здесь оно было бы проще, чем в явном виде прописывать в программе.
+      if (size >= PATH_MAX || vm->u[s].op != rf_char)
          return s;
       size += rf_encode_utf8(vm, s, &path[size]);
    }
